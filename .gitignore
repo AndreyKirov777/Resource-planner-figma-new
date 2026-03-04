@@ -20,6 +20,9 @@ dist
 *.log
 npm-debug.log*
 
+# SQLite database (keep data local; do not commit)
+prisma/dev.db
+
 # Optional: uncomment if you don't want to share editor/IDE config
 # .vscode
 # .cursor

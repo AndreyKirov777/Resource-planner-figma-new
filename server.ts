@@ -1,7 +1,25 @@
+import path from 'path';
+
+// Use a stable database path so data persists across all runs (same file every time)
+if (!process.env.DATABASE_URL) {
+  const dbPath = path.join(__dirname, 'prisma', 'dev.db').replace(/\\/g, '/');
+  process.env.DATABASE_URL = `file:${dbPath}`;
+}
+
 import express from 'express';
 import cors from 'cors';
-import path from 'path';
 import { PrismaClient } from './src/generated/prisma';
+import {
+  projectCreateSchema,
+  projectUpdateSchema,
+  rateCardUpdateSchema,
+  resourceListCreateSchema,
+  resourceListUpdateSchema,
+  resourcePlanCreateSchema,
+  resourcePlanUpdateSchema,
+  weeklyAllocationSchema,
+  weeklyAllocationUpdateSchema,
+} from './server-validation';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -65,8 +83,19 @@ app.get('/api/projects/:id', async (req, res) => {
 
 app.post('/api/projects', async (req, res) => {
   try {
+    const parsed = projectCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const project = await prisma.project.create({
-      data: req.body
+      data: {
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        daysInFTE: parsed.data.daysInFTE ?? 20,
+        clientCurrency: parsed.data.clientCurrency ?? 'EUR',
+        exchangeRate: parsed.data.exchangeRate ?? 0.89,
+        defaultMargin: parsed.data.defaultMargin ?? 25.0,
+      }
     });
     res.json(project);
   } catch (error) {
@@ -76,9 +105,13 @@ app.post('/api/projects', async (req, res) => {
 
 app.put('/api/projects/:id', async (req, res) => {
   try {
+    const parsed = projectUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const project = await prisma.project.update({
       where: { id: parseInt(req.params.id) },
-      data: req.body
+      data: parsed.data
     });
     res.json(project);
   } catch (error) {
@@ -301,9 +334,13 @@ app.post('/api/projects/:projectId/rate-cards/bulk', async (req, res) => {
 
 app.put('/api/rate-cards/:id', async (req, res) => {
   try {
+    const parsed = rateCardUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const rateCard = await prisma.rateCard.update({
       where: { id: parseInt(req.params.id) },
-      data: req.body
+      data: parsed.data
     });
     res.json(rateCard);
   } catch (error) {
@@ -322,9 +359,39 @@ app.delete('/api/rate-cards/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/rate-cards', async (req, res) => {
+// Delete all rate cards for a project (project-scoped to avoid wiping all projects)
+app.delete('/api/projects/:projectId/rate-cards', async (req, res) => {
   try {
-    const result = await prisma.rateCard.deleteMany({});
+    const projectId = parseInt(req.params.projectId);
+    if (isNaN(projectId)) {
+      return res.status(400).json({ error: 'Invalid projectId' });
+    }
+    const result = await prisma.rateCard.deleteMany({
+      where: { projectId }
+    });
+    res.json({ message: `${result.count} rate cards deleted` });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete rate cards' });
+  }
+});
+
+// Legacy route: require projectId query param to prevent accidental delete-all
+app.delete('/api/rate-cards', async (req, res) => {
+  const projectId = req.query.projectId;
+  if (projectId == null || projectId === '') {
+    return res.status(400).json({
+      error: 'projectId required',
+      details: 'Use DELETE /api/projects/:projectId/rate-cards to delete rate cards for a project'
+    });
+  }
+  try {
+    const pid = parseInt(String(projectId));
+    if (isNaN(pid)) {
+      return res.status(400).json({ error: 'Invalid projectId' });
+    }
+    const result = await prisma.rateCard.deleteMany({
+      where: { projectId: pid }
+    });
     res.json({ message: `${result.count} rate cards deleted` });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete rate cards' });
@@ -345,9 +412,18 @@ app.get('/api/projects/:projectId/resource-lists', async (req, res) => {
 
 app.post('/api/projects/:projectId/resource-lists', async (req, res) => {
   try {
+    const parsed = resourceListCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const resourceList = await prisma.resourceList.create({
       data: {
-        ...req.body,
+        role: parsed.data.role,
+        clientRole: parsed.data.clientRole ?? null,
+        name: parsed.data.name ?? null,
+        intRate: parsed.data.intRate ?? 0,
+        location: parsed.data.location ?? null,
+        description: parsed.data.description ?? null,
         projectId: parseInt(req.params.projectId)
       }
     });
@@ -359,9 +435,13 @@ app.post('/api/projects/:projectId/resource-lists', async (req, res) => {
 
 app.put('/api/resource-lists/:id', async (req, res) => {
   try {
+    const parsed = resourceListUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const resourceList = await prisma.resourceList.update({
       where: { id: parseInt(req.params.id) },
-      data: req.body
+      data: parsed.data
     });
     res.json(resourceList);
   } catch (error) {
@@ -399,20 +479,20 @@ app.get('/api/projects/:projectId/resource-plans', async (req, res) => {
 
 app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
   try {
-    const { weeklyAllocations, ...resourcePlanData } = req.body;
-    
-    // Filter and validate weekly allocations
-    const validAllocations = (weeklyAllocations || [])
-      .filter((wa: any) => wa && typeof wa === 'object')
-      .map((wa: any) => ({
-        weekNumber: parseInt(wa.weekNumber) || 0,
-        allocation: parseInt(wa.allocation) || 0
-      }))
-      .filter(wa => wa.weekNumber > 0); // Only create allocations with valid week numbers
-    
+    const parsed = resourcePlanCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const validAllocations = (parsed.data.weeklyAllocations || [])
+      .filter(wa => wa.weekNumber > 0)
+      .map(wa => ({ weekNumber: wa.weekNumber, allocation: wa.allocation }));
     const resourcePlan = await prisma.resourcePlan.create({
       data: {
-        ...resourcePlanData,
+        role: parsed.data.role,
+        clientRole: parsed.data.clientRole ?? null,
+        name: parsed.data.name ?? null,
+        intHourlyRate: parsed.data.intHourlyRate ?? 0,
+        clientHourlyRate: parsed.data.clientHourlyRate ?? 0,
         projectId: parseInt(req.params.projectId),
         weeklyAllocations: {
           create: validAllocations
@@ -434,41 +514,34 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
 
 app.put('/api/resource-plans/:id', async (req, res) => {
   try {
-    const { weeklyAllocations, ...resourcePlanData } = req.body;
-    
-    // Validate required fields
-    if (!resourcePlanData.role || resourcePlanData.role.trim() === '') {
-      return res.status(400).json({ 
-        error: 'Role is required and cannot be empty',
-        details: 'Please provide a valid role name'
-      });
+    const parsed = resourcePlanUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    const { weeklyAllocations, ...updateData } = parsed.data;
     
-    // Update resource plan
+    // Update resource plan (whitelisted fields only)
     const resourcePlan = await prisma.resourcePlan.update({
       where: { id: parseInt(req.params.id) },
-      data: resourcePlanData,
+      data: updateData,
       include: {
         weeklyAllocations: true
       }
     });
     
     // Update weekly allocations if provided
-    if (weeklyAllocations) {
-      // Delete existing allocations
+    if (weeklyAllocations && weeklyAllocations.length > 0) {
+      const validAllocations = weeklyAllocations
+        .filter((wa): wa is { weekNumber: number; allocation: number } => wa != null && wa.weekNumber > 0)
+        .map(wa => ({
+          weekNumber: wa.weekNumber,
+          allocation: wa.allocation,
+          resourcePlanId: parseInt(req.params.id)
+        }));
+      
       await prisma.weeklyAllocation.deleteMany({
         where: { resourcePlanId: parseInt(req.params.id) }
       });
-      
-      // Create new allocations, filtering out any with id=0 and ensuring proper data structure
-      const validAllocations = weeklyAllocations
-        .filter((wa: any) => wa && typeof wa === 'object')
-        .map((wa: any) => ({
-          weekNumber: parseInt(wa.weekNumber) || 0,
-          allocation: parseInt(wa.allocation) || 0,
-          resourcePlanId: parseInt(req.params.id)
-        }))
-        .filter(wa => wa.weekNumber > 0); // Only create allocations with valid week numbers
       
       if (validAllocations.length > 0) {
         await prisma.weeklyAllocation.createMany({
@@ -476,7 +549,6 @@ app.put('/api/resource-plans/:id', async (req, res) => {
         });
       }
       
-      // Fetch updated resource plan
       const updatedResourcePlan = await prisma.resourcePlan.findUnique({
         where: { id: parseInt(req.params.id) },
         include: {
@@ -541,9 +613,14 @@ app.get('/api/resource-plans/:resourcePlanId/weekly-allocations', async (req, re
 
 app.post('/api/resource-plans/:resourcePlanId/weekly-allocations', async (req, res) => {
   try {
+    const parsed = weeklyAllocationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const weeklyAllocation = await prisma.weeklyAllocation.create({
       data: {
-        ...req.body,
+        weekNumber: parsed.data.weekNumber,
+        allocation: parsed.data.allocation,
         resourcePlanId: parseInt(req.params.resourcePlanId)
       }
     });
@@ -555,9 +632,13 @@ app.post('/api/resource-plans/:resourcePlanId/weekly-allocations', async (req, r
 
 app.put('/api/weekly-allocations/:id', async (req, res) => {
   try {
+    const parsed = weeklyAllocationUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const weeklyAllocation = await prisma.weeklyAllocation.update({
       where: { id: parseInt(req.params.id) },
-      data: req.body
+      data: parsed.data
     });
     res.json(weeklyAllocation);
   } catch (error) {

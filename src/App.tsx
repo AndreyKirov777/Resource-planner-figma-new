@@ -182,8 +182,9 @@ export default function App() {
   };
 
   const handleDeleteAllRateCards = async () => {
+    if (!currentProject) return;
     try {
-      const result = await api.deleteAllRateCards();
+      const result = await api.deleteAllRateCards(currentProject.id);
       setRateCards([]);
       console.log(result.message);
     } catch (err) {
@@ -196,23 +197,21 @@ export default function App() {
     try {
       setResourcePlans(updatedResourcePlans);
       
-      // Update the database for any changes
+      // Update the database for any changes (send only fields allowed by server resourcePlanUpdateSchema - strict)
       for (const resourcePlan of updatedResourcePlans) {
         if (resourcePlan.id) {
           try {
-            // Ensure weekly allocations are properly included in the update
             const updateData = {
-              ...resourcePlan,
-              weeklyAllocations: resourcePlan.weeklyAllocations.map(wa => ({
-                id: wa.id,
+              role: resourcePlan.role,
+              clientRole: resourcePlan.clientRole ?? undefined,
+              name: resourcePlan.name ?? undefined,
+              intHourlyRate: resourcePlan.intHourlyRate,
+              clientHourlyRate: resourcePlan.clientHourlyRate,
+              weeklyAllocations: resourcePlan.weeklyAllocations?.map(wa => ({
                 weekNumber: wa.weekNumber,
-                allocation: wa.allocation,
-                resourcePlanId: wa.resourcePlanId,
-                createdAt: wa.createdAt,
-                updatedAt: wa.updatedAt
+                allocation: wa.allocation
               }))
             };
-            
             await api.updateResourcePlan(resourcePlan.id, updateData);
           } catch (updateErr) {
             console.error(`Failed to update resource plan ${resourcePlan.id}:`, updateErr);

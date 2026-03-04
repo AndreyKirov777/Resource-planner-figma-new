@@ -764,22 +764,18 @@ export function ResourcePlan({
   }, [weekNumbers, resourcePlans, onResourcePlansChange]);
 
   const addRole = useCallback(() => {
-    const newResourcePlan: Partial<ResourcePlanType> = {
-      role: '',
-      clientRole: '',
-      name: '',
+    // Send only fields allowed by server resourcePlanCreateSchema (strict): role, clientRole, name, intHourlyRate, clientHourlyRate, weeklyAllocations (each only weekNumber + allocation)
+    const newResourcePlan = {
+      role: 'New role', // placeholder; schema requires min(1); user can change via grid or role picker
+      clientRole: undefined as string | undefined,
+      name: undefined as string | undefined,
       intHourlyRate: 0,
       clientHourlyRate: 0,
       weeklyAllocations: weekNumbers.map(weekNum => ({
-        id: 0,
         weekNumber: weekNum,
-        allocation: 0,
-        resourcePlanId: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        allocation: 0
       }))
     };
-    
     onAddResourcePlan(newResourcePlan);
   }, [weekNumbers, onAddResourcePlan]);
 

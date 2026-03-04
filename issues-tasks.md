@@ -7,17 +7,20 @@
 
 ## Critical
 
-- [ ] **C1 — `.env` file committed to source control**
+- [x] **C1 — `.env` file committed to source control**
   - **File:** `.env`
   - **Details:** The `.env` file containing `DATABASE_URL` is tracked in git. Even though `.gitignore` lists `.env`, the file was already committed. Remove it from tracked files with `git rm --cached .env`.
+  - **Fixed:** Verified `.env` is not in the repo (`git ls-files` does not list it). If it was ever committed, run `git rm --cached .env` locally and commit; `.gitignore` already excludes `.env`.
 
-- [ ] **C2 — No input validation/sanitization on server API endpoints**
+- [x] **C2 — No input validation/sanitization on server API endpoints**
   - **Files:** `server.ts` (lines 69, 80, 306, 350, 364)
   - **Details:** Multiple PUT/POST routes pass `req.body` directly to Prisma (`data: req.body`). Clients can overwrite any field including `id`, `createdAt`, `projectId`. Add a validation layer (e.g. Zod) and whitelist allowed fields before passing to Prisma.
+  - **Fixed:** Added `server-validation.ts` with Zod schemas and whitelisted fields. All affected endpoints (projects create/update, rate-cards update, resource-lists create/update, resource-plans create/update, weekly-allocations create/update) now validate and pass only allowed fields to Prisma.
 
-- [ ] **C3 — `deleteAllRateCards` deletes across ALL projects**
+- [x] **C3 — `deleteAllRateCards` deletes across ALL projects**
   - **File:** `server.ts` (line 327)
   - **Details:** `prisma.rateCard.deleteMany({})` has no project filter — it wipes rate cards for every project in the database. Should filter by `projectId`.
+  - **Fixed:** New project-scoped route `DELETE /api/projects/:projectId/rate-cards` deletes only that project's rate cards. Client `api.deleteAllRateCards(projectId)` and `handleDeleteAllRateCards` now pass `currentProject.id`. Legacy `DELETE /api/rate-cards` requires `?projectId=` and returns 400 if missing.
 
 ---
 

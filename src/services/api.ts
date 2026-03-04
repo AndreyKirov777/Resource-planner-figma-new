@@ -1,7 +1,5 @@
-// Use relative URL in production, absolute in development
-const API_BASE_URL = import.meta.env.PROD 
-  ? '/api'  // Production: same server
-  : 'http://localhost:3001/api';  // Development: separate server
+// Use relative URL so Vite proxies /api to backend in dev, same server in production
+const API_BASE_URL = '/api';
 
 // Types
 export interface Project {
@@ -176,8 +174,8 @@ export const api = {
     if (!response.ok) throw new Error('Failed to delete rate card');
   },
 
-  async deleteAllRateCards(): Promise<{ message: string }> {
-    const response = await fetch(`${API_BASE_URL}/rate-cards`, {
+  async deleteAllRateCards(projectId: number): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/rate-cards`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete rate cards');

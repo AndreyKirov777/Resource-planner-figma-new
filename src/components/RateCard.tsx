@@ -563,14 +563,13 @@ export function RateCard({
     // Get the client role from the role mapping
     const clientRole = getClientRoleFromRole(rateCardData.role);
 
-    // Create new resource list entry with copied data
+    // Create new resource list entry with copied data (do not include projectId - it is sent via API URL)
     const newResource: any = {
       role: rateCardData.role,
       clientRole: clientRole, // Automatically populate client role
-      description: rateCardData.description,
+      description: rateCardData.description ?? undefined,
       intRate: dailyRate / 8, // Convert daily rate back to hourly for internal rate
-      location: location,
-      projectId: projectId
+      location: location || undefined,
     };
 
     // Add to resource list

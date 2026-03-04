@@ -54,7 +54,8 @@
             "sonner": "^2.0.3",
             "tailwind-merge": "*",
             "tsx": "^4.20.5",
-            "vaul": "^1.1.2"
+            "vaul": "^1.1.2",
+            "zod": "^3.23.8"
       },
       "devDependencies": {
             "@types/cors": "^2.8.19",
