@@ -662,10 +662,15 @@ app.get(/^(?!\/api).*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
-// Initialize default project and start server
-initializeDefaultProject().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`API endpoints available at http://localhost:${PORT}/api`);
-  });
-}).catch(console.error);
+// Export app for Supertest integration tests
+export { app, initializeDefaultProject };
+
+// Start server when not in test (Vitest sets process.env.VITEST)
+if (typeof process !== 'undefined' && process.env?.VITEST !== 'true') {
+  initializeDefaultProject().then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`API endpoints available at http://localhost:${PORT}/api`);
+    });
+  }).catch(console.error);
+}

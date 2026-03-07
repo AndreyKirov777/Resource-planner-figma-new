@@ -11,6 +11,7 @@ import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
 import * as ExcelJS from 'exceljs';
+import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost } from './utils/calculations';
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -376,26 +377,18 @@ export default function App() {
 
       // Add data rows
       resourcePlans.forEach(plan => {
-        // Calculate values
         const intDailyRate = plan.intHourlyRate * 8;
         const clientDailyRate = plan.clientHourlyRate * 8;
-        
-        // Calculate margin (align with UI: convert internal rate to client currency)
-        const intRateInClientCurrency = plan.intHourlyRate * currentProject.exchangeRate;
-        const margin = plan.clientHourlyRate > 0 ?
-          ((plan.clientHourlyRate - intRateInClientCurrency) / plan.clientHourlyRate) * 100 : 0;
+        const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
 
-        // Calculate total efforts (hours)
-        let totalWeeks = 0;
+        let totalWeeksEquivalent = 0;
         weekNumbers.forEach(weekNum => {
           const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-          totalWeeks += (allocation?.allocation || 0) / 100;
+          totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
         });
-        const totalEfforts = totalWeeks * 40; // 40 hours per week
-
-        // Calculate total costs
-        const totalIntCost = totalEfforts * plan.intHourlyRate;
-        const totalPrice = totalEfforts * plan.clientHourlyRate;
+        const totalEfforts = estimatedEffortHours(totalWeeksEquivalent, 40);
+        const totalIntCost = totalInternalCost(totalEfforts, plan.intHourlyRate);
+        const totalPrice = totalClientCost(totalEfforts, plan.clientHourlyRate);
 
         // Prepare row data
         const rowData = [
@@ -431,28 +424,30 @@ export default function App() {
         '',
         ...weekNumbers.map(() => ''),
         resourcePlans.reduce((sum, plan) => {
-          let totalWeeks = 0;
+          let totalWeeksEquivalent = 0;
           weekNumbers.forEach(weekNum => {
             const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-            totalWeeks += (allocation?.allocation || 0) / 100;
+            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          return sum + (totalWeeks * 40 * plan.intHourlyRate);
+          const hours = estimatedEffortHours(totalWeeksEquivalent, 40);
+          return sum + totalInternalCost(hours, plan.intHourlyRate);
         }, 0),
         resourcePlans.reduce((sum, plan) => {
-          let totalWeeks = 0;
+          let totalWeeksEquivalent = 0;
           weekNumbers.forEach(weekNum => {
             const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-            totalWeeks += (allocation?.allocation || 0) / 100;
+            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          return sum + (totalWeeks * 40 * plan.clientHourlyRate);
+          const hours = estimatedEffortHours(totalWeeksEquivalent, 40);
+          return sum + totalClientCost(hours, plan.clientHourlyRate);
         }, 0),
         resourcePlans.reduce((sum, plan) => {
-          let totalWeeks = 0;
+          let totalWeeksEquivalent = 0;
           weekNumbers.forEach(weekNum => {
             const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-            totalWeeks += (allocation?.allocation || 0) / 100;
+            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          return sum + (totalWeeks * 40);
+          return sum + estimatedEffortHours(totalWeeksEquivalent, 40);
         }, 0)
       ];
 

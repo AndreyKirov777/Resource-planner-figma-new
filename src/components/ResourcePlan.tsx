@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Plus, X, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Project, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, WeeklyAllocation } from '../services/api';
+import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours } from '../utils/calculations';
 
 interface ResourcePlanProps {
   project: Project;
@@ -195,35 +196,28 @@ export function ResourcePlan({
   const currencySymbol = project.clientCurrency === 'EUR' ? '€' : 
                         project.clientCurrency === 'GBP' ? '£' : '$';
 
-  // Calculation functions (reused from original)
+  // Calculation functions (shared utils)
   const calculateEstimatedEfforts = (plan: ResourcePlanType): number => {
-    let totalWeeks = 0;
+    let totalWeeksEquivalent = 0;
     weekNumbers.forEach(weekNum => {
       const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-      totalWeeks += (allocation?.allocation || 0) / 100;
+      totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
     });
-    return totalWeeks * 40; // 40 hours per week
+    return estimatedEffortHours(totalWeeksEquivalent, 40);
   };
 
   const calculateTotalIntCost = (plan: ResourcePlanType): number => {
     const hours = calculateEstimatedEfforts(plan);
-    return hours * plan.intHourlyRate;
+    return totalInternalCost(hours, plan.intHourlyRate);
   };
 
   const calculateTotalPrice = (plan: ResourcePlanType): number => {
     const hours = calculateEstimatedEfforts(plan);
-    return hours * plan.clientHourlyRate;
+    return totalClientCost(hours, plan.clientHourlyRate);
   };
 
   const calculateMargin = (plan: ResourcePlanType): number | null => {
-    const clientRate = plan.clientHourlyRate;
-    const intRateInClientCurrency = plan.intHourlyRate * project.exchangeRate;
-    
-    if (!clientRate || clientRate <= 0 || !isFinite(clientRate)) {
-      return null;
-    }
-    
-    return ((clientRate - intRateInClientCurrency) / clientRate) * 100;
+    return marginPct(plan.clientHourlyRate, plan.intHourlyRate, project.exchangeRate);
   };
 
   // Week management functions (reused from original)
@@ -552,8 +546,7 @@ export function ResourcePlan({
         if (selectedResource) {
           const defaultMargin = project.defaultMargin || 25.0;
           const marginDecimal = defaultMargin / 100;
-          const clientHourlyRateInUSD = selectedResource.intRate / (1 - marginDecimal);
-          const clientHourlyRate = clientHourlyRateInUSD * project.exchangeRate;
+          const clientHourlyRate = calcClientHourlyRate(selectedResource.intRate, marginDecimal, project.exchangeRate);
           
           const updatedResourcePlans = resourcePlans.map(p =>
             p.id === plan.id
@@ -902,7 +895,7 @@ export function ResourcePlan({
     const totalIntCost = resourcePlans.reduce((sum, plan) => sum + calculateTotalIntCost(plan), 0);
     const totalPrice = resourcePlans.reduce((sum, plan) => sum + calculateTotalPrice(plan), 0);
     const totalEfforts = resourcePlans.reduce((sum, plan) => sum + calculateEstimatedEfforts(plan), 0);
-    const calculatedMargin = totalPrice > 0 ? ((totalPrice - (totalIntCost * project.exchangeRate)) / totalPrice) * 100 : 0;
+    const calculatedMargin = grossMarginPct(totalIntCost, totalPrice, project.exchangeRate);
     
     return { totalIntCost, totalPrice, totalEfforts, calculatedMargin };
   }, [resourcePlans, project.exchangeRate, weekNumbers]);
@@ -1259,8 +1252,7 @@ export function ResourcePlan({
                   if (selectedResource) {
                     const defaultMargin = project.defaultMargin || 25.0;
                     const marginDecimal = defaultMargin / 100;
-                    const clientHourlyRateInUSD = selectedResource.intRate / (1 - marginDecimal);
-                    const clientHourlyRate = clientHourlyRateInUSD * project.exchangeRate;
+                    const clientHourlyRate = calcClientHourlyRate(selectedResource.intRate, marginDecimal, project.exchangeRate);
                     const updatedResourcePlans = resourcePlans.map(p =>
                       p.id === plan.id
                         ? {

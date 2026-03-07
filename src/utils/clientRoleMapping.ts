@@ -11,7 +11,7 @@ export interface ClientRoleMapping {
 export const clientRolesMapping: ClientRoleMapping[] = [
   {
     "Role": "Associate Software Developer L1, Core Technologies",
-    "Naming in PM": "Junior ",
+    "Naming in PM": "Junior",
     "Client role": "Junior Developer"
   },
   {
@@ -37,7 +37,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   {
     "Role": "Team Lead, Core Technologies",
     "Naming in PM": "Team lead",
-    "Client role": "Lead Team , Core Technologies"
+    "Client role": "Team Lead, Core Technologies"
   },
   {
     "Role": "Technical Architect, Core Technologies",
@@ -51,7 +51,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Associate Software Developer L1, Advanced Technologies",
-    "Naming in PM": "Junior ",
+    "Naming in PM": "Junior",
     "Client role": "Junior Developer"
   },
   {
@@ -77,7 +77,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   {
     "Role": "Team Lead, Advanced Technologies",
     "Naming in PM": "Team lead",
-    "Client role": "Lead Team , Advanced Technologies"
+    "Client role": "Team Lead, Advanced Technologies"
   },
   {
     "Role": "Technical Architect, Advanced Technologies",
@@ -91,7 +91,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Associate DevOps Engineer L1",
-    "Naming in PM": "Junior ",
+    "Naming in PM": "Junior",
     "Client role": "Junior Developer"
   },
   {
@@ -131,7 +131,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Associate QA Engineer L1",
-    "Naming in PM": "Junior ",
+    "Naming in PM": "Junior",
     "Client role": "Junior QA Engineer"
   },
   {
@@ -161,7 +161,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Associate Performance Test Engineer L1",
-    "Naming in PM": "Junior ",
+    "Naming in PM": "Junior",
     "Client role": "Junior Performance Test Engineer"
   },
   {
@@ -176,7 +176,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Senior Performance Test Engineer",
-    "Naming in PM": "Strong Middle ",
+    "Naming in PM": "Strong Middle",
     "Client role": "Strong Middle Performance Test Engineer"
   },
   {
@@ -186,7 +186,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Associate Test Automation Engineer L1",
-    "Naming in PM": "Junior ",
+    "Naming in PM": "Junior",
     "Client role": "Junior QA Automation"
   },
   {
@@ -241,7 +241,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Discovery Business Analyst",
-    "Naming in PM": "Middle Discovery ",
+    "Naming in PM": "Middle Discovery",
     "Client role": "Middle Discovery Business Analyst"
   },
   {
@@ -371,12 +371,12 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Senior Developer, ML/Data Science",
-    "Naming in PM": "Strong Middle ",
+    "Naming in PM": "Strong Middle",
     "Client role": "Strong Middle AI/ML Engineer"
   },
   {
     "Role": "Principal Developer, ML/Data Science",
-    "Naming in PM": "Senior ",
+    "Naming in PM": "Senior",
     "Client role": "Senior AI/ML Engineer"
   },
   {
@@ -427,27 +427,27 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   {
     "Role": "Associate BI Engineer L1",
     "Naming in PM": "Junior",
-    "Client role": "Junior  BI Engineer "
+    "Client role": "Junior BI Engineer"
   },
   {
     "Role": "Associate BI Engineer L2",
     "Naming in PM": "Strong Junior",
-    "Client role": "Strong Junior  BI Engineer "
+    "Client role": "Strong Junior BI Engineer"
   },
   {
     "Role": "BI Engineer",
     "Naming in PM": "Middle",
-    "Client role": "Middle  BI Engineer "
+    "Client role": "Middle BI Engineer"
   },
   {
     "Role": "Senior BI Engineer",
     "Naming in PM": "Strong Middle",
-    "Client role": "Strong Middle  BI Engineer "
+    "Client role": "Strong Middle BI Engineer"
   },
   {
     "Role": "Principal BI Engineer",
     "Naming in PM": "Senior",
-    "Client role": "Senior  BI Engineer "
+    "Client role": "Senior BI Engineer"
   },
   {
     "Role": "Associate Data Analyst L1",
@@ -461,7 +461,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Data Analyst",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle Data Analyst"
   },
   {
@@ -477,27 +477,27 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   {
     "Role": "Associate Data Architect L2, Data & Analytics",
     "Naming in PM": "Strong Junior",
-    "Client role": "Strong Junior Architect  Data & Analytics"
+    "Client role": "Strong Junior Architect Data & Analytics"
   },
   {
     "Role": "Data Architect, Data & Analytics",
-    "Naming in PM": "Middle ",
-    "Client role": "Middle Architect  Data & Analytics"
+    "Naming in PM": "Middle",
+    "Client role": "Middle Architect Data & Analytics"
   },
   {
     "Role": "Senior Data Architect, Data & Analytics",
-    "Naming in PM": "Strong Middle ",
-    "Client role": "Strong Middle Architect  Data & Analytics"
+    "Naming in PM": "Strong Middle",
+    "Client role": "Strong Middle Architect Data & Analytics"
   },
   {
     "Role": "Principal Data Architect, Data & Analytics",
     "Naming in PM": "Senior",
-    "Client role": "Senior Architect  Data & Analytics"
+    "Client role": "Senior Architect Data & Analytics"
   },
   {
     "Role": "Solution Consultant, Data & Analytics",
     "Naming in PM": "Solution consultant",
-    "Client role": "Solution Consultant Solution Consultant, Data & Analytics"
+    "Client role": "Solution Consultant, Data & Analytics"
   },
   {
     "Role": "Associate DB Engineer L1",
@@ -511,7 +511,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "DB Engineer",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle DB Engineer"
   },
   {
@@ -520,7 +520,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
     "Client role": "Strong Middle DB Engineer"
   },
   {
-    "Role": "Principle DB Engineer ",
+    "Role": "Principal DB Engineer",
     "Naming in PM": "Senior",
     "Client role": "Senior DB Engineer"
   },
@@ -545,9 +545,9 @@ export const clientRolesMapping: ClientRoleMapping[] = [
     "Client role": "Strong Middle DB Administrator"
   },
   {
-    "Role": "Principle DB Administrator ",
+    "Role": "Principal DB Administrator",
     "Naming in PM": "Senior",
-    "Client role": "Senior Principle DB Administrator"
+    "Client role": "Senior Principal DB Administrator"
   },
   {
     "Role": "Associate Data QA L1",
@@ -561,7 +561,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Data QA",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle Data QA"
   },
   {
@@ -570,9 +570,9 @@ export const clientRolesMapping: ClientRoleMapping[] = [
     "Client role": "Strong Middle Data QA"
   },
   {
-    "Role": "Principle Data QA ",
+    "Role": "Principal Data QA",
     "Naming in PM": "Senior",
-    "Client role": "Senior Principle Data QA"
+    "Client role": "Senior Principal Data QA"
   },
   {
     "Role": "Associate Developer L1, Blockchain",
@@ -602,7 +602,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   {
     "Role": "Team Lead, Blockchain",
     "Naming in PM": "Team lead",
-    "Client role": "Lead Team , Blockchain"
+    "Client role": "Team Lead, Blockchain"
   },
   {
     "Role": "Technical Architect, Blockchain",
@@ -621,17 +621,17 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Designer",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle Designer"
   },
   {
     "Role": "Senior Designer",
-    "Naming in PM": "Strong Middle ",
+    "Naming in PM": "Strong Middle",
     "Client role": "Strong Middle Designer"
   },
   {
     "Role": "Principal Designer",
-    "Naming in PM": "Senior ",
+    "Naming in PM": "Senior",
     "Client role": "Senior Designer"
   },
   {
@@ -657,16 +657,16 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   {
     "Role": "Associate Security Engineer L2",
     "Naming in PM": "Strong Junior",
-    "Client role": "Strong Junior DeveSecurity Engineerloper"
+    "Client role": "Strong Junior Security Developer"
   },
   {
     "Role": "Security Engineer",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle Security Engineer"
   },
   {
     "Role": "Senior Security Engineer",
-    "Naming in PM": "Strong Middle ",
+    "Naming in PM": "Strong Middle",
     "Client role": "Strong Middle Security Engineer"
   },
   {
@@ -691,12 +691,12 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Penetration Tester",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle Penetration Tester"
   },
   {
     "Role": "Senior Penetration Tester",
-    "Naming in PM": "Strong Middle ",
+    "Naming in PM": "Strong Middle",
     "Client role": "Strong Middle Penetration Tester"
   },
   {
@@ -721,17 +721,17 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Software Developer, Salesforce",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle Developer, Salesforce"
   },
   {
     "Role": "Senior Software Developer, Salesforce",
-    "Naming in PM": "Strong Middle ",
+    "Naming in PM": "Strong Middle",
     "Client role": "Strong Middle Developer, Salesforce"
   },
   {
     "Role": "Principal Software Developer, Salesforce",
-    "Naming in PM": "Senior ",
+    "Naming in PM": "Senior",
     "Client role": "Senior Developer, Salesforce"
   },
   {
@@ -771,7 +771,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "AEM Backend Developer",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle AEM Backend Develop"
   },
   {
@@ -781,7 +781,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Principal AEM Backend Developer",
-    "Naming in PM": "Senior ",
+    "Naming in PM": "Senior",
     "Client role": "AEM Backend Develope"
   },
   {
@@ -792,27 +792,27 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   {
     "Role": "Associate AEM Frontend Developer L1",
     "Naming in PM": "Junior",
-    "Client role": "Junior AEM Frontend Developer "
+    "Client role": "Junior AEM Frontend Developer"
   },
   {
     "Role": "Associate AEM Frontend Developer L2",
     "Naming in PM": "Strong Junior",
-    "Client role": "Strong Junior AEM Frontend Developer "
+    "Client role": "Strong Junior AEM Frontend Developer"
   },
   {
     "Role": "AEM Frontend Developer",
-    "Naming in PM": "Middle ",
-    "Client role": "Middle AEM Frontend Developer "
+    "Naming in PM": "Middle",
+    "Client role": "Middle AEM Frontend Developer"
   },
   {
     "Role": "Senior AEM Frontend Developer",
     "Naming in PM": "Strong Middle",
-    "Client role": "Strong Middle AEM Frontend Developer "
+    "Client role": "Strong Middle AEM Frontend Developer"
   },
   {
     "Role": "Principal AEM Frontend Developer",
-    "Naming in PM": "Senior ",
-    "Client role": "Senior AEM Frontend Developer "
+    "Naming in PM": "Senior",
+    "Client role": "Senior AEM Frontend Developer"
   },
   {
     "Role": "AEM Frontend Team Lead",
@@ -831,7 +831,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "AEM Content Manager",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle AEM Content Manager"
   },
   {
@@ -841,7 +841,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Principal  AEM Content Manager",
-    "Naming in PM": "Senior ",
+    "Naming in PM": "Senior",
     "Client role": "Senior AEM Content Manager"
   },
   {
@@ -861,7 +861,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "SRE Engineer",
-    "Naming in PM": "Middle ",
+    "Naming in PM": "Middle",
     "Client role": "Middle SRE"
   },
   {
@@ -871,7 +871,7 @@ export const clientRolesMapping: ClientRoleMapping[] = [
   },
   {
     "Role": "Principal SRE Engineer",
-    "Naming in PM": "Senior ",
+    "Naming in PM": "Senior",
     "Client role": "Senior SRE"
   },
   {

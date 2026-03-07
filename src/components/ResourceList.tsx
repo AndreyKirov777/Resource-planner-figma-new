@@ -202,7 +202,7 @@ export function ResourceList({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Add custome resource</CardTitle>
+          <CardTitle>Add custom resource</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-end gap-3 flex-wrap">
