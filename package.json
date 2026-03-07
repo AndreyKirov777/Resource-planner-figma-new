@@ -81,6 +81,8 @@
             "build": "vite build",
             "server": "tsx server.ts",
             "dev:server": "tsx watch server.ts",
-            "test": "vitest"
+            "test": "vitest",
+            "run": "./scripts/run.sh",
+            "stop": "./scripts/stop.sh"
       }
 }
