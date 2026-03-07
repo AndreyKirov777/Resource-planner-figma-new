@@ -26,25 +26,29 @@
 
 ## High
 
-- [ ] **H1 — Missing `tsconfig.json`**
+- [x] **H1 — Missing `tsconfig.json`**
   - **File:** Project root
   - **Details:** No `tsconfig.json` exists. TypeScript has no strict mode, no compile-time type checking, and path aliases (`@/`) only work through Vite, not the TS compiler or editors.
+  - **Fixed:** Added `tsconfig.json` with strict mode, path alias `@/*` → `./src/*`, and `tsconfig.node.json` for server/vite config. Installed `typescript` as devDependency.
 
-- [ ] **H2 — `window` object pollution for AG Grid callbacks**
+- [x] **H2 — `window` object pollution for AG Grid callbacks**
   - **Files:** `src/components/ResourceList.tsx` (line 161), `src/components/RateCard.tsx` (line 590)
   - **Details:** Functions are attached to `(window as any).deleteResource` and `(window as any).addRateCard` to communicate between AG Grid cell renderers and parent components. Use AG Grid's `context` API instead.
+  - **Fixed:** Replaced with AG Grid `context` prop: `context={{ deleteResource }}` / `context={{ addRateCard: handleAddRateCard }}`. Cell renderers use `props.context?.deleteResource?.(...)` and `props.context?.addRateCard?.(...)`.
 
 - [ ] **H3 — Two different grid libraries in the same app**
   - **Files:** `src/components/ResourcePlan.tsx` (Glide Data Grid), `src/components/ResourceList.tsx` and `src/components/RateCard.tsx` (AG Grid)
   - **Details:** Using both `@glideapps/glide-data-grid` and `ag-grid-react` doubles the grid-related bundle size and creates UI inconsistency. Standardize on one library.
 
-- [ ] **H4 — Sequential API calls in update loops (N+1 problem)**
+- [x] **H4 — Sequential API calls in update loops (N+1 problem)**
   - **File:** `src/App.tsx` (lines 88–92, 126–130)
   - **Details:** `handleResourceListsChange` and `handleRateCardsChange` iterate over all items and `await` an individual update call for each. Replace with a single batch/bulk update endpoint.
+  - **Fixed:** State handlers now only update local state. New `handleResourceListUpdate` and `handleRateCardUpdate` persist the single changed row. ResourceList and RateCard call `onResourceListUpdate` / `onRateCardUpdate` from each `onCellValueChanged` with only the updated row, so one PUT per edit instead of N.
 
-- [ ] **H5 — `src/index.css` is a compiled Tailwind output checked into source**
+- [x] **H5 — `src/index.css` is a compiled Tailwind output checked into source**
   - **File:** `src/index.css` (836K+ characters)
   - **Details:** This is a generated Tailwind v4 CSS bundle committed to the repo. It should be generated at build time from a small source file with Tailwind directives, not version-controlled.
+  - **Fixed:** Installed `tailwindcss` and `@tailwindcss/vite`; added Tailwind plugin to Vite config (`vite.config.mts`). Replaced `src/index.css` with `@import "tailwindcss"; @import "./styles/globals.css";`. CSS is now generated at build time.
 
 - [ ] **H6 — No authentication or authorization on the API**
   - **File:** `server.ts`

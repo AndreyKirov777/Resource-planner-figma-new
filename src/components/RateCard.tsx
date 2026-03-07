@@ -19,17 +19,9 @@ const ActionsCellRenderer = (props: any) => {
   const [isClicked, setIsClicked] = useState(false);
 
   const addRateCard = () => {
-    if ((window as any).addRateCard) {
-      (window as any).addRateCard(props.data);
-    }
-    
-    // Set clicked state to true to change color to orange
+    props.context?.addRateCard?.(props.data);
     setIsClicked(true);
-    
-    // Reset color back to green after 1 second
-    setTimeout(() => {
-      setIsClicked(false);
-    }, 1000);
+    setTimeout(() => setIsClicked(false), 1000);
   };
 
   return (
@@ -54,6 +46,7 @@ interface RateCardProps {
   projectId: number;
   rateCards: RateCardType[];
   onRateCardsChange: (rateCards: RateCardType[]) => void;
+  onRateCardUpdate?: (id: number, data: Partial<RateCardType>) => void;
   onAddRateCard: (rateCard: Partial<RateCardType>) => void;
   onAddRateCardsBulk: (rateCards: Partial<RateCardType>[]) => Promise<{ message: string; count: number }>;
   onDeleteRateCard: (id: number) => void;
@@ -65,6 +58,7 @@ export function RateCard({
   projectId,
   rateCards, 
   onRateCardsChange, 
+  onRateCardUpdate,
   onAddRateCard,
   onAddRateCardsBulk,
   onDeleteRateCard,
@@ -166,6 +160,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -182,6 +178,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -198,6 +196,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -215,6 +215,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       }
     ];
@@ -238,6 +240,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -257,6 +261,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -276,6 +282,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -295,6 +303,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -314,6 +324,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -333,6 +345,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -352,6 +366,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -371,6 +387,8 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -390,12 +408,14 @@ export function RateCard({
               : rateCard
           );
           onRateCardsChange(updatedRateCards);
+          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
         }
       }
     ];
 
     return [...baseColumns, ...regionalColumns];
-  }, [rateCards, onRateCardsChange, activeRegionTab]);
+  }, [rateCards, onRateCardsChange, onRateCardUpdate, activeRegionTab]);
 
   const handleImportRateCard = async () => {
     try {
@@ -585,9 +605,6 @@ export function RateCard({
     });
   };
 
-  // Make add function globally available for AG Grid buttons
-  (window as any).addRateCard = handleAddRateCard;
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex gap-2">
@@ -663,6 +680,7 @@ export function RateCard({
       <div className="ag-theme-alpine" style={{ height: 600, width: '100%' }}>
         <AgGridReact
           theme="legacy"
+          context={{ addRateCard: handleAddRateCard }}
           rowData={filteredRateCards}
           columnDefs={columnDefs}
           pagination={true}

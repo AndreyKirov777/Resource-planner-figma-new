@@ -80,19 +80,16 @@ export default function App() {
     }
   };
 
-  const handleResourceListsChange = async (updatedResourceLists: ResourceListType[]) => {
+  const handleResourceListsChange = (updatedResourceLists: ResourceListType[]) => {
+    setResourceLists(updatedResourceLists);
+  };
+
+  const handleResourceListUpdate = async (id: number, data: Partial<ResourceListType>) => {
     try {
-      setResourceLists(updatedResourceLists);
-      
-      // Update the database for any changes
-      for (const resource of updatedResourceLists) {
-        if (resource.id) {
-          await api.updateResourceList(resource.id, resource);
-        }
-      }
+      await api.updateResourceList(id, data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update resource lists');
-      console.error('Error updating resource lists:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update resource list');
+      console.error('Error updating resource list:', err);
     }
   };
 
@@ -118,19 +115,16 @@ export default function App() {
     }
   };
 
-  const handleRateCardsChange = async (updatedRateCards: RateCardType[]) => {
+  const handleRateCardsChange = (updatedRateCards: RateCardType[]) => {
+    setRateCards(updatedRateCards);
+  };
+
+  const handleRateCardUpdate = async (id: number, data: Partial<RateCardType>) => {
     try {
-      setRateCards(updatedRateCards);
-      
-      // Update the database for any changes
-      for (const rateCard of updatedRateCards) {
-        if (rateCard.id) {
-          await api.updateRateCard(rateCard.id, rateCard);
-        }
-      }
+      await api.updateRateCard(id, data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update rate cards');
-      console.error('Error updating rate cards:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update rate card');
+      console.error('Error updating rate card:', err);
     }
   };
 
@@ -604,9 +598,10 @@ export default function App() {
         </TabsContent>
         
         <TabsContent value="resource-list" className="mt-6">
-          <ResourceList 
+<ResourceList
             resourceLists={resourceLists}
             onResourceListsChange={handleResourceListsChange}
+            onResourceListUpdate={handleResourceListUpdate}
             onAddResourceList={handleAddResourceList}
             onDeleteResourceList={handleDeleteResourceList}
           />
@@ -617,6 +612,7 @@ export default function App() {
             projectId={currentProject.id}
             rateCards={rateCards}
             onRateCardsChange={handleRateCardsChange}
+            onRateCardUpdate={handleRateCardUpdate}
             onAddRateCard={handleAddRateCard}
             onAddRateCardsBulk={handleAddRateCardsBulk}
             onDeleteRateCard={handleDeleteRateCard}

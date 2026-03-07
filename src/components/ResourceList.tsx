@@ -10,6 +10,7 @@ import { ResourceList as ResourceListType } from '../services/api';
 interface ResourceListProps {
   resourceLists: ResourceListType[];
   onResourceListsChange: (resources: ResourceListType[]) => void;
+  onResourceListUpdate?: (id: number, data: Partial<ResourceListType>) => void;
   onAddResourceList: (resource: Partial<ResourceListType>) => void;
   onDeleteResourceList: (id: number) => void;
 }
@@ -17,9 +18,7 @@ interface ResourceListProps {
 // Custom cell renderer component for the Actions column
 const ActionsCellRenderer = (props: any) => {
   const deleteResource = () => {
-    if ((window as any).deleteResource) {
-      (window as any).deleteResource(props.data.id);
-    }
+    props.context?.deleteResource?.(props.data.id);
   };
 
   return (
@@ -38,6 +37,7 @@ const ActionsCellRenderer = (props: any) => {
 export function ResourceList({ 
   resourceLists, 
   onResourceListsChange, 
+  onResourceListUpdate,
   onAddResourceList,
   onDeleteResourceList 
 }: ResourceListProps) {
@@ -75,6 +75,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -89,6 +91,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -103,6 +107,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -117,6 +123,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -132,6 +140,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
 
@@ -153,15 +163,14 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       }
     ];
 
-    // Make delete function globally available for AG Grid buttons
-    (window as any).deleteResource = deleteResource;
-
     return [actionsColumn, ...otherColumns];
-  }, [resourceLists, onResourceListsChange, deleteResource]);
+  }, [resourceLists, onResourceListsChange, onResourceListUpdate, deleteResource]);
 
   const addResource = () => {
     if (!newRole.trim() || !newRate.trim()) return;
@@ -279,6 +288,7 @@ export function ResourceList({
           <div className="ag-theme-alpine" style={{ height: '500px', width: '100%' }}>
             <AgGridReact
               theme="legacy"
+              context={{ deleteResource }}
               rowData={resourceLists}
               columnDefs={columnDefs}
               defaultColDef={{
