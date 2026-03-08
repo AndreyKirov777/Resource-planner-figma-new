@@ -10,6 +10,27 @@ const TEST_PROJECT_NAMES = [
   'Rate Card Test',
 ];
 
+// Resource plan created by "Resource plans and weekly allocations" test – used for cleanup so it doesn't persist in the DB
+const TEST_RESOURCE_PLAN = { role: 'Developer', intHourlyRate: 50, clientHourlyRate: 75 };
+
+async function cleanupTestResourcePlans() {
+  const projectsRes = await request(app).get('/api/projects');
+  if (projectsRes.status !== 200 || !Array.isArray(projectsRes.body)) return;
+  for (const project of projectsRes.body as { id: number }[]) {
+    const plansRes = await request(app).get(`/api/projects/${project.id}/resource-plans`);
+    if (plansRes.status !== 200 || !Array.isArray(plansRes.body)) continue;
+    const testPlans = plansRes.body.filter(
+      (p: { role: string; intHourlyRate: number; clientHourlyRate: number }) =>
+        p.role === TEST_RESOURCE_PLAN.role &&
+        p.intHourlyRate === TEST_RESOURCE_PLAN.intHourlyRate &&
+        p.clientHourlyRate === TEST_RESOURCE_PLAN.clientHourlyRate
+    );
+    for (const plan of testPlans) {
+      await request(app).delete(`/api/resource-plans/${plan.id}`);
+    }
+  }
+}
+
 async function cleanupTestProjects() {
   const res = await request(app).get('/api/projects');
   if (res.status !== 200 || !Array.isArray(res.body)) return;
@@ -25,6 +46,7 @@ describe('API integration', () => {
   });
 
   afterAll(async () => {
+    await cleanupTestResourcePlans();
     await cleanupTestProjects();
   });
 
