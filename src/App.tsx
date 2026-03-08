@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
+import { ProjectList } from './components/ProjectList';
 import { api, Project, ResourceList as ResourceListType, RateCard as RateCardType, ResourcePlan as ResourcePlanType } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
@@ -23,7 +24,7 @@ export default function App() {
   const [resourceLists, setResourceLists] = useState<ResourceListType[]>([]);
   const [rateCards, setRateCards] = useState<RateCardType[]>([]);
   const [resourcePlans, setResourcePlans] = useState<ResourcePlanType[]>([]);
-  const [activeTab, setActiveTab] = useState('resource-plan');
+  const [activeTab, setActiveTab] = useState('project-list');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -586,11 +587,23 @@ export default function App() {
   return (
     <div className="p-6">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="project-list">Project list</TabsTrigger>
           <TabsTrigger value="resource-plan">Resource Plan</TabsTrigger>
           <TabsTrigger value="resource-list">Resource List</TabsTrigger>
           <TabsTrigger value="rate-card">Rate Card</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="project-list" className="mt-6">
+          <ProjectList
+            onOpenProject={(id) => {
+              loadProjectData(id);
+              setActiveTab('resource-plan');
+            }}
+            currentProjectId={currentProject?.id}
+            onProjectDeleted={() => loadProjectData()}
+          />
+        </TabsContent>
         
         <TabsContent value="resource-plan" className="mt-6">
           <ResourcePlan 

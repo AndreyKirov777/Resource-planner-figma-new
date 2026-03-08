@@ -80,8 +80,14 @@
 
   ## Usage
 
+  ### Multiproject and Project list
+  - Use the **Project list** tab to see all projects (name, description, created, last updated)
+  - Open a project to work on its Resource Plan, Resource List, and Rate Card
+  - Create new projects with "New project" or delete projects (and all their data) from the list
+  - Edit project name and description from the Project list
+
   ### Project Management
-  - The application automatically creates a default project on first run
+  - The application automatically creates a default project on first run if none exist
   - Modify project settings like currency, exchange rates, and FTE days
   - All data is automatically saved to the database
 
@@ -116,6 +122,7 @@
   - `GET /projects/:id` - Get project with all related data
   - `POST /projects` - Create new project
   - `PUT /projects/:id` - Update project
+  - `DELETE /projects/:id` - Delete project (cascades to rate cards, resource lists, resource plans)
 
   #### Rate Cards
   - `GET /projects/:projectId/rate-cards` - Get rate cards for project

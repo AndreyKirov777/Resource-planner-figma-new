@@ -108,6 +108,13 @@ export const api = {
     return response.json();
   },
 
+  async deleteProject(id: number): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/projects/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete project');
+  },
+
   async exportProject(id: number): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/projects/${id}/export`);
     if (!response.ok) throw new Error('Failed to export project');

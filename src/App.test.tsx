@@ -31,6 +31,9 @@ vi.mock('./components/ResourceList', () => ({
 vi.mock('./components/RateCard', () => ({
   RateCard: () => <div data-testid="rate-card">Rate Card</div>,
 }));
+vi.mock('./components/ProjectList', () => ({
+  ProjectList: () => <div data-testid="project-list">Project list</div>,
+}));
 
 const mockProject = {
   id: 1,
@@ -52,6 +55,7 @@ vi.mock('./services/api', () => ({
     getRateCards: vi.fn(),
     getResourcePlans: vi.fn(),
     updateProject: vi.fn(),
+    deleteProject: vi.fn(),
     exportProject: vi.fn(),
     importProject: vi.fn(),
   },
@@ -68,21 +72,24 @@ beforeEach(async () => {
 });
 
 describe('App', () => {
-  it('renders three tabs', async () => {
+  it('renders four tabs including Project list', async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /project list/i })).toBeInTheDocument();
     });
+    expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /resource list/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /rate card/i })).toBeInTheDocument();
   });
 
-  it('shows Resource Plan content by default', async () => {
+  it('shows Project list by default', async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /project list/i })).toBeInTheDocument();
     });
-    expect(screen.getByPlaceholderText(/project name/i)).toBeInTheDocument();
+    const projectListTab = screen.getByRole('tab', { name: /project list/i });
+    expect(projectListTab).toHaveAttribute('data-state', 'active');
+    expect(screen.getByTestId('project-list')).toBeInTheDocument();
   });
 
   it('switches to Resource List tab when clicked', async () => {
@@ -129,6 +136,7 @@ describe('App', () => {
   });
 
   it('Export JSON triggers download via createObjectURL', async () => {
+    const user = userEvent.setup();
     const createObjectURL = vi.fn(() => 'blob:mock-url');
     const revokeObjectURL = vi.fn();
     global.URL.createObjectURL = createObjectURL;
@@ -139,10 +147,14 @@ describe('App', () => {
 
     render(<App />);
     await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('tab', { name: /resource plan/i }));
+    await waitFor(() => {
       expect(screen.getByPlaceholderText(/project name/i)).toBeInTheDocument();
     });
     const saveButton = screen.getByRole('button', { name: /save file/i });
-    await userEvent.click(saveButton);
+    await user.click(saveButton);
 
     await waitFor(() => {
       expect(api.exportProject).toHaveBeenCalledWith(1);
@@ -156,6 +168,10 @@ describe('App', () => {
     vi.mocked(api.updateProject).mockResolvedValue({ ...mockProject, name: 'Changed' });
 
     render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('tab', { name: /resource plan/i }));
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/project name/i)).toBeInTheDocument();
     });
