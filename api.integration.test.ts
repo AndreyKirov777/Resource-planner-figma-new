@@ -2,9 +2,30 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { app, initializeDefaultProject } from './server';
 
+const TEST_PROJECT_NAMES = [
+  'Integration Test Project',
+  'To Update',
+  'Updated Name',
+  'Strict Test',
+  'Rate Card Test',
+];
+
+async function cleanupTestProjects() {
+  const res = await request(app).get('/api/projects');
+  if (res.status !== 200 || !Array.isArray(res.body)) return;
+  const toDelete = res.body.filter((p: { name: string }) => TEST_PROJECT_NAMES.includes(p.name));
+  for (const p of toDelete) {
+    await request(app).delete(`/api/projects/${p.id}`);
+  }
+}
+
 describe('API integration', () => {
   beforeAll(async () => {
     await initializeDefaultProject();
+  });
+
+  afterAll(async () => {
+    await cleanupTestProjects();
   });
 
   describe('GET /api/projects', () => {
