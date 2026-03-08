@@ -82,7 +82,7 @@
             "server": "tsx server.ts",
             "dev:server": "tsx watch server.ts",
             "test": "vitest",
-            "run": "./scripts/run.sh",
-            "stop": "./scripts/stop.sh"
+            "run": "./run.sh",
+            "stop": "./stop.sh"
       }
 }
