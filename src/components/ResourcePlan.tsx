@@ -13,9 +13,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from './ui/dropdown-menu';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus } from 'lucide-react';
+import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette } from 'lucide-react';
 import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, WeeklyAllocation } from '../services/api';
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours } from '../utils/calculations';
 
@@ -54,7 +57,14 @@ function getAllocationBgColor(percent: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-// Parse phases from project JSON; fallback to single phase covering existing weeks
+const PHASE_COLORS = [
+  '#E3F2FD', '#FCE4EC', '#E8F5E9', '#FFF3E0',
+  '#F3E5F5', '#E0F7FA', '#FFF9C4', '#F1F8E9',
+  '#FFEBEE', '#E8EAF6',
+];
+
+// Parse phases from project JSON; fallback to single phase covering existing weeks.
+// Assigns default colors from palette for phases missing a color (backward compatibility).
 function parsePhases(
   phasesJson: string | undefined,
   resourcePlans: ResourcePlanType[]
@@ -63,7 +73,10 @@ function parsePhases(
     try {
       const parsed = JSON.parse(phasesJson) as Phase[];
       if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && p.weekCount > 0)) {
-        return parsed;
+        return parsed.map((p, idx) => ({
+          ...p,
+          color: p.color ?? PHASE_COLORS[idx % PHASE_COLORS.length],
+        }));
       }
     } catch {
       /* fall through */
@@ -74,7 +87,7 @@ function parsePhases(
     plan.weeklyAllocations.forEach((wa) => allWeeks.add(wa.weekNumber));
   });
   const totalWeeks = allWeeks.size > 0 ? Math.max(...allWeeks) : 8;
-  return [{ name: 'Phase 1', weekCount: totalWeeks }];
+  return [{ name: 'Phase 1', weekCount: totalWeeks, color: PHASE_COLORS[0] }];
 }
 
 function getPhaseForWeek(
@@ -359,6 +372,22 @@ export function ResourcePlan({
   const removeRole = useCallback((roleId: number) => {
     onDeleteResourcePlan(roleId);
   }, [onDeleteResourcePlan]);
+
+  const getGroupDetails = useCallback(
+    (groupName: string) => {
+      const phase = phases.find((p) => p.name === groupName);
+      if (!phase) return { name: groupName };
+      const color = phase.color ?? PHASE_COLORS[phases.indexOf(phase) % PHASE_COLORS.length];
+      return {
+        name: groupName,
+        overrideTheme: {
+          bgHeader: color,
+          bgHeaderHovered: color,
+        },
+      };
+    },
+    [phases]
+  );
 
   // Glide Data Grid column definitions (week columns grouped by phase)
   const columns = useMemo((): GridColumn[] => {
@@ -810,7 +839,8 @@ export function ResourcePlan({
 
   const addPhase = useCallback(() => {
     const nextIndex = phases.length + 1;
-    persistPhases([...phases, { name: `Phase ${nextIndex}`, weekCount: 4 }]);
+    const color = PHASE_COLORS[phases.length % PHASE_COLORS.length];
+    persistPhases([...phases, { name: `Phase ${nextIndex}`, weekCount: 4, color }]);
   }, [phases, persistPhases]);
 
   const addWeekToPhase = useCallback(
@@ -869,6 +899,16 @@ export function ResourcePlan({
       persistPhases(newPhases);
       setEditingPhaseIndex(null);
       setEditingPhaseName('');
+    },
+    [phases, persistPhases]
+  );
+
+  const changePhaseColor = useCallback(
+    (phaseIndex: number, color: string) => {
+      const newPhases = phases.map((p, i) =>
+        i === phaseIndex ? { ...p, color } : p
+      );
+      persistPhases(newPhases);
     },
     [phases, persistPhases]
   );
@@ -1227,7 +1267,11 @@ export function ResourcePlan({
       <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
         <span className="text-sm font-medium text-muted-foreground">Phases:</span>
         {phases.map((phase, idx) => (
-          <div key={idx} className="flex items-center gap-1 rounded-md border bg-background px-2 py-1">
+          <div
+            key={idx}
+            className="flex items-center gap-1 rounded-md border px-2 py-1"
+            style={{ backgroundColor: phase.color ?? PHASE_COLORS[idx % PHASE_COLORS.length] }}
+          >
             {editingPhaseIndex === idx ? (
               <Input
                 className="h-7 w-32 text-sm"
@@ -1263,6 +1307,26 @@ export function ResourcePlan({
                   <Pencil className="mr-2 h-3.5 w-3.5" />
                   Rename
                 </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <Palette className="mr-2 h-3.5 w-3.5" />
+                    Change Color
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <div className="grid grid-cols-5 gap-1 p-1">
+                      {PHASE_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          className="h-6 w-6 rounded border border-border shrink-0 hover:ring-2 hover:ring-primary"
+                          style={{ backgroundColor: c }}
+                          onClick={() => changePhaseColor(idx, c)}
+                          title={c}
+                        />
+                      ))}
+                    </div>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
                 <DropdownMenuItem onClick={() => addWeekToPhase(idx)}>
                   <Plus className="mr-2 h-3.5 w-3.5" />
                   Add Week
@@ -1339,6 +1403,7 @@ export function ResourcePlan({
             onCellEdited={onCellEdited}
             onCellsEdited={onCellsEdited}
             onHeaderContextMenu={handleHeaderContextMenu}
+            getGroupDetails={getGroupDetails}
             overlayCss=""
             fillHandle={true}
             gridSelection={gridSelection}

@@ -5,6 +5,7 @@ import { z } from 'zod';
 const phaseSchema = z.object({
   name: z.string().min(1).max(200),
   weekCount: z.number().int().min(1).max(104),
+  color: z.string().max(30).optional(),
 });
 
 const phasesStringSchema = z

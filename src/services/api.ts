@@ -5,6 +5,7 @@ const API_BASE_URL = '/api';
 export interface Phase {
   name: string;
   weekCount: number;
+  color?: string;
 }
 
 export interface Project {

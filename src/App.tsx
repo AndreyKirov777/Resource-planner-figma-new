@@ -388,21 +388,36 @@ export default function App() {
 
       const firstWeekCol = 9;
 
-      // Row 1: phase group headers (merged)
+      // Hex to Excel ARGB (e.g. #E3F2FD -> 'FFE3F2FD')
+      const hexToArgb = (hex: string): string => {
+        const h = hex.replace(/^#/, '');
+        if (h.length === 6) return 'FF' + h.toUpperCase();
+        if (h.length === 8) return h.toUpperCase();
+        return 'FFE8E8E8';
+      };
+
+      const defaultPhaseColor = 'FFE8E8E8';
+
+      // Row 1: phase group headers (merged), each phase with its own color
       const phaseHeaderRow = worksheet.addRow([]);
       let col = firstWeekCol;
       phases.forEach((phase) => {
         const endCol = col + phase.weekCount - 1;
+        const phaseColorArgb = phase.color ? hexToArgb(phase.color) : defaultPhaseColor;
         if (phase.weekCount === 1) {
-          worksheet.getCell(1, col).value = phase.name;
+          const cell = worksheet.getCell(1, col);
+          cell.value = phase.name;
+          cell.font = { bold: true };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: phaseColorArgb } };
         } else {
           worksheet.mergeCells(1, col, 1, endCol);
-          worksheet.getCell(1, col).value = phase.name;
+          const cell = worksheet.getCell(1, col);
+          cell.value = phase.name;
+          cell.font = { bold: true };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: phaseColorArgb } };
         }
         col = endCol + 1;
       });
-      phaseHeaderRow.font = { bold: true };
-      phaseHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
 
       // Row 2: column headers
       const headers = [
