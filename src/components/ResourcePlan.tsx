@@ -291,9 +291,10 @@ export function ResourcePlan({
 
   // Week management functions (phase-aware)
   const insertWeekAfter = useCallback(
-    (afterWeekPosition: number) => {
+    (afterWeekPosition: number, targetPhaseIndex?: number) => {
       const weekNumAtPosition = afterWeekPosition + 1;
-      const { phaseIndex } = getPhaseForWeek(weekNumAtPosition, phases);
+      const { phaseIndex: detectedPhaseIndex } = getPhaseForWeek(weekNumAtPosition, phases);
+      const phaseIndex = targetPhaseIndex ?? detectedPhaseIndex;
       const newPhases = phases.map((p, i) =>
         i === phaseIndex ? { ...p, weekCount: p.weekCount + 1 } : p
       );
@@ -846,8 +847,8 @@ export function ResourcePlan({
   const addWeekToPhase = useCallback(
     (phaseIndex: number) => {
       const start = phases.slice(0, phaseIndex).reduce((s, p) => s + p.weekCount, 0);
-      const insertAt = start + phases[phaseIndex].weekCount - 1;
-      insertWeekAfter(insertAt);
+      const insertAt = start + phases[phaseIndex].weekCount;
+      insertWeekAfter(insertAt, phaseIndex);
     },
     [phases, insertWeekAfter]
   );
