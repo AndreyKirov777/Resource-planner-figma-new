@@ -19,6 +19,7 @@ model Project {
   clientCurrency  String          @default("EUR")
   exchangeRate    Float           @default(0.89)
   defaultMargin   Float?          @default(25.0)
+  phases          String?         @default("[{\"name\":\"Phase 1\",\"weekCount\":8}]")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   

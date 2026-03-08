@@ -2,6 +2,11 @@
 const API_BASE_URL = '/api';
 
 // Types
+export interface Phase {
+  name: string;
+  weekCount: number;
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -10,6 +15,7 @@ export interface Project {
   clientCurrency: string;
   exchangeRate: number;
   defaultMargin?: number;
+  phases?: string;
   createdAt: string;
   updatedAt: string;
 }

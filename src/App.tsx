@@ -7,12 +7,12 @@ import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
 import { ProjectList } from './components/ProjectList';
-import { api, Project, ResourceList as ResourceListType, RateCard as RateCardType, ResourcePlan as ResourcePlanType } from './services/api';
+import { api, Project, Phase, ResourceList as ResourceListType, RateCard as RateCardType, ResourcePlan as ResourcePlanType } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
 import * as ExcelJS from 'exceljs';
-import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost } from './utils/calculations';
+import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct } from './utils/calculations';
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -361,20 +361,50 @@ export default function App() {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Resource Planning');
 
-      // Get all week numbers from resource plans
-      const allWeekNumbers = new Set<number>();
-      resourcePlans.forEach(plan => {
-        plan.weeklyAllocations.forEach(allocation => {
-          allWeekNumbers.add(allocation.weekNumber);
-        });
+      // Parse phases (same fallback as ResourcePlan)
+      let phases: Phase[] = [];
+      if (currentProject.phases) {
+        try {
+          const parsed = JSON.parse(currentProject.phases) as Phase[];
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && p.weekCount > 0)) {
+            phases = parsed;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+      if (phases.length === 0) {
+        const allWeeks = new Set<number>();
+        resourcePlans.forEach((p) => p.weeklyAllocations.forEach((wa) => allWeeks.add(wa.weekNumber)));
+        const totalWeeks = allWeeks.size > 0 ? Math.max(...allWeeks) : 8;
+        phases = [{ name: 'Phase 1', weekCount: totalWeeks }];
+      }
+
+      const totalWeeks = phases.reduce((s, p) => s + p.weekCount, 0);
+      const weekNumbers = Array.from({ length: totalWeeks }, (_, i) => i + 1);
+
+      const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€' :
+        currentProject.clientCurrency === 'GBP' ? '£' : '$';
+
+      const firstWeekCol = 9;
+
+      // Row 1: phase group headers (merged)
+      const phaseHeaderRow = worksheet.addRow([]);
+      let col = firstWeekCol;
+      phases.forEach((phase) => {
+        const endCol = col + phase.weekCount - 1;
+        if (phase.weekCount === 1) {
+          worksheet.getCell(1, col).value = phase.name;
+        } else {
+          worksheet.mergeCells(1, col, 1, endCol);
+          worksheet.getCell(1, col).value = phase.name;
+        }
+        col = endCol + 1;
       });
-      const weekNumbers = Array.from(allWeekNumbers).sort((a, b) => a - b);
+      phaseHeaderRow.font = { bold: true };
+      phaseHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
 
-      // Get currency symbol based on client currency
-      const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€' : 
-                            currentProject.clientCurrency === 'GBP' ? '£' : '$';
-
-      // Define headers
+      // Row 2: column headers
       const headers = [
         'Rate Card Role',
         'Client Role',
@@ -384,40 +414,28 @@ export default function App() {
         `Client Hourly Rate (${currencySymbol})`,
         `Client Daily Rate (${currencySymbol})`,
         'Margin (%)',
-        ...weekNumbers.map(week => `Week ${week} (%)`),
+        ...weekNumbers.map((w) => `Week ${w} (%)`),
         'Total Internal Cost ($)',
         `Total Price (${currencySymbol})`,
-        'Estimated Efforts (h)'
+        'Estimated Efforts (h)',
       ];
-
-      // Add headers to worksheet
-      worksheet.addRow(headers);
-
-      // Style the header row
-      const headerRow = worksheet.getRow(1);
+      const headerRow = worksheet.addRow(headers);
       headerRow.font = { bold: true };
-      headerRow.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE0E0E0' }
-      };
+      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
 
-      // Add data rows
-      resourcePlans.forEach(plan => {
+      // Data rows
+      resourcePlans.forEach((plan) => {
         const intDailyRate = plan.intHourlyRate * 8;
         const clientDailyRate = plan.clientHourlyRate * 8;
         const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
-
         let totalWeeksEquivalent = 0;
-        weekNumbers.forEach(weekNum => {
-          const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
+        weekNumbers.forEach((weekNum) => {
+          const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
           totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
         });
         const totalEfforts = estimatedEffortHours(totalWeeksEquivalent, 40);
         const totalIntCost = totalInternalCost(totalEfforts, plan.intHourlyRate);
         const totalPrice = totalClientCost(totalEfforts, plan.clientHourlyRate);
-
-        // Prepare row data
         const rowData = [
           plan.role || '',
           plan.clientRole || '',
@@ -427,19 +445,18 @@ export default function App() {
           plan.clientHourlyRate,
           clientDailyRate,
           margin,
-          ...weekNumbers.map(weekNum => {
-            const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
+          ...weekNumbers.map((weekNum) => {
+            const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
             return allocation?.allocation || 0;
           }),
           totalIntCost,
           totalPrice,
-          totalEfforts
+          totalEfforts,
         ];
-
         worksheet.addRow(rowData);
       });
 
-      // Add totals row
+      // Totals row
       const totalsRow = [
         'TOTALS',
         '',
@@ -452,8 +469,8 @@ export default function App() {
         ...weekNumbers.map(() => ''),
         resourcePlans.reduce((sum, plan) => {
           let totalWeeksEquivalent = 0;
-          weekNumbers.forEach(weekNum => {
-            const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
+          weekNumbers.forEach((weekNum) => {
+            const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
             totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
           const hours = estimatedEffortHours(totalWeeksEquivalent, 40);
@@ -461,8 +478,8 @@ export default function App() {
         }, 0),
         resourcePlans.reduce((sum, plan) => {
           let totalWeeksEquivalent = 0;
-          weekNumbers.forEach(weekNum => {
-            const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
+          weekNumbers.forEach((weekNum) => {
+            const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
             totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
           const hours = estimatedEffortHours(totalWeeksEquivalent, 40);
@@ -470,69 +487,75 @@ export default function App() {
         }, 0),
         resourcePlans.reduce((sum, plan) => {
           let totalWeeksEquivalent = 0;
-          weekNumbers.forEach(weekNum => {
-            const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
+          weekNumbers.forEach((weekNum) => {
+            const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
             totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
           return sum + estimatedEffortHours(totalWeeksEquivalent, 40);
-        }, 0)
+        }, 0),
       ];
-
       const totalsRowIndex = worksheet.addRow(totalsRow);
       const totalsRowObj = worksheet.getRow(totalsRowIndex.number);
       totalsRowObj.font = { bold: true };
-      totalsRowObj.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF0F0F0' }
-      };
+      totalsRowObj.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+
+      // Phase Summary section
+      worksheet.addRow([]);
+      const phaseSummaryTitleRow = worksheet.addRow(['Phase Summary']);
+      phaseSummaryTitleRow.font = { bold: true };
+      let startWeek = 1;
+      phases.forEach((phase) => {
+        const endWeek = startWeek + phase.weekCount - 1;
+        let cost = 0, price = 0, efforts = 0;
+        resourcePlans.forEach((plan) => {
+          let weeksEquiv = 0;
+          for (let w = startWeek; w <= endWeek; w++) {
+            const alloc = plan.weeklyAllocations.find((wa) => wa.weekNumber === w);
+            weeksEquiv += (alloc?.allocation || 0) / 100;
+          }
+          const hours = estimatedEffortHours(weeksEquiv, 40);
+          cost += totalInternalCost(hours, plan.intHourlyRate);
+          price += totalClientCost(hours, plan.clientHourlyRate);
+          efforts += hours;
+        });
+        const margin = grossMarginPct(cost, price, currentProject.exchangeRate);
+        worksheet.addRow([phase.name, cost, price, efforts, margin]);
+        startWeek = endWeek + 1;
+      });
 
       // Auto-fit columns
-      worksheet.columns.forEach(column => {
+      worksheet.columns.forEach((column) => {
         if (column.eachCell) {
           let maxLength = 0;
           column.eachCell({ includeEmpty: true }, (cell) => {
             const columnLength = cell.value ? cell.value.toString().length : 10;
-            if (columnLength > maxLength) {
-              maxLength = columnLength;
-            }
+            if (columnLength > maxLength) maxLength = columnLength;
           });
           column.width = Math.min(maxLength + 2, 20);
         }
       });
 
-      // Format currency columns with appropriate currency symbols
-      const internalCostColumns = [4, 5, 9 + weekNumbers.length]; // Internal Hourly Cost, Internal Daily Cost, Total Internal Cost (always USD)
-      internalCostColumns.forEach(colIndex => {
+      const internalCostColumns = [4, 5, firstWeekCol + weekNumbers.length];
+      internalCostColumns.forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = '$#,##0';
       });
-
-      // Format client currency columns (Client Hourly Rate, Client Daily Rate, Total Price)
-      const clientCurrencyColumns = [6, 7, 10 + weekNumbers.length]; // Client Hourly Rate, Client Daily Rate, Total Price
+      const clientCurrencyColumns = [6, 7, firstWeekCol + weekNumbers.length + 1];
       const clientCurrencyFormat = currentProject.clientCurrency === 'EUR' ? '€#,##0' :
-                                  currentProject.clientCurrency === 'GBP' ? '£#,##0' : '$#,##0';
-      clientCurrencyColumns.forEach(colIndex => {
+        currentProject.clientCurrency === 'GBP' ? '£#,##0' : '$#,##0';
+      clientCurrencyColumns.forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = clientCurrencyFormat;
       });
-
-      // Format percentage columns - Margin and all week columns
       const marginColumn = 8;
-      const weekColumns = weekNumbers.map((_, index) => 9 + index);
-      const percentageColumns = [marginColumn, ...weekColumns];
-      
-      percentageColumns.forEach(colIndex => {
+      const weekColumns = weekNumbers.map((_, index) => firstWeekCol + index);
+      [marginColumn, ...weekColumns].forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = '0"%"';
       });
-      
-      // Format efforts column
-      worksheet.getColumn(9 + weekNumbers.length + 2).numFmt = '0';
+      worksheet.getColumn(firstWeekCol + weekNumbers.length + 2).numFmt = '0';
 
-      // Generate Excel file
       const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
-      
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -541,7 +564,6 @@ export default function App() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to export to Excel');
       console.error('Error exporting to Excel:', err);

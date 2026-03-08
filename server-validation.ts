@@ -2,6 +2,32 @@ import { z } from 'zod';
 
 // Whitelisted schemas for API input — no id, createdAt, updatedAt, or relation IDs from client
 
+const phaseSchema = z.object({
+  name: z.string().min(1).max(200),
+  weekCount: z.number().int().min(1).max(104),
+});
+
+const phasesStringSchema = z
+  .string()
+  .optional()
+  .nullable()
+  .refine(
+    (val) => {
+      if (val == null || val === '') return true;
+      try {
+        const parsed = JSON.parse(val);
+        return (
+          Array.isArray(parsed) &&
+          parsed.length > 0 &&
+          parsed.every((p) => phaseSchema.safeParse(p).success)
+        );
+      } catch {
+        return false;
+      }
+    },
+    { message: 'phases must be a JSON array of { name, weekCount }' }
+  );
+
 export const projectCreateSchema = z.object({
   name: z.string().min(1).max(500),
   description: z.string().max(2000).optional().nullable(),
@@ -9,6 +35,7 @@ export const projectCreateSchema = z.object({
   clientCurrency: z.string().max(10).optional(),
   exchangeRate: z.number().min(0).optional(),
   defaultMargin: z.number().min(0).max(100).optional().nullable(),
+  phases: phasesStringSchema,
 }).strict();
 
 export const projectUpdateSchema = z.object({
@@ -18,6 +45,7 @@ export const projectUpdateSchema = z.object({
   clientCurrency: z.string().max(10).optional(),
   exchangeRate: z.number().min(0).optional(),
   defaultMargin: z.number().min(0).max(100).optional().nullable(),
+  phases: phasesStringSchema,
 }).strict();
 
 export const rateCardUpdateSchema = z.object({

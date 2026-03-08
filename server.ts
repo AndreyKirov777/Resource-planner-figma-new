@@ -95,6 +95,7 @@ app.post('/api/projects', async (req, res) => {
         clientCurrency: parsed.data.clientCurrency ?? 'EUR',
         exchangeRate: parsed.data.exchangeRate ?? 0.89,
         defaultMargin: parsed.data.defaultMargin ?? 25.0,
+        phases: parsed.data.phases ?? undefined,
       }
     });
     res.json(project);
@@ -187,6 +188,7 @@ app.post('/api/projects/import', async (req, res) => {
         clientCurrency: projectData.clientCurrency ?? 'EUR',
         exchangeRate: projectData.exchangeRate ?? 0.89,
         defaultMargin: projectData.defaultMargin ?? 25.0,
+        phases: projectData.phases ?? undefined,
       }
     });
 
