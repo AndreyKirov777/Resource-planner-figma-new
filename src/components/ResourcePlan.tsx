@@ -1116,7 +1116,7 @@ export function ResourcePlan({
             {/* Project Controls Column - Split into two columns */}
             <div className="grid grid-cols-2 gap-4">
               {/* Left Column: Project name and buttons */}
-              <div className="space-y-4">
+              <div className="flex flex-col gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="projectName">Project name</Label>
                   <Input
@@ -1127,7 +1127,7 @@ export function ResourcePlan({
                   />
                 </div>
                 
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2 mt-5">
                   <Button onClick={onExportProject} size="sm" variant="default">
                     Save file
                   </Button>
