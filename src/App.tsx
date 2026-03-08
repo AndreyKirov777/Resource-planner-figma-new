@@ -518,6 +518,18 @@ export default function App() {
       worksheet.addRow([]);
       const phaseSummaryTitleRow = worksheet.addRow(['Phase Summary']);
       phaseSummaryTitleRow.font = { bold: true };
+      const phaseSummaryHeaderRow = worksheet.addRow([
+        'Phase',
+        'Internal Cost ($)',
+        `Price (${currencySymbol})`,
+        'Estimated Efforts (h)',
+        'Margin (%)',
+      ]);
+      phaseSummaryHeaderRow.font = { bold: true };
+      phaseSummaryHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+      const phaseSummaryClientFmt = currentProject.clientCurrency === 'EUR' ? '€#,##0.00'
+        : currentProject.clientCurrency === 'GBP' ? '£#,##0.00' : '$#,##0.00';
+      const phaseSummaryDataRowNumbers: number[] = [];
       let startWeek = 1;
       phases.forEach((phase) => {
         const endWeek = startWeek + phase.weekCount - 1;
@@ -534,7 +546,19 @@ export default function App() {
           efforts += hours;
         });
         const margin = grossMarginPct(cost, price, currentProject.exchangeRate);
-        worksheet.addRow([phase.name, cost, price, efforts, margin]);
+        const phaseRow = worksheet.addRow([
+          phase.name,
+          Math.round(cost * 100) / 100,
+          Math.round(price * 100) / 100,
+          Math.round(efforts * 100) / 100,
+          Math.round(margin * 100) / 100,
+        ]);
+        phaseSummaryDataRowNumbers.push(phaseRow.number);
+        const r = worksheet.getRow(phaseRow.number);
+        if (r.getCell(2).value != null) r.getCell(2).numFmt = '$#,##0.00';
+        if (r.getCell(3).value != null) r.getCell(3).numFmt = phaseSummaryClientFmt;
+        if (r.getCell(4).value != null) r.getCell(4).numFmt = '#,##0.00';
+        if (r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
         startWeek = endWeek + 1;
       });
 
@@ -566,6 +590,13 @@ export default function App() {
         worksheet.getColumn(colIndex).numFmt = '0"%"';
       });
       worksheet.getColumn(firstWeekCol + weekNumbers.length + 2).numFmt = '0';
+
+      // Re-apply Phase Summary cell formats (columns 4 & 5 are overwritten by column formats above)
+      phaseSummaryDataRowNumbers.forEach((rowNum) => {
+        const r = worksheet.getRow(rowNum);
+        if (r.getCell(4).value != null) r.getCell(4).numFmt = '#,##0.00';
+        if (r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
+      });
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
