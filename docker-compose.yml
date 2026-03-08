@@ -4,8 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "80:3001"  # Map VM's port 80 to container's port 3001
-      - "3001:3001"  # Also expose 3001 directly for API access
+      - "3001:3001"  # API & Web UI (existing URL)
+      - "8080:3001"   # Alternative Web UI port
     volumes:
       - db-data:/app/prisma  # Persist database in named volume
     environment:

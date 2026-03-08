@@ -25,6 +25,10 @@ logs/
 # SQLite database (keep data local; do not commit)
 prisma/dev.db
 
+# Local deploy overrides (optional)
+scripts/deploy.config.local.ps1
+scripts/deploy.config.local.sh
+
 # Optional: uncomment if you don't want to share editor/IDE config
 # .vscode
 # .cursor

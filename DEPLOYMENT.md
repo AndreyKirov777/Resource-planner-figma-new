@@ -1,11 +1,64 @@
 # Deployment Guide - Docker on Remote VM
 
-This guide explains how to deploy the Resource Planning Application to a remote VM using Docker.
+This guide explains how to deploy the Resource Planning Application to a remote VM (res-pln-dev-vm.ipa.dataart.net) using Docker.
 
-## Prerequisites
+## Deploy from your local machine (recommended)
 
-✅ Docker context "prod" is already created and points to your remote VM
-✅ Docker configuration files have been created
+Use the deploy script from the project root. One-time setup is required.
+
+### One-time setup
+
+1. **SSH access**  
+   Ensure you can log in to the VM:
+   ```bash
+   ssh your-username@res-pln-dev-vm.ipa.dataart.net
+   ```
+   Use SSH keys for passwordless deploy (recommended). Fix key permissions if needed: `chmod 600 ~/.ssh/id_rsa`.
+
+2. **Docker on the VM**  
+   Docker must be installed on the VM, and your user must be in the `docker` group (e.g. `sudo usermod -aG docker $USER` and log in again).
+
+3. **One-time remote setup (macOS/Linux)**  
+   From the project root:
+   ```bash
+   chmod +x scripts/deploy-to-vm.sh
+   ./scripts/deploy-to-vm.sh --setup-only
+   ```
+   This creates the app directory on the VM. To use a different VM user or path, copy `scripts/deploy.config.sh` to `scripts/deploy.config.local.sh` and set `REMOTE_USER` and/or `REMOTE_APP_PATH`.
+
+### Deploy (macOS / Linux)
+
+From the project root:
+```bash
+./scripts/deploy-to-vm.sh
+```
+Or: `npm run deploy`
+
+To only restart containers without rebuilding:
+```bash
+./scripts/deploy-to-vm.sh --skip-build
+```
+
+Requires `rsync` and `ssh` (both are standard on macOS).
+
+### Deploy (Windows with PowerShell)
+
+If you use Windows, use the PowerShell script instead:
+```powershell
+cd scripts
+.\deploy-to-vm.ps1 -SetupContext   # one-time: create Docker context
+.\deploy-to-vm.ps1                 # deploy
+```
+Optional override: copy `deploy.config.ps1` to `deploy.config.local.ps1` and set `$REMOTE_USER`.
+
+---
+
+## Manual deployment (Docker context)
+
+### Prerequisites
+
+- Docker context "prod" is created and points to your remote VM (see **One-time setup** above), or you use the deploy script.
+- Docker configuration files (Dockerfile, docker-compose.yml) are in the project.
 
 ## Deployment Steps
 
@@ -36,7 +89,7 @@ docker-compose --context prod up -d --build
 This will:
 - Build the Docker image on the remote VM
 - Start the container in detached mode
-- Expose the application on port 80 and 3001
+- Expose the application on port 8080 (Web UI) and 3001 (API). If port 80 is free on the VM, you can change `8080:3001` to `80:3001` in `docker-compose.yml`.
 
 #### Option B: Using Docker Commands Directly
 
@@ -50,7 +103,7 @@ Run the container:
 
 ```powershell
 docker --context prod run -d `
-  -p 80:3001 `
+  -p 8080:3001 `
   -p 3001:3001 `
   -v resource-planner-data:/app/data `
   --name resource-planner `
@@ -76,7 +129,7 @@ docker --context prod logs -f resource-planner
 
 Once deployed, access your application at:
 - **API**: `http://[YOUR_VM_IP]:3001`
-- **Web UI**: `http://[YOUR_VM_IP]` (port 80)
+- **Web UI**: `http://[YOUR_VM_IP]:8080`
 
 ## Managing the Application
 
@@ -108,7 +161,7 @@ docker --context prod stop resource-planner
 docker --context prod rm resource-planner
 docker --context prod build -t resource-planner:latest .
 docker --context prod run -d `
-  -p 80:3001 `
+  -p 8080:3001 `
   -p 3001:3001 `
   -v resource-planner-data:/app/data `
   --name resource-planner `
@@ -155,6 +208,10 @@ docker-compose --context prod restart
 
 ## Troubleshooting
 
+### SSH: "Permission denied (publickey)" or "UNPROTECTED PRIVATE KEY FILE"
+- **Key permissions**: Your private key must not be readable by others. On macOS/Linux: `chmod 600 ~/.ssh/id_rsa`. On Windows (PowerShell): `icacls $env:USERPROFILE\.ssh\id_rsa /inheritance:r /grant:r "$env:USERNAME:R"`.
+- Ensure your public key is on the VM: `ssh-copy-id your-username@res-pln-dev-vm.ipa.dataart.net` (or add `~/.ssh/id_rsa.pub` to `~/.ssh/authorized_keys` on the VM).
+
 ### Container won't start
 ```powershell
 # Check logs for errors
@@ -174,7 +231,7 @@ docker --context prod exec resource-planner npx prisma migrate deploy
 ```
 
 ### Port conflicts
-If ports 80 or 3001 are already in use on the VM, modify the port mappings in `docker-compose.yml` or your docker run command.
+If you see **"Bind for 0.0.0.0:80 failed: port is already allocated"**, port 80 is in use on the VM. The default is now **8080** for the Web UI (see `docker-compose.yml`). Use `http://VM:8080` to open the app. To use port 80 instead, change `8080:3001` to `80:3001` in `docker-compose.yml` and free port 80 on the VM (e.g. stop nginx or another service).
 
 ## Important Notes
 
@@ -185,7 +242,7 @@ If ports 80 or 3001 are already in use on the VM, modify the port mappings in `d
    - On first deployment, a fresh database will be created with default data
 2. **Environment Variables**: Add any production environment variables to the `docker-compose.yml` file under the `environment` section.
 3. **HTTPS**: For production, consider setting up a reverse proxy (nginx) with SSL certificates.
-4. **Firewall**: Ensure ports 80 and/or 3001 are open on your VM's firewall.
+4. **Firewall**: Ensure ports 8080 and/or 3001 are open on your VM's firewall.
 
 ## Next Steps
 

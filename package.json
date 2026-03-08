@@ -83,6 +83,7 @@
             "dev:server": "tsx watch server.ts",
             "test": "vitest",
             "run": "./run.sh",
-            "stop": "./stop.sh"
+            "stop": "./stop.sh",
+            "deploy": "./scripts/deploy-to-vm.sh"
       }
 }
