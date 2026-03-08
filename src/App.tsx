@@ -24,7 +24,7 @@ export default function App() {
   const [resourceLists, setResourceLists] = useState<ResourceListType[]>([]);
   const [rateCards, setRateCards] = useState<RateCardType[]>([]);
   const [resourcePlans, setResourcePlans] = useState<ResourcePlanType[]>([]);
-  const [activeTab, setActiveTab] = useState('project-list');
+  const [activeTab, setActiveTab] = useState('resource-plan');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
