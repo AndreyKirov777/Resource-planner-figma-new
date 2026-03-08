@@ -1111,7 +1111,7 @@ export function ResourcePlan({
     <div className="space-y-6">
       {/* Project Header - Two columns layout */}
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="relative pt-6 pr-44">
           <div className="grid grid-cols-2 gap-6">
             {/* Project Controls Column - Split into two columns */}
             <div className="grid grid-cols-2 gap-4">
@@ -1214,6 +1214,13 @@ export function ResourcePlan({
                 </div>
               </div>
             </div>
+          </div>
+          <div className="pointer-events-none absolute right-6 top-6 h-[126px] w-auto">
+            <img
+              src="/resource_planner_logo_8th_march.png"
+              alt="Resource Planner 8th of March Edition logo"
+              className="h-full w-auto object-contain"
+            />
           </div>
         </CardContent>
       </Card>
