@@ -31,12 +31,14 @@ interface ProjectListProps {
   onOpenProject: (projectId: number) => void;
   currentProjectId?: number | null;
   onProjectDeleted?: (deletedId: number) => void;
+  onProjectUpdated?: (project: Project) => void;
 }
 
 export function ProjectList({
   onOpenProject,
   currentProjectId,
   onProjectDeleted,
+  onProjectUpdated,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,18 +102,17 @@ export function ProjectList({
   const handleSaveEdit = async () => {
     if (!editProject) return;
     try {
-      await api.updateProject(editProject.id, {
+      const updated = await api.updateProject(editProject.id, {
         name: editName,
         description: editDescription || undefined,
       });
       setProjects((prev) =>
         prev.map((p) =>
-          p.id === editProject.id
-            ? { ...p, name: editName, description: editDescription || undefined }
-            : p
+          p.id === editProject.id ? { ...p, ...updated } : p
         )
       );
       setEditProject(null);
+      onProjectUpdated?.(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update project');
     }

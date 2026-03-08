@@ -602,6 +602,13 @@ export default function App() {
             }}
             currentProjectId={currentProject?.id}
             onProjectDeleted={() => loadProjectData()}
+            onProjectUpdated={(project) => {
+              if (currentProject?.id === project.id) {
+                setCurrentProject(project);
+                setEditableProjectName(project.name || '');
+                setEditableProjectDescription(project.description || '');
+              }
+            }}
           />
         </TabsContent>
         
