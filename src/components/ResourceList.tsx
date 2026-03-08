@@ -13,6 +13,7 @@ interface ResourceListProps {
   onResourceListUpdate?: (id: number, data: Partial<ResourceListType>) => void;
   onAddResourceList: (resource: Partial<ResourceListType>) => void;
   onDeleteResourceList: (id: number) => void;
+  onClearAllResourceLists?: () => void;
 }
 
 // Custom cell renderer component for the Actions column
@@ -39,7 +40,8 @@ export function ResourceList({
   onResourceListsChange, 
   onResourceListUpdate,
   onAddResourceList,
-  onDeleteResourceList 
+  onDeleteResourceList,
+  onClearAllResourceLists
 }: ResourceListProps) {
   const [newRole, setNewRole] = useState('');
   const [newClientRole, setNewClientRole] = useState('');
@@ -281,8 +283,19 @@ export function ResourceList({
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Resource List</CardTitle>
+          {onClearAllResourceLists && resourceLists.length > 0 && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="bg-red-500 hover:bg-red-600 text-white"
+              onClick={onClearAllResourceLists}
+            >
+              Clear all
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           <div className="ag-theme-alpine" style={{ height: '500px', width: '100%' }}>

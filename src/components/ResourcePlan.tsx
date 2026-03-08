@@ -23,6 +23,7 @@ interface ResourcePlanProps {
   onExportProject?: () => void;
   onImportProject?: () => void;
   onExportToExcel?: () => void;
+  onClearAllResourcePlans?: () => void;
   projectName: string;
   projectDescription: string;
   onProjectNameChange: (name: string) => void;
@@ -163,6 +164,7 @@ export function ResourcePlan({
   onExportProject,
   onImportProject,
   onExportToExcel,
+  onClearAllResourcePlans,
   projectName,
   projectDescription,
   onProjectNameChange,
@@ -1069,6 +1071,17 @@ export function ResourcePlan({
               <Plus className="h-4 w-4 mr-1" />
               Add Week at End
             </Button>
+            {onClearAllResourcePlans && resourcePlans.length > 0 && (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="bg-red-500 hover:bg-red-600 text-white"
+                onClick={onClearAllResourcePlans}
+              >
+                Clear all
+              </Button>
+            )}
             <span className="text-sm text-muted-foreground">Weeks: {weekNumbers.length} | Roles: {resourcePlans.length}</span>
           </div>
         </div>

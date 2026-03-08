@@ -116,6 +116,19 @@ export default function App() {
     }
   };
 
+  const handleClearAllResourceLists = async () => {
+    if (resourceLists.length === 0) return;
+    try {
+      for (const r of resourceLists) {
+        await api.deleteResourceList(r.id);
+      }
+      setResourceLists([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear resource list');
+      console.error('Error clearing resource list:', err);
+    }
+  };
+
   const handleRateCardsChange = (updatedRateCards: RateCardType[]) => {
     setRateCards(updatedRateCards);
   };
@@ -258,6 +271,19 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete resource plan');
       console.error('Error deleting resource plan:', err);
+    }
+  };
+
+  const handleClearAllResourcePlans = async () => {
+    if (resourcePlans.length === 0) return;
+    try {
+      for (const plan of resourcePlans) {
+        await api.deleteResourcePlan(plan.id);
+      }
+      setResourcePlans([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear resource plan');
+      console.error('Error clearing resource plan:', err);
     }
   };
 
@@ -579,6 +605,7 @@ export default function App() {
             onExportProject={handleExportProject}
             onImportProject={handleImportProject}
             onExportToExcel={handleExportToExcel}
+            onClearAllResourcePlans={handleClearAllResourcePlans}
             projectName={editableProjectName}
             projectDescription={editableProjectDescription}
             onProjectNameChange={(name) => {
@@ -599,6 +626,7 @@ export default function App() {
             onResourceListUpdate={handleResourceListUpdate}
             onAddResourceList={handleAddResourceList}
             onDeleteResourceList={handleDeleteResourceList}
+            onClearAllResourceLists={handleClearAllResourceLists}
           />
         </TabsContent>
 
