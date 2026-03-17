@@ -616,6 +616,276 @@ export default function App() {
     }
   };
 
+  const handleExportToPNG = () => {
+    if (!currentProject || resourcePlans.length === 0) {
+      alert('No planning data to export');
+      return;
+    }
+
+    // Parse phases
+    let phases: Phase[] = [];
+    if (currentProject.phases) {
+      try {
+        const parsed = JSON.parse(currentProject.phases) as Phase[];
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && p.weekCount > 0)) {
+          phases = parsed;
+        }
+      } catch { /* fall through */ }
+    }
+    if (phases.length === 0) {
+      const allWeeks = new Set<number>();
+      resourcePlans.forEach((p) => p.weeklyAllocations.forEach((wa) => allWeeks.add(wa.weekNumber)));
+      const totalWeeks = allWeeks.size > 0 ? Math.max(...allWeeks) : 8;
+      phases = [{ name: 'Phase 1', weekCount: totalWeeks }];
+    }
+
+    const totalWeekCount = phases.reduce((s, p) => s + p.weekCount, 0);
+    const weekNumbers = Array.from({ length: totalWeekCount }, (_, i) => i + 1);
+    const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€'
+      : currentProject.clientCurrency === 'GBP' ? '£' : '$';
+
+    // Per-row financial data
+    const rows = resourcePlans.map((plan) => {
+      let totalWeeksEquivalent = 0;
+      weekNumbers.forEach((weekNum) => {
+        const alloc = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
+        totalWeeksEquivalent += (alloc?.allocation || 0) / 100;
+      });
+      const efforts = estimatedEffortHours(totalWeeksEquivalent, 40);
+      const intCost = totalInternalCost(efforts, plan.intHourlyRate);
+      const price = totalClientCost(efforts, plan.clientHourlyRate);
+      const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
+      return {
+        role: plan.role || '',
+        clientRole: plan.clientRole || '',
+        name: plan.name || '',
+        intHourlyRate: plan.intHourlyRate,
+        clientHourlyRate: plan.clientHourlyRate,
+        margin,
+        intCost,
+        price,
+        efforts,
+      };
+    });
+
+    // Project-level totals
+    const grandIntCost = rows.reduce((s, r) => s + r.intCost, 0);
+    const grandPrice = rows.reduce((s, r) => s + r.price, 0);
+    const grandEfforts = rows.reduce((s, r) => s + r.efforts, 0);
+    const projectMargin = grossMarginPct(grandIntCost, grandPrice, currentProject.exchangeRate);
+
+    // ── Canvas layout constants ──────────────────────────────────────────────
+    const SCALE = 2; // retina / HiDPI
+    const PAD = 32;
+    const HEADER_H = 88;      // project title + date
+    const COL_H = 38;         // column header row
+    const ROW_H = 30;         // data row
+    const SUMMARY_H = 140;    // financial summary card
+    const GAP = 24;           // vertical gap between sections
+
+    const columns = [
+      { label: 'Rate Card Role',                    w: 160 },
+      { label: 'Client Role',                       w: 130 },
+      { label: 'Name',                              w: 130 },
+      { label: 'Int. Hourly ($)',                   w: 110 },
+      { label: `Client Hourly (${currencySymbol})`, w: 120 },
+      { label: 'Margin %',                          w: 80  },
+      { label: 'Total Int. Cost ($)',               w: 130 },
+      { label: `Total Price (${currencySymbol})`,   w: 120 },
+      { label: 'Est. Efforts (h)',                  w: 110 },
+    ];
+
+    const tableW = columns.reduce((s, c) => s + c.w, 0);
+    const canvasW = Math.max(tableW + PAD * 2, 900);
+    const tableH = COL_H + (rows.length + 1) * ROW_H; // +1 totals row
+    const canvasH = HEADER_H + GAP + tableH + GAP + SUMMARY_H + PAD;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasW * SCALE;
+    canvas.height = canvasH * SCALE;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(SCALE, SCALE);
+
+    // ── Background ───────────────────────────────────────────────────────────
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    // ── Project header ───────────────────────────────────────────────────────
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 22px system-ui, -apple-system, Arial, sans-serif';
+    ctx.fillText(currentProject.name || 'Resource Plan', PAD, PAD + 26);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '13px system-ui, -apple-system, Arial, sans-serif';
+    ctx.fillText(
+      `Generated: ${new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`,
+      PAD,
+      PAD + 52,
+    );
+
+    // ── Table ────────────────────────────────────────────────────────────────
+    const tableX = PAD;
+    let tableY = HEADER_H + GAP;
+
+    // Column header background
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(tableX, tableY, tableW, COL_H);
+
+    // Column header text
+    ctx.fillStyle = '#f1f5f9';
+    ctx.font = 'bold 10.5px system-ui, -apple-system, Arial, sans-serif';
+    let cx = tableX;
+    columns.forEach((col) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(cx + 1, tableY, col.w - 2, COL_H);
+      ctx.clip();
+      ctx.fillText(col.label, cx + 7, tableY + 24);
+      ctx.restore();
+      cx += col.w;
+    });
+    tableY += COL_H;
+
+    // Data rows
+    rows.forEach((row, i) => {
+      const rowY = tableY + i * ROW_H;
+      ctx.fillStyle = i % 2 === 0 ? '#f8fafc' : '#ffffff';
+      ctx.fillRect(tableX, rowY, tableW, ROW_H);
+
+      const values = [
+        row.role,
+        row.clientRole,
+        row.name,
+        `$${row.intHourlyRate.toFixed(0)}`,
+        `${currencySymbol}${row.clientHourlyRate.toFixed(0)}`,
+        `${row.margin.toFixed(1)}%`,
+        `$${Math.round(row.intCost).toLocaleString()}`,
+        `${currencySymbol}${Math.round(row.price).toLocaleString()}`,
+        `${Math.round(row.efforts).toLocaleString()}h`,
+      ];
+
+      ctx.fillStyle = '#334155';
+      ctx.font = '11px system-ui, -apple-system, Arial, sans-serif';
+      let vx = tableX;
+      values.forEach((val, idx) => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(vx + 1, rowY, columns[idx].w - 2, ROW_H);
+        ctx.clip();
+        ctx.fillText(val, vx + 7, rowY + 19);
+        ctx.restore();
+        vx += columns[idx].w;
+      });
+    });
+
+    // Totals row
+    const totalsY = tableY + rows.length * ROW_H;
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(tableX, totalsY, tableW, ROW_H);
+    const totalsValues = [
+      'TOTALS', '', '', '', '', '',
+      `$${Math.round(grandIntCost).toLocaleString()}`,
+      `${currencySymbol}${Math.round(grandPrice).toLocaleString()}`,
+      `${Math.round(grandEfforts).toLocaleString()}h`,
+    ];
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 11px system-ui, -apple-system, Arial, sans-serif';
+    let tx = tableX;
+    totalsValues.forEach((val, idx) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(tx + 1, totalsY, columns[idx].w - 2, ROW_H);
+      ctx.clip();
+      ctx.fillText(val, tx + 7, totalsY + 19);
+      ctx.restore();
+      tx += columns[idx].w;
+    });
+
+    // Grid lines (drawn over fills)
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 0.5;
+
+    // Horizontal lines
+    const gridTop = HEADER_H + GAP;
+    const gridBottom = gridTop + COL_H + (rows.length + 1) * ROW_H;
+    for (let i = 0; i <= rows.length + 2; i++) {
+      const ly = gridTop + (i === 0 ? 0 : i === 1 ? COL_H : COL_H + (i - 1) * ROW_H);
+      ctx.beginPath();
+      ctx.moveTo(tableX, ly);
+      ctx.lineTo(tableX + tableW, ly);
+      ctx.stroke();
+    }
+
+    // Vertical lines
+    let vlineX = tableX;
+    columns.forEach((col) => {
+      ctx.beginPath();
+      ctx.moveTo(vlineX, gridTop);
+      ctx.lineTo(vlineX, gridBottom);
+      ctx.stroke();
+      vlineX += col.w;
+    });
+    ctx.beginPath();
+    ctx.moveTo(vlineX, gridTop);
+    ctx.lineTo(vlineX, gridBottom);
+    ctx.stroke();
+
+    // ── Financial Summary card ───────────────────────────────────────────────
+    const cardX = PAD;
+    const cardY = HEADER_H + GAP + tableH + GAP;
+    const cardW = canvasW - PAD * 2;
+    const cardH = SUMMARY_H - GAP;
+    const r = 10;
+
+    ctx.fillStyle = '#f1f5f9';
+    ctx.beginPath();
+    ctx.moveTo(cardX + r, cardY);
+    ctx.lineTo(cardX + cardW - r, cardY);
+    ctx.arcTo(cardX + cardW, cardY, cardX + cardW, cardY + r, r);
+    ctx.lineTo(cardX + cardW, cardY + cardH - r);
+    ctx.arcTo(cardX + cardW, cardY + cardH, cardX + cardW - r, cardY + cardH, r);
+    ctx.lineTo(cardX + r, cardY + cardH);
+    ctx.arcTo(cardX, cardY + cardH, cardX, cardY + cardH - r, r);
+    ctx.lineTo(cardX, cardY + r);
+    ctx.arcTo(cardX, cardY, cardX + r, cardY, r);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 13px system-ui, -apple-system, Arial, sans-serif';
+    ctx.fillText('Financial Summary', cardX + 16, cardY + 28);
+
+    const metrics = [
+      { label: 'Total Internal Cost',                      value: `$${Math.round(grandIntCost).toLocaleString()}` },
+      { label: `Total Price (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandPrice).toLocaleString()}` },
+      { label: 'Total Estimated Efforts',                  value: `${Math.round(grandEfforts).toLocaleString()} h` },
+      { label: 'Project Margin',                           value: `${projectMargin.toFixed(1)}%`, highlight: projectMargin > 0 },
+    ];
+
+    const metricW = cardW / metrics.length;
+    metrics.forEach((m, i) => {
+      const mx = cardX + i * metricW + 16;
+      const my = cardY + 48;
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px system-ui, -apple-system, Arial, sans-serif';
+      ctx.fillText(m.label, mx, my);
+
+      ctx.fillStyle = m.highlight !== undefined
+        ? (m.highlight ? '#15803d' : '#dc2626')
+        : '#0f172a';
+      ctx.font = 'bold 20px system-ui, -apple-system, Arial, sans-serif';
+      ctx.fillText(m.value, mx, my + 32);
+    });
+
+    // ── Download ─────────────────────────────────────────────────────────────
+    const link = document.createElement('a');
+    link.download = `resource-planning-${currentProject.name || 'project'}-${new Date().toISOString().split('T')[0]}.png`;
+    link.href = canvas.toDataURL('image/png');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading) {
     return (
       <div className="p-6">
@@ -693,6 +963,7 @@ export default function App() {
             onExportProject={handleExportProject}
             onImportProject={handleImportProject}
             onExportToExcel={handleExportToExcel}
+            onExportToPNG={handleExportToPNG}
             onClearAllResourcePlans={handleClearAllResourcePlans}
             projectName={editableProjectName}
             projectDescription={editableProjectDescription}

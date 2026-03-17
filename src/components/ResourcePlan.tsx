@@ -33,6 +33,7 @@ interface ResourcePlanProps {
   onExportProject?: () => void;
   onImportProject?: () => void;
   onExportToExcel?: () => void;
+  onExportToPNG?: () => void;
   onClearAllResourcePlans?: () => void;
   projectName: string;
   projectDescription: string;
@@ -221,6 +222,7 @@ export function ResourcePlan({
   onExportProject,
   onImportProject,
   onExportToExcel,
+  onExportToPNG,
   onClearAllResourcePlans,
   projectName,
   projectDescription,
@@ -1136,6 +1138,9 @@ export function ResourcePlan({
                   </Button>
                   <Button onClick={onExportToExcel} size="sm" variant="outline">
                     Export to Excel
+                  </Button>
+                  <Button onClick={onExportToPNG} size="sm" variant="outline">
+                    Export to PNG
                   </Button>
                 </div>
               </div>
