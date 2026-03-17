@@ -1056,7 +1056,9 @@ export function ResourcePlan({
     const totalPrice = resourcePlans.reduce((sum, plan) => sum + calculateTotalPrice(plan), 0);
     const totalEfforts = resourcePlans.reduce((sum, plan) => sum + calculateEstimatedEfforts(plan), 0);
     const calculatedMargin = grossMarginPct(totalIntCost, totalPrice, project.exchangeRate);
-    return { totalIntCost, totalPrice, totalEfforts, calculatedMargin };
+    const blendedHourlyRate = totalEfforts > 0 ? totalPrice / totalEfforts : 0;
+    const blendedDailyRate = blendedHourlyRate * 8;
+    return { totalIntCost, totalPrice, totalEfforts, calculatedMargin, blendedHourlyRate, blendedDailyRate };
   }, [resourcePlans, project.exchangeRate, weekNumbers]);
 
   const phaseTotals = useMemo(() => {
@@ -1231,7 +1233,7 @@ export function ResourcePlan({
       </Card>
       <Card>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-6 gap-4">
             <div>
               <Label>Total Internal Cost</Label>
               <div className="text-lg">${Math.round(totals.totalIntCost)}</div>
@@ -1247,6 +1249,14 @@ export function ResourcePlan({
             <div>
               <Label>Calculated Project Margin</Label>
               <div className="text-lg">{totals.calculatedMargin.toFixed(1)}%</div>
+            </div>
+            <div>
+              <Label>Blended Hourly Rate</Label>
+              <div className="text-lg">{currencySymbol}{totals.blendedHourlyRate.toFixed(0)}</div>
+            </div>
+            <div>
+              <Label>Blended Daily Rate</Label>
+              <div className="text-lg">{currencySymbol}{totals.blendedDailyRate.toFixed(0)}</div>
             </div>
           </div>
           {phaseTotals.length > 0 && (
