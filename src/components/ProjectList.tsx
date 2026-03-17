@@ -46,6 +46,8 @@ export function ProjectList({
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [copyProject, setCopyProject] = useState<Project | null>(null);
+  const [copyName, setCopyName] = useState('');
 
   const fetchProjects = async () => {
     try {
@@ -90,6 +92,22 @@ export function ProjectList({
       onProjectDeleted?.(project.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete project');
+    }
+  };
+
+  const openCopy = (project: Project) => {
+    setCopyProject(project);
+    setCopyName(`${project.name} (Copy)`);
+  };
+
+  const handleConfirmCopy = async () => {
+    if (!copyProject) return;
+    try {
+      const created = await api.copyProject(copyProject.id, copyName.trim() || undefined);
+      setProjects((prev) => [...prev, created]);
+      setCopyProject(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to copy project');
     }
   };
 
@@ -178,6 +196,13 @@ export function ProjectList({
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => openCopy(project)}
+                  >
+                    Copy
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => openEdit(project)}
                   >
                     Edit
@@ -196,6 +221,32 @@ export function ProjectList({
           </TableBody>
         </Table>
       )}
+
+      <Dialog open={!!copyProject} onOpenChange={(open) => !open && setCopyProject(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Copy project</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">New project name</label>
+              <Input
+                value={copyName}
+                onChange={(e) => setCopyName(e.target.value)}
+                placeholder="Project name"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopyProject(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmCopy} disabled={!copyName.trim()}>
+              Copy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!editProject} onOpenChange={(open) => !open && setEditProject(null)}>
         <DialogContent>

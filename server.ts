@@ -135,6 +135,104 @@ app.delete('/api/projects/:id', async (req, res) => {
   }
 });
 
+// Project copy endpoint
+app.post('/api/projects/:id/copy', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid project id' });
+    }
+
+    const project = await prisma.project.findUnique({
+      where: { id },
+      include: {
+        rateCards: true,
+        resourceLists: true,
+        resourcePlans: {
+          include: { weeklyAllocations: true }
+        }
+      }
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const newName = req.body?.name || `${project.name} (Copy)`;
+
+    const copy = await prisma.project.create({
+      data: {
+        name: newName,
+        description: project.description,
+        daysInFTE: project.daysInFTE,
+        clientCurrency: project.clientCurrency,
+        exchangeRate: project.exchangeRate,
+        defaultMargin: project.defaultMargin,
+        phases: project.phases ?? undefined,
+      }
+    });
+
+    if (project.rateCards.length > 0) {
+      await prisma.rateCard.createMany({
+        data: project.rateCards.map((r) => ({
+          role: r.role,
+          namingInPM: r.namingInPM,
+          discipline: r.discipline,
+          description: r.description,
+          ukraine: r.ukraine,
+          easternEurope: r.easternEurope,
+          asiaGE: r.asiaGE,
+          asiaARMKZ: r.asiaARMKZ,
+          latam: r.latam,
+          mexico: r.mexico,
+          india: r.india,
+          newYork: r.newYork,
+          london: r.london,
+          projectId: copy.id,
+        }))
+      });
+    }
+
+    if (project.resourceLists.length > 0) {
+      await prisma.resourceList.createMany({
+        data: project.resourceLists.map((rl) => ({
+          role: rl.role,
+          clientRole: rl.clientRole,
+          name: rl.name,
+          intRate: rl.intRate,
+          location: rl.location,
+          description: rl.description,
+          projectId: copy.id,
+        }))
+      });
+    }
+
+    for (const rp of project.resourcePlans) {
+      await prisma.resourcePlan.create({
+        data: {
+          role: rp.role,
+          clientRole: rp.clientRole,
+          name: rp.name,
+          intHourlyRate: rp.intHourlyRate,
+          clientHourlyRate: rp.clientHourlyRate,
+          projectId: copy.id,
+          weeklyAllocations: {
+            create: rp.weeklyAllocations.map((wa) => ({
+              weekNumber: wa.weekNumber,
+              allocation: wa.allocation,
+            }))
+          }
+        }
+      });
+    }
+
+    res.json(copy);
+  } catch (error) {
+    console.error('Error copying project:', error);
+    res.status(500).json({ error: 'Failed to copy project' });
+  }
+});
+
 // Project export endpoint
 app.get('/api/projects/:id/export', async (req, res) => {
   try {

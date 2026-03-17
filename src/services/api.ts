@@ -122,6 +122,16 @@ export const api = {
     if (!response.ok) throw new Error('Failed to delete project');
   },
 
+  async copyProject(id: number, name?: string): Promise<Project> {
+    const response = await fetch(`${API_BASE_URL}/projects/${id}/copy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(name ? { name } : {}),
+    });
+    if (!response.ok) throw new Error('Failed to copy project');
+    return response.json();
+  },
+
   async exportProject(id: number): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/projects/${id}/export`);
     if (!response.ok) throw new Error('Failed to export project');
