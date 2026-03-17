@@ -1131,7 +1131,7 @@ export function ResourcePlan({
                   />
                 </div>
                 
-                <div className="flex items-center gap-2 mt-5">
+                <div className="relative z-10 flex items-center gap-2 mt-5">
                   <Button onClick={onExportProject} size="sm" variant="default">
                     Save file
                   </Button>
