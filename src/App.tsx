@@ -673,6 +673,8 @@ export default function App() {
     const grandPrice = rows.reduce((s, r) => s + r.price, 0);
     const grandEfforts = rows.reduce((s, r) => s + r.efforts, 0);
     const projectMargin = grossMarginPct(grandIntCost, grandPrice, currentProject.exchangeRate);
+    const blendedHourlyRate = grandEfforts > 0 ? grandPrice / grandEfforts : 0;
+    const blendedDailyRate = blendedHourlyRate * 8;
 
     // ── Canvas layout constants ──────────────────────────────────────────────
     const SCALE = 2; // retina / HiDPI
@@ -680,7 +682,7 @@ export default function App() {
     const HEADER_H = 88;      // project title + date
     const COL_H = 38;         // column header row
     const ROW_H = 30;         // data row
-    const SUMMARY_H = 140;    // financial summary card
+    const SUMMARY_H = 240;    // financial summary card (3 rows of metrics)
     const GAP = 24;           // vertical gap between sections
 
     const columns = [
@@ -854,17 +856,25 @@ export default function App() {
     ctx.font = 'bold 13px system-ui, -apple-system, Arial, sans-serif';
     ctx.fillText('Financial Summary', cardX + 16, cardY + 28);
 
+    const totalWeeks = phases.reduce((s, p) => s + p.weekCount, 0);
+
     const metrics = [
       { label: 'Total Internal Cost',                      value: `$${Math.round(grandIntCost).toLocaleString()}` },
       { label: `Total Price (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandPrice).toLocaleString()}` },
       { label: 'Total Estimated Efforts',                  value: `${Math.round(grandEfforts).toLocaleString()} h` },
+      { label: 'Duration (weeks)',                         value: `${totalWeeks}` },
       { label: 'Project Margin',                           value: `${projectMargin.toFixed(1)}%`, highlight: projectMargin > 0 },
+      { label: `Blended Hourly Rate (${currentProject.clientCurrency})`, value: `${currencySymbol}${blendedHourlyRate.toFixed(0)}` },
+      { label: `Blended Daily Rate (${currentProject.clientCurrency})`,  value: `${currencySymbol}${blendedDailyRate.toFixed(0)}` },
     ];
 
-    const metricW = cardW / metrics.length;
+    const METRICS_COLS = 3;
+    const metricW = cardW / METRICS_COLS;
     metrics.forEach((m, i) => {
-      const mx = cardX + i * metricW + 16;
-      const my = cardY + 48;
+      const col = i % METRICS_COLS;
+      const row = Math.floor(i / METRICS_COLS);
+      const mx = cardX + col * metricW + 16;
+      const my = cardY + 48 + row * 60;
 
       ctx.fillStyle = '#64748b';
       ctx.font = '11px system-ui, -apple-system, Arial, sans-serif';

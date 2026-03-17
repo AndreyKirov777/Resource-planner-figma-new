@@ -1233,7 +1233,7 @@ export function ResourcePlan({
       </Card>
       <Card>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-6 gap-4">
+          <div className="grid grid-cols-7 gap-4">
             <div>
               <Label>Total Internal Cost</Label>
               <div className="text-lg">${Math.round(totals.totalIntCost)}</div>
@@ -1245,6 +1245,10 @@ export function ResourcePlan({
             <div>
               <Label>Total Estimated Efforts</Label>
               <div className="text-lg">{Math.round(totals.totalEfforts)}h</div>
+            </div>
+            <div>
+              <Label>Duration (weeks)</Label>
+              <div className="text-lg">{totalWeeks}</div>
             </div>
             <div>
               <Label>Calculated Project Margin</Label>
