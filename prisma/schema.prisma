@@ -75,6 +75,7 @@ model ResourcePlan {
   name            String?
   intHourlyRate   Float
   clientHourlyRate Float
+  displayOrder    Int             @default(0)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   

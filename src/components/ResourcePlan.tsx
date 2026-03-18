@@ -29,6 +29,7 @@ interface ResourcePlanProps {
   onResourcePlansChange: (resourcePlans: ResourcePlanType[]) => void;
   onAddResourcePlan: (resourcePlan: Partial<ResourcePlanType>) => void;
   onDeleteResourcePlan: (id: number) => void;
+  onReorderResourcePlans: (orderedIds: number[]) => void;
   onProjectSettingsChange: (settings: Partial<Project>) => void;
   onExportProject?: () => void;
   onImportProject?: () => void;
@@ -218,6 +219,7 @@ export function ResourcePlan({
   onResourcePlansChange, 
   onAddResourcePlan,
   onDeleteResourcePlan,
+  onReorderResourcePlans,
   onProjectSettingsChange,
   onExportProject,
   onImportProject,
@@ -375,6 +377,13 @@ export function ResourcePlan({
   const removeRole = useCallback((roleId: number) => {
     onDeleteResourcePlan(roleId);
   }, [onDeleteResourcePlan]);
+
+  const handleRowMoved = useCallback((startIndex: number, endIndex: number) => {
+    const newPlans = [...resourcePlans];
+    const [moved] = newPlans.splice(startIndex, 1);
+    newPlans.splice(endIndex, 0, moved);
+    onReorderResourcePlans(newPlans.map(p => p.id));
+  }, [resourcePlans, onReorderResourcePlans]);
 
   const getGroupDetails = useCallback(
     (groupName: string) => {
@@ -1433,6 +1442,7 @@ export function ResourcePlan({
             getGroupDetails={getGroupDetails}
             overlayCss=""
             fillHandle={true}
+            onRowMoved={handleRowMoved}
             gridSelection={gridSelection}
             onGridSelectionChange={onGridSelectionChange}
             getCellsForSelection={getCellsForSelection}

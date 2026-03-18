@@ -70,6 +70,7 @@ export interface ResourcePlan {
   name?: string;
   intHourlyRate: number;
   clientHourlyRate: number;
+  displayOrder: number;
   projectId: number;
   createdAt: string;
   updatedAt: string;
@@ -276,6 +277,15 @@ export const api = {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete resource plan');
+  },
+
+  async reorderResourcePlans(projectId: number, orderedIds: number[]): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/resource-plans/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderedIds }),
+    });
+    if (!response.ok) throw new Error('Failed to reorder resource plans');
   },
 
   // Weekly Allocation endpoints

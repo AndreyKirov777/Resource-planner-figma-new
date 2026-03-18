@@ -94,6 +94,7 @@ export const resourcePlanCreateSchema = z.object({
   name: z.string().max(500).optional().nullable(),
   intHourlyRate: z.number().optional(),
   clientHourlyRate: z.number().optional(),
+  displayOrder: z.number().int().min(0).optional(),
   weeklyAllocations: z.array(weeklyAllocationSchema).optional(),
 }).strict();
 
@@ -103,7 +104,12 @@ export const resourcePlanUpdateSchema = z.object({
   name: z.string().max(500).optional().nullable(),
   intHourlyRate: z.number().optional(),
   clientHourlyRate: z.number().optional(),
+  displayOrder: z.number().int().min(0).optional(),
   weeklyAllocations: z.array(weeklyAllocationSchema).optional(),
+}).strict();
+
+export const reorderSchema = z.object({
+  orderedIds: z.array(z.number().int().positive()).min(1),
 }).strict();
 
 export const weeklyAllocationUpdateSchema = z.object({

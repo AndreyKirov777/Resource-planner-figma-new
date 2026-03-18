@@ -275,6 +275,22 @@ export default function App() {
     }
   };
 
+  const handleReorderResourcePlans = async (orderedIds: number[]) => {
+    if (!currentProject) return;
+    const previous = resourcePlans;
+    try {
+      const reordered = orderedIds
+        .map(id => resourcePlans.find(rp => rp.id === id))
+        .filter((rp): rp is ResourcePlanType => rp !== undefined);
+      setResourcePlans(reordered);
+      await api.reorderResourcePlans(currentProject.id, orderedIds);
+    } catch (err) {
+      setResourcePlans(previous);
+      setError(err instanceof Error ? err.message : 'Failed to reorder resource plans');
+      console.error('Error reordering resource plans:', err);
+    }
+  };
+
   const handleClearAllResourcePlans = async () => {
     if (resourcePlans.length === 0) return;
     try {
@@ -969,6 +985,7 @@ export default function App() {
             onResourcePlansChange={handleResourcePlansChange}
             onAddResourcePlan={handleAddResourcePlan}
             onDeleteResourcePlan={handleDeleteResourcePlan}
+            onReorderResourcePlans={handleReorderResourcePlans}
             onProjectSettingsChange={handleProjectSettingsChange}
             onExportProject={handleExportProject}
             onImportProject={handleImportProject}

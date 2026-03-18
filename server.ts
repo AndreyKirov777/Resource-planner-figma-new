@@ -17,6 +17,7 @@ import {
   resourceListUpdateSchema,
   resourcePlanCreateSchema,
   resourcePlanUpdateSchema,
+  reorderSchema,
   weeklyAllocationSchema,
   weeklyAllocationUpdateSchema,
 } from './server-validation';
@@ -215,6 +216,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
           name: rp.name,
           intHourlyRate: rp.intHourlyRate,
           clientHourlyRate: rp.clientHourlyRate,
+          displayOrder: rp.displayOrder,
           projectId: copy.id,
           weeklyAllocations: {
             create: rp.weeklyAllocations.map((wa) => ({
@@ -342,6 +344,7 @@ app.post('/api/projects/import', async (req, res) => {
           name: rp.name || null,
           intHourlyRate: parseFloat(rp.intHourlyRate) || 0,
           clientHourlyRate: parseFloat(rp.clientHourlyRate) || 0,
+          displayOrder: parseInt(rp.displayOrder) || 0,
           projectId: newProjectId,
           weeklyAllocations: {
             create: weekly.map((wa: any) => ({
@@ -580,6 +583,7 @@ app.get('/api/projects/:projectId/resource-plans', async (req, res) => {
   try {
     const resourcePlans = await prisma.resourcePlan.findMany({
       where: { projectId: parseInt(req.params.projectId) },
+      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: {
         weeklyAllocations: {
           orderBy: { weekNumber: 'asc' }
@@ -601,6 +605,11 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
     const validAllocations = (parsed.data.weeklyAllocations || [])
       .filter(wa => wa.weekNumber > 0)
       .map(wa => ({ weekNumber: wa.weekNumber, allocation: wa.allocation }));
+    const maxOrder = await prisma.resourcePlan.aggregate({
+      where: { projectId: parseInt(req.params.projectId) },
+      _max: { displayOrder: true }
+    });
+    const nextOrder = (maxOrder._max.displayOrder ?? -1) + 1;
     const resourcePlan = await prisma.resourcePlan.create({
       data: {
         role: parsed.data.role,
@@ -608,6 +617,7 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
         name: parsed.data.name ?? null,
         intHourlyRate: parsed.data.intHourlyRate ?? 0,
         clientHourlyRate: parsed.data.clientHourlyRate ?? 0,
+        displayOrder: nextOrder,
         projectId: parseInt(req.params.projectId),
         weeklyAllocations: {
           create: validAllocations
@@ -710,6 +720,28 @@ app.delete('/api/resource-plans/:id', async (req, res) => {
     res.json({ message: 'Resource plan deleted' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete resource plan' });
+  }
+});
+
+app.put('/api/projects/:projectId/resource-plans/reorder', async (req, res) => {
+  try {
+    const parsed = reorderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const { orderedIds } = parsed.data;
+    await prisma.$transaction(
+      orderedIds.map((id, index) =>
+        prisma.resourcePlan.update({
+          where: { id },
+          data: { displayOrder: index },
+        })
+      )
+    );
+    res.json({ message: 'Resource plans reordered' });
+  } catch (error) {
+    console.error('Error reordering resource plans:', error);
+    res.status(500).json({ error: 'Failed to reorder resource plans' });
   }
 });
 
