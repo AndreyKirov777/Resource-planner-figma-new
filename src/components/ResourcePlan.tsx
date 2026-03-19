@@ -430,7 +430,7 @@ export function ResourcePlan({
     phases.forEach((phase) => {
       const count = phase.periodCount ?? 0;
       for (let i = 0; i < count; i++) {
-        const title = isMonthly ? `M${periodIndex + 1}` : `${periodIndex + 1}`;
+        const title = `${periodIndex + 1}`;
         cols.push({ title, width: isMonthly ? 55 : 50, group: phase.name });
         periodIndex++;
       }
