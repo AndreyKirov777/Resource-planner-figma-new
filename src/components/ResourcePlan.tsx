@@ -1197,14 +1197,14 @@ export function ResourcePlan({
               </div>
 
               {/* Right Column: Project description */}
-              <div className="space-y-2">
-                <Label htmlFor="projectDescription">Project description</Label>
+              <div className="flex flex-col">
+                <Label htmlFor="projectDescription" className="mb-2">Project description</Label>
                 <Textarea
                   id="projectDescription"
                   value={projectDescription}
                   onChange={(e) => onProjectDescriptionChange(e.target.value)}
-                  rows={3}
                   placeholder="Enter project description"
+                  className="flex-1 resize-none"
                 />
               </div>
             </div>

@@ -38,8 +38,10 @@ COPY --from=builder /app/src/generated ./src/generated
 # Copy built frontend
 COPY --from=builder /app/build ./build
 
-# Copy server code
+# Copy server code and its runtime source dependencies
 COPY server.ts server-validation.ts ./
+COPY src/utils ./src/utils
+COPY src/config ./src/config
 
 # Expose ports (3001 for API)
 EXPOSE 3001
@@ -47,6 +49,6 @@ EXPOSE 3001
 # Create volume mount point for database
 RUN mkdir -p /app/data
 
-# Sync schema (works with existing DB; migrate deploy needs baselining for non-empty DBs)
-CMD npx prisma db push && npm run server
+# Sync schema (accept-data-loss allows dropping renamed/removed tables on existing DBs)
+CMD npx prisma db push --accept-data-loss && npm run server
 
