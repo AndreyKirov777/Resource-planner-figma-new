@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -18,6 +19,7 @@ import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, gr
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 export default function App() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [editableProjectName, setEditableProjectName] = useState<string>('');
   const [editableProjectDescription, setEditableProjectDescription] = useState<string>('');
@@ -28,9 +30,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load initial data
+  // Load initial data — restore project from URL if available
   useEffect(() => {
-    loadProjectData();
+    const projectIdFromUrl = searchParams.get('project');
+    loadProjectData(projectIdFromUrl ? parseInt(projectIdFromUrl, 10) : undefined);
   }, []);
 
   const loadProjectData = async (preferredProjectId?: number) => {
@@ -62,7 +65,8 @@ export default function App() {
       setCurrentProject(project);
       setEditableProjectName(project.name || '');
       setEditableProjectDescription(project.description || '');
-      
+      setSearchParams({ project: String(project.id) }, { replace: true });
+
       // Load all related data
       const [resourceListsData, rateCardsData, resourcePlansData] = await Promise.all([
         api.getResourceLists(project.id),
