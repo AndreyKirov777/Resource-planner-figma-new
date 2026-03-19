@@ -18,9 +18,17 @@ import {
   resourcePlanCreateSchema,
   resourcePlanUpdateSchema,
   reorderSchema,
-  weeklyAllocationSchema,
-  weeklyAllocationUpdateSchema,
+  allocationSchema,
+  allocationUpdateSchema,
+  convertPlanningModeSchema,
 } from './server-validation';
+import {
+  convertWeeklyToMonthly,
+  convertMonthlyToWeekly,
+  convertPhasesToMonthly,
+  convertPhasesToWeekly,
+  getWeeksPerMonth,
+} from './src/utils/modeConversion';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -68,7 +76,7 @@ app.get('/api/projects/:id', async (req, res) => {
         resourceLists: true,
         resourcePlans: {
           include: {
-            weeklyAllocations: true
+            allocations: true
           }
         }
       }
@@ -96,6 +104,7 @@ app.post('/api/projects', async (req, res) => {
         clientCurrency: parsed.data.clientCurrency ?? 'EUR',
         exchangeRate: parsed.data.exchangeRate ?? 0.89,
         defaultMargin: parsed.data.defaultMargin ?? 25.0,
+        planningMode: parsed.data.planningMode ?? 'weekly',
         phases: parsed.data.phases ?? undefined,
       }
     });
@@ -150,7 +159,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
         rateCards: true,
         resourceLists: true,
         resourcePlans: {
-          include: { weeklyAllocations: true }
+          include: { allocations: true }
         }
       }
     });
@@ -169,6 +178,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
         clientCurrency: project.clientCurrency,
         exchangeRate: project.exchangeRate,
         defaultMargin: project.defaultMargin,
+        planningMode: project.planningMode,
         phases: project.phases ?? undefined,
       }
     });
@@ -218,10 +228,10 @@ app.post('/api/projects/:id/copy', async (req, res) => {
           clientHourlyRate: rp.clientHourlyRate,
           displayOrder: rp.displayOrder,
           projectId: copy.id,
-          weeklyAllocations: {
-            create: rp.weeklyAllocations.map((wa) => ({
-              weekNumber: wa.weekNumber,
-              allocation: wa.allocation,
+          allocations: {
+            create: rp.allocations.map((a) => ({
+              periodNumber: a.periodNumber,
+              allocation: a.allocation,
             }))
           }
         }
@@ -245,7 +255,7 @@ app.get('/api/projects/:id/export', async (req, res) => {
         rateCards: true,
         resourceLists: true,
         resourcePlans: {
-          include: { weeklyAllocations: true }
+          include: { allocations: true }
         }
       }
     });
@@ -256,7 +266,7 @@ app.get('/api/projects/:id/export', async (req, res) => {
 
     // Wrap to allow future schema versioning
     const payload = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: new Date().toISOString(),
       data: project
     };
@@ -288,6 +298,7 @@ app.post('/api/projects/import', async (req, res) => {
         clientCurrency: projectData.clientCurrency ?? 'EUR',
         exchangeRate: projectData.exchangeRate ?? 0.89,
         defaultMargin: projectData.defaultMargin ?? 25.0,
+        planningMode: projectData.planningMode ?? 'weekly',
         phases: projectData.phases ?? undefined,
       }
     });
@@ -334,9 +345,11 @@ app.post('/api/projects/import', async (req, res) => {
     }
 
     // Import resource plans with nested allocations
+    // Backward compat: accept both old format (weeklyAllocations/weekNumber) and new (allocations/periodNumber)
     const resourcePlans = Array.isArray(projectData.resourcePlans) ? projectData.resourcePlans : [];
     for (const rp of resourcePlans) {
-      const weekly = Array.isArray(rp.weeklyAllocations) ? rp.weeklyAllocations : [];
+      const rawAllocations = Array.isArray(rp.allocations) ? rp.allocations
+        : Array.isArray(rp.weeklyAllocations) ? rp.weeklyAllocations : [];
       await prisma.resourcePlan.create({
         data: {
           role: rp.role || '',
@@ -346,11 +359,11 @@ app.post('/api/projects/import', async (req, res) => {
           clientHourlyRate: parseFloat(rp.clientHourlyRate) || 0,
           displayOrder: parseInt(rp.displayOrder) || 0,
           projectId: newProjectId,
-          weeklyAllocations: {
-            create: weekly.map((wa: any) => ({
-              weekNumber: parseInt(wa.weekNumber) || 0,
-              allocation: parseInt(wa.allocation) || 0,
-            })).filter((wa: any) => wa.weekNumber > 0)
+          allocations: {
+            create: rawAllocations.map((a: any) => ({
+              periodNumber: parseInt(a.periodNumber ?? a.weekNumber) || 0,
+              allocation: parseInt(a.allocation) || 0,
+            })).filter((a: any) => a.periodNumber > 0)
           }
         }
       });
@@ -585,8 +598,8 @@ app.get('/api/projects/:projectId/resource-plans', async (req, res) => {
       where: { projectId: parseInt(req.params.projectId) },
       orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: {
-        weeklyAllocations: {
-          orderBy: { weekNumber: 'asc' }
+        allocations: {
+          orderBy: { periodNumber: 'asc' }
         }
       }
     });
@@ -602,9 +615,9 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
-    const validAllocations = (parsed.data.weeklyAllocations || [])
-      .filter(wa => wa.weekNumber > 0)
-      .map(wa => ({ weekNumber: wa.weekNumber, allocation: wa.allocation }));
+    const validAllocations = (parsed.data.allocations || [])
+      .filter(a => a.periodNumber > 0)
+      .map(a => ({ periodNumber: a.periodNumber, allocation: a.allocation }));
     const maxOrder = await prisma.resourcePlan.aggregate({
       where: { projectId: parseInt(req.params.projectId) },
       _max: { displayOrder: true }
@@ -619,12 +632,12 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
         clientHourlyRate: parsed.data.clientHourlyRate ?? 0,
         displayOrder: nextOrder,
         projectId: parseInt(req.params.projectId),
-        weeklyAllocations: {
+        allocations: {
           create: validAllocations
         }
       },
       include: {
-        weeklyAllocations: true
+        allocations: true
       }
     });
     res.json(resourcePlan);
@@ -643,46 +656,46 @@ app.put('/api/resource-plans/:id', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
-    const { weeklyAllocations, ...updateData } = parsed.data;
-    
+    const { allocations: incomingAllocations, ...updateData } = parsed.data;
+
     // Update resource plan (whitelisted fields only)
     const resourcePlan = await prisma.resourcePlan.update({
       where: { id: parseInt(req.params.id) },
       data: updateData,
       include: {
-        weeklyAllocations: true
+        allocations: true
       }
     });
-    
-    // Update weekly allocations if provided
-    if (weeklyAllocations && weeklyAllocations.length > 0) {
-      const validAllocations = weeklyAllocations
-        .filter((wa): wa is { weekNumber: number; allocation: number } => wa != null && wa.weekNumber > 0)
-        .map(wa => ({
-          weekNumber: wa.weekNumber,
-          allocation: wa.allocation,
+
+    // Update allocations if provided
+    if (incomingAllocations && incomingAllocations.length > 0) {
+      const validAllocations = incomingAllocations
+        .filter((a): a is { periodNumber: number; allocation: number } => a != null && a.periodNumber > 0)
+        .map(a => ({
+          periodNumber: a.periodNumber,
+          allocation: a.allocation,
           resourcePlanId: parseInt(req.params.id)
         }));
-      
-      await prisma.weeklyAllocation.deleteMany({
+
+      await prisma.allocation.deleteMany({
         where: { resourcePlanId: parseInt(req.params.id) }
       });
-      
+
       if (validAllocations.length > 0) {
-        await prisma.weeklyAllocation.createMany({
+        await prisma.allocation.createMany({
           data: validAllocations
         });
       }
-      
+
       const updatedResourcePlan = await prisma.resourcePlan.findUnique({
         where: { id: parseInt(req.params.id) },
         include: {
-          weeklyAllocations: {
-            orderBy: { weekNumber: 'asc' }
+          allocations: {
+            orderBy: { periodNumber: 'asc' }
           }
         }
       });
-      
+
       return res.json(updatedResourcePlan);
     }
     
@@ -745,62 +758,170 @@ app.put('/api/projects/:projectId/resource-plans/reorder', async (req, res) => {
   }
 });
 
-// Weekly Allocation endpoints
-app.get('/api/resource-plans/:resourcePlanId/weekly-allocations', async (req, res) => {
+// Allocation endpoints
+app.get('/api/resource-plans/:resourcePlanId/allocations', async (req, res) => {
   try {
-    const weeklyAllocations = await prisma.weeklyAllocation.findMany({
+    const allocations = await prisma.allocation.findMany({
       where: { resourcePlanId: parseInt(req.params.resourcePlanId) },
-      orderBy: { weekNumber: 'asc' }
+      orderBy: { periodNumber: 'asc' }
     });
-    res.json(weeklyAllocations);
+    res.json(allocations);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch weekly allocations' });
+    res.status(500).json({ error: 'Failed to fetch allocations' });
   }
 });
 
-app.post('/api/resource-plans/:resourcePlanId/weekly-allocations', async (req, res) => {
+app.post('/api/resource-plans/:resourcePlanId/allocations', async (req, res) => {
   try {
-    const parsed = weeklyAllocationSchema.safeParse(req.body);
+    const parsed = allocationSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
-    const weeklyAllocation = await prisma.weeklyAllocation.create({
+    const alloc = await prisma.allocation.create({
       data: {
-        weekNumber: parsed.data.weekNumber,
+        periodNumber: parsed.data.periodNumber,
         allocation: parsed.data.allocation,
         resourcePlanId: parseInt(req.params.resourcePlanId)
       }
     });
-    res.json(weeklyAllocation);
+    res.json(alloc);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create weekly allocation' });
+    res.status(500).json({ error: 'Failed to create allocation' });
   }
 });
 
-app.put('/api/weekly-allocations/:id', async (req, res) => {
+app.put('/api/allocations/:id', async (req, res) => {
   try {
-    const parsed = weeklyAllocationUpdateSchema.safeParse(req.body);
+    const parsed = allocationUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
-    const weeklyAllocation = await prisma.weeklyAllocation.update({
+    const alloc = await prisma.allocation.update({
       where: { id: parseInt(req.params.id) },
       data: parsed.data
     });
-    res.json(weeklyAllocation);
+    res.json(alloc);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update weekly allocation' });
+    res.status(500).json({ error: 'Failed to update allocation' });
   }
 });
 
-app.delete('/api/weekly-allocations/:id', async (req, res) => {
+app.delete('/api/allocations/:id', async (req, res) => {
   try {
-    await prisma.weeklyAllocation.delete({
+    await prisma.allocation.delete({
       where: { id: parseInt(req.params.id) }
     });
-    res.json({ message: 'Weekly allocation deleted' });
+    res.json({ message: 'Allocation deleted' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete weekly allocation' });
+    res.status(500).json({ error: 'Failed to delete allocation' });
+  }
+});
+
+// Convert planning mode endpoint
+app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
+  try {
+    const parsed = convertPlanningModeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const { targetMode } = parsed.data;
+    const projectId = parseInt(req.params.id);
+
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        resourcePlans: {
+          include: { allocations: true }
+        }
+      }
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    if (project.planningMode === targetMode) {
+      return res.status(400).json({ error: `Project is already in ${targetMode} mode` });
+    }
+
+    const weeksPerMonth = getWeeksPerMonth(project.daysInFTE);
+
+    // Convert phases
+    let phases: any[] = [];
+    try {
+      phases = JSON.parse(project.phases || '[]');
+    } catch { /* empty */ }
+
+    const convertedPhases = targetMode === 'monthly'
+      ? convertPhasesToMonthly(phases, weeksPerMonth)
+      : convertPhasesToWeekly(phases, weeksPerMonth);
+
+    // Perform conversion in a transaction
+    await prisma.$transaction(async (tx) => {
+      // Update project
+      await tx.project.update({
+        where: { id: projectId },
+        data: {
+          planningMode: targetMode,
+          phases: JSON.stringify(convertedPhases),
+        }
+      });
+
+      // Convert allocations for each resource plan
+      for (const rp of project.resourcePlans) {
+        const currentAllocations = rp.allocations.map(a => ({
+          periodNumber: a.periodNumber,
+          allocation: a.allocation,
+        }));
+
+        const totalPeriods = phases.reduce((sum: number, p: any) => sum + (p.periodCount ?? p.weekCount ?? 0), 0);
+
+        let convertedAllocations: { periodNumber: number; allocation: number }[];
+        if (targetMode === 'monthly') {
+          convertedAllocations = convertWeeklyToMonthly(currentAllocations, totalPeriods, weeksPerMonth);
+        } else {
+          convertedAllocations = convertMonthlyToWeekly(currentAllocations, totalPeriods, weeksPerMonth);
+        }
+
+        // Delete old allocations
+        await tx.allocation.deleteMany({
+          where: { resourcePlanId: rp.id }
+        });
+
+        // Create new converted allocations
+        if (convertedAllocations.length > 0) {
+          await tx.allocation.createMany({
+            data: convertedAllocations.map(a => ({
+              periodNumber: a.periodNumber,
+              allocation: a.allocation,
+              resourcePlanId: rp.id,
+            }))
+          });
+        }
+      }
+    });
+
+    // Return updated project with all data
+    const updatedProject = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        rateCards: true,
+        resourceLists: true,
+        resourcePlans: {
+          orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+          include: {
+            allocations: {
+              orderBy: { periodNumber: 'asc' }
+            }
+          }
+        }
+      }
+    });
+
+    res.json(updatedProject);
+  } catch (error) {
+    console.error('Error converting planning mode:', error);
+    res.status(500).json({ error: 'Failed to convert planning mode' });
   }
 });
 

@@ -19,15 +19,15 @@ import {
 } from './ui/dropdown-menu';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette } from 'lucide-react';
-import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, WeeklyAllocation } from '../services/api';
-import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours } from '../utils/calculations';
+import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation } from '../services/api';
+import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
 
 interface ResourcePlanProps {
   project: Project;
   resourceLists: ResourceListType[];
   resourcePlans: ResourcePlanType[];
   onResourcePlansChange: (resourcePlans: ResourcePlanType[]) => void;
-  onAddResourcePlan: (resourcePlan: Partial<ResourcePlanType>) => void;
+  onAddResourcePlan: (resourcePlan: Omit<Partial<ResourcePlanType>, 'allocations'> & { allocations?: Partial<Allocation>[] }) => void;
   onDeleteResourcePlan: (id: number) => void;
   onReorderResourcePlans: (orderedIds: number[]) => void;
   onProjectSettingsChange: (settings: Partial<Project>) => void;
@@ -36,6 +36,7 @@ interface ResourcePlanProps {
   onExportToExcel?: () => void;
   onExportToPNG?: () => void;
   onClearAllResourcePlans?: () => void;
+  onConvertPlanningMode?: (targetMode: 'weekly' | 'monthly') => void;
   projectName: string;
   projectDescription: string;
   onProjectNameChange: (name: string) => void;
@@ -74,9 +75,10 @@ function parsePhases(
   if (phasesJson) {
     try {
       const parsed = JSON.parse(phasesJson) as Phase[];
-      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && p.weekCount > 0)) {
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && ((p.periodCount ?? p.weekCount ?? 0) > 0))) {
         return parsed.map((p, idx) => ({
-          ...p,
+          name: p.name,
+          periodCount: p.periodCount ?? p.weekCount ?? 0,
           color: p.color ?? PHASE_COLORS[idx % PHASE_COLORS.length],
         }));
       }
@@ -84,26 +86,27 @@ function parsePhases(
       /* fall through */
     }
   }
-  const allWeeks = new Set<number>();
+  const allPeriods = new Set<number>();
   resourcePlans.forEach((plan) => {
-    plan.weeklyAllocations.forEach((wa) => allWeeks.add(wa.weekNumber));
+    plan.allocations.forEach((a) => allPeriods.add(a.periodNumber));
   });
-  const totalWeeks = allWeeks.size > 0 ? Math.max(...allWeeks) : 8;
-  return [{ name: 'Phase 1', weekCount: totalWeeks, color: PHASE_COLORS[0] }];
+  const totalPeriods = allPeriods.size > 0 ? Math.max(...allPeriods) : 8;
+  return [{ name: 'Phase 1', periodCount: totalPeriods, color: PHASE_COLORS[0] }];
 }
 
-function getPhaseForWeek(
-  weekNum: number,
+function getPhaseForPeriod(
+  periodNum: number,
   phases: Phase[]
-): { phaseIndex: number; localWeek: number } {
+): { phaseIndex: number; localPeriod: number } {
   let cumulative = 0;
   for (let i = 0; i < phases.length; i++) {
-    if (weekNum <= cumulative + phases[i].weekCount) {
-      return { phaseIndex: i, localWeek: weekNum - cumulative };
+    const count = phases[i].periodCount ?? 0;
+    if (periodNum <= cumulative + count) {
+      return { phaseIndex: i, localPeriod: periodNum - cumulative };
     }
-    cumulative += phases[i].weekCount;
+    cumulative += count;
   }
-  return { phaseIndex: Math.max(0, phases.length - 1), localWeek: weekNum - cumulative };
+  return { phaseIndex: Math.max(0, phases.length - 1), localPeriod: periodNum - cumulative };
 }
 
 // Custom cell type for actions
@@ -182,7 +185,7 @@ const RoleCellRenderer = {
         <div style={{ padding: 8, minWidth: 220 }}>
           <Select
             value={current || ''}
-            onValueChange={(val) => {
+            onValueChange={(val: string) => {
               const updated: RoleCell = {
                 ...(value as RoleCell),
                 data: { ...((value as RoleCell).data), value: val },
@@ -226,11 +229,18 @@ export function ResourcePlan({
   onExportToExcel,
   onExportToPNG,
   onClearAllResourcePlans,
+  onConvertPlanningMode,
   projectName,
   projectDescription,
   onProjectNameChange,
   onProjectDescriptionChange
 }: ResourcePlanProps) {
+  const planningMode = (project.planningMode || 'weekly') as 'weekly' | 'monthly';
+  const isMonthly = planningMode === 'monthly';
+  const periodLabel = isMonthly ? 'Month' : 'Week';
+  const periodLabelPlural = isMonthly ? 'Months' : 'Weeks';
+  const periodSuffix = isMonthly ? 'm' : 'w';
+
   const [phases, setPhases] = useState<Phase[]>(() => parsePhases(project.phases, resourcePlans));
   const [rolePicker, setRolePicker] = useState<{ open: boolean; row: number | null }>({ open: false, row: null });
   const [roleSelection, setRoleSelection] = useState<string>('');
@@ -238,9 +248,9 @@ export function ResourcePlan({
     show: boolean; 
     x: number; 
     y: number; 
-    weekNumber: number | null; 
+    periodNumber: number | null; 
     colIndex: number | null; 
-  }>({ show: false, x: 0, y: 0, weekNumber: null, colIndex: null });
+  }>({ show: false, x: 0, y: 0, periodNumber: null, colIndex: null });
   const [lastMousePosition, setLastMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [gridSelection, setGridSelection] = useState<GridSelection>();
   const [phaseBreakdownOpen, setPhaseBreakdownOpen] = useState(true);
@@ -252,10 +262,10 @@ export function ResourcePlan({
     setPhases(parsePhases(project.phases, resourcePlans));
   }, [project.id, project.phases]);
 
-  const totalWeeks = phases.reduce((sum, p) => sum + p.weekCount, 0);
-  const weekNumbers = useMemo(
-    () => Array.from({ length: totalWeeks }, (_, i) => i + 1),
-    [totalWeeks]
+  const totalPeriods = phases.reduce((sum, p) => sum + (p.periodCount ?? 0), 0);
+  const periodNumbers = useMemo(
+    () => Array.from({ length: totalPeriods }, (_, i) => i + 1),
+    [totalPeriods]
   );
 
   const persistPhases = useCallback(
@@ -269,14 +279,16 @@ export function ResourcePlan({
   const currencySymbol = project.clientCurrency === 'EUR' ? '€' : 
                         project.clientCurrency === 'GBP' ? '£' : '$';
 
+  const hrsPerPeriod = hoursPerPeriod(planningMode, project.daysInFTE);
+
   // Calculation functions (shared utils)
   const calculateEstimatedEfforts = (plan: ResourcePlanType): number => {
-    let totalWeeksEquivalent = 0;
-    weekNumbers.forEach(weekNum => {
-      const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-      totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
+    let totalPeriodsEquivalent = 0;
+    periodNumbers.forEach(periodNum => {
+      const allocation = plan.allocations.find(a => a.periodNumber === periodNum);
+      totalPeriodsEquivalent += (allocation?.allocation || 0) / 100;
     });
-    return estimatedEffortHours(totalWeeksEquivalent, 40);
+    return estimatedEffortHours(totalPeriodsEquivalent, hrsPerPeriod);
   };
 
   const calculateTotalIntCost = (plan: ResourcePlanType): number => {
@@ -293,85 +305,85 @@ export function ResourcePlan({
     return marginPct(plan.clientHourlyRate, plan.intHourlyRate, project.exchangeRate);
   };
 
-  // Week management functions (phase-aware)
-  const insertWeekAfter = useCallback(
-    (afterWeekPosition: number, targetPhaseIndex?: number) => {
-      const weekNumAtPosition = afterWeekPosition + 1;
-      const { phaseIndex: detectedPhaseIndex } = getPhaseForWeek(weekNumAtPosition, phases);
+  // Period management functions (phase-aware)
+  const insertPeriodAfter = useCallback(
+    (afterPosition: number, targetPhaseIndex?: number) => {
+      const periodNumAtPosition = afterPosition + 1;
+      const { phaseIndex: detectedPhaseIndex } = getPhaseForPeriod(periodNumAtPosition, phases);
       const phaseIndex = targetPhaseIndex ?? detectedPhaseIndex;
       const newPhases = phases.map((p, i) =>
-        i === phaseIndex ? { ...p, weekCount: p.weekCount + 1 } : p
+        i === phaseIndex ? { ...p, periodCount: (p.periodCount ?? 0) + 1 } : p
       );
       persistPhases(newPhases);
 
-      const renumberedWeeks = Array.from({ length: weekNumbers.length + 1 }, (_, i) => i + 1);
+      const renumberedWeeks = Array.from({ length: periodNumbers.length + 1 }, (_, i) => i + 1);
 
       const updatedResourcePlans = resourcePlans.map((plan) => {
-        const newWeeklyAllocations: WeeklyAllocation[] = [];
+        const newAllocations: Allocation[] = [];
         renumberedWeeks.forEach((newWeekNum, index) => {
-          if (index === afterWeekPosition) {
-            newWeeklyAllocations.push({
+          if (index === afterPosition) {
+            newAllocations.push({
               id: 0,
-              weekNumber: newWeekNum,
+              periodNumber: newWeekNum,
               allocation: 0,
               resourcePlanId: plan.id,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
-            } as WeeklyAllocation);
-          } else if (index < afterWeekPosition) {
-            const oldWeekNum = weekNumbers[index];
-            const existingAllocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === oldWeekNum);
+            } as Allocation);
+          } else if (index < afterPosition) {
+            const oldWeekNum = periodNumbers[index];
+            const existingAllocation = plan.allocations.find((wa) => wa.periodNumber === oldWeekNum);
             if (existingAllocation) {
-              newWeeklyAllocations.push({ ...existingAllocation, weekNumber: newWeekNum });
+              newAllocations.push({ ...existingAllocation, periodNumber: newWeekNum });
             }
           } else {
-            const oldWeekNum = weekNumbers[index - 1];
-            const existingAllocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === oldWeekNum);
+            const oldWeekNum = periodNumbers[index - 1];
+            const existingAllocation = plan.allocations.find((wa) => wa.periodNumber === oldWeekNum);
             if (existingAllocation) {
-              newWeeklyAllocations.push({ ...existingAllocation, weekNumber: newWeekNum });
+              newAllocations.push({ ...existingAllocation, periodNumber: newWeekNum });
             }
           }
         });
-        return { ...plan, weeklyAllocations: newWeeklyAllocations };
+        return { ...plan, allocations: newAllocations };
       });
       onResourcePlansChange(updatedResourcePlans);
     },
-    [phases, weekNumbers, resourcePlans, persistPhases, onResourcePlansChange]
+    [phases, periodNumbers, resourcePlans, persistPhases, onResourcePlansChange]
   );
 
-  const removeSpecificWeek = useCallback(
+  const removeSpecificPeriod = useCallback(
     (weekToRemove: number) => {
-      if (weekNumbers.length <= 1) return;
-      const weekPosition = weekNumbers.findIndex((w) => w === weekToRemove);
+      if (periodNumbers.length <= 1) return;
+      const weekPosition = periodNumbers.findIndex((w) => w === weekToRemove);
       if (weekPosition === -1) return;
 
-      const { phaseIndex } = getPhaseForWeek(weekToRemove, phases);
+      const { phaseIndex } = getPhaseForPeriod(weekToRemove, phases);
       const phase = phases[phaseIndex];
-      if (phase.weekCount <= 1) return;
+      if ((phase.periodCount ?? 0) <= 1) return;
       const newPhases = phases.map((p, i) =>
-        i === phaseIndex ? { ...p, weekCount: p.weekCount - 1 } : p
+        i === phaseIndex ? { ...p, periodCount: (p.periodCount ?? 0) - 1 } : p
       );
       persistPhases(newPhases);
 
-      const renumberedWeeks = weekNumbers
+      const renumberedWeeks = periodNumbers
         .filter((w) => w !== weekToRemove)
         .map((_, index) => index + 1);
 
       const updatedResourcePlans = resourcePlans.map((plan) => {
-        const newWeeklyAllocations: WeeklyAllocation[] = [];
+        const newAllocations: Allocation[] = [];
         renumberedWeeks.forEach((newWeekNum, index) => {
           const originalIndex = index < weekPosition ? index : index + 1;
-          const oldWeekNum = weekNumbers[originalIndex];
-          const existingAllocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === oldWeekNum);
+          const oldWeekNum = periodNumbers[originalIndex];
+          const existingAllocation = plan.allocations.find((wa) => wa.periodNumber === oldWeekNum);
           if (existingAllocation) {
-            newWeeklyAllocations.push({ ...existingAllocation, weekNumber: newWeekNum });
+            newAllocations.push({ ...existingAllocation, periodNumber: newWeekNum });
           }
         });
-        return { ...plan, weeklyAllocations: newWeeklyAllocations };
+        return { ...plan, allocations: newAllocations };
       });
       onResourcePlansChange(updatedResourcePlans);
     },
-    [weekNumbers, phases, resourcePlans, persistPhases, onResourcePlansChange]
+    [periodNumbers, phases, resourcePlans, persistPhases, onResourcePlansChange]
   );
 
   const removeRole = useCallback((roleId: number) => {
@@ -401,7 +413,7 @@ export function ResourcePlan({
     [phases]
   );
 
-  // Glide Data Grid column definitions (week columns grouped by phase)
+  // Glide Data Grid column definitions (period columns grouped by phase)
   const columns = useMemo((): GridColumn[] => {
     const cols: GridColumn[] = [
       { title: '', width: 60 },
@@ -414,11 +426,13 @@ export function ResourcePlan({
       { title: 'Daily rate', width: 90, group: 'Client' },
       { title: 'Margin', width: 70 },
     ];
-    let weekIndex = 0;
+    let periodIndex = 0;
     phases.forEach((phase) => {
-      for (let i = 0; i < phase.weekCount; i++) {
-        cols.push({ title: `${weekIndex + 1}`, width: 50, group: phase.name });
-        weekIndex++;
+      const count = phase.periodCount ?? 0;
+      for (let i = 0; i < count; i++) {
+        const title = isMonthly ? `M${periodIndex + 1}` : `${periodIndex + 1}`;
+        cols.push({ title, width: isMonthly ? 55 : 50, group: phase.name });
+        periodIndex++;
       }
     });
     cols.push(
@@ -427,7 +441,7 @@ export function ResourcePlan({
       { title: 'Efforts, h', width: 90, group: 'Total' }
     );
     return cols;
-  }, [phases]);
+  }, [phases, isMonthly]);
 
   // Get cell content function for glide-data-grid
   const getCellContent = useCallback(([col, row]: Item) => {
@@ -556,10 +570,10 @@ export function ResourcePlan({
     colOffset++;
 
     // Week columns
-    for (let i = 0; i < weekNumbers.length; i++) {
+    for (let i = 0; i < periodNumbers.length; i++) {
       if (colIndex === colOffset + i) {
-        const weekNum = weekNumbers[i];
-        const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
+        const weekNum = periodNumbers[i];
+        const allocation = plan.allocations.find(wa => wa.periodNumber === weekNum);
         const value = allocation?.allocation || 0;
         return {
           kind: GridCellKind.Number,
@@ -574,7 +588,7 @@ export function ResourcePlan({
         };
       }
     }
-    colOffset += weekNumbers.length;
+    colOffset += periodNumbers.length;
 
     // Total int cost
     if (colIndex === colOffset) {
@@ -614,7 +628,7 @@ export function ResourcePlan({
       allowOverlay: false,
       displayData: '',
     };
-  }, [resourcePlans, weekNumbers, currencySymbol, resourceLists, removeRole, project.exchangeRate]);
+  }, [resourcePlans, periodNumbers, currencySymbol, resourceLists, removeRole, project.exchangeRate]);
 
   // Handle cell editing
   const onCellEdited = useCallback((cell: Item, newValue: EditableGridCell) => {
@@ -718,36 +732,36 @@ export function ResourcePlan({
     colOffset += 2;
 
     // Week columns
-    for (let i = 0; i < weekNumbers.length; i++) {
+    for (let i = 0; i < periodNumbers.length; i++) {
       if (colIndex === colOffset + i) {
         if (newValue.kind === GridCellKind.Number) {
-          const weekNum = weekNumbers[i];
+          const weekNum = periodNumbers[i];
           const clampedValue = Math.max(0, Math.min(100, newValue.data || 0));
           
           const updatedResourcePlans = resourcePlans.map(p => {
             if (p.id !== plan.id) return p;
             
-            const existing = p.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
+            const existing = p.allocations.find(wa => wa.periodNumber === weekNum);
             if (existing) {
-              const updatedAllocations = p.weeklyAllocations.map(wa =>
-                wa.weekNumber === weekNum
+              const updatedAllocations = p.allocations.map(wa =>
+                wa.periodNumber === weekNum
                   ? { ...wa, allocation: clampedValue, updatedAt: new Date().toISOString() }
                   : wa
               );
-              return { ...p, weeklyAllocations: updatedAllocations };
+              return { ...p, allocations: updatedAllocations };
             }
             
             const now = new Date().toISOString();
             const newAllocation = {
               id: 0,
-              weekNumber: weekNum,
+              periodNumber: weekNum,
               allocation: clampedValue,
               resourcePlanId: p.id,
               createdAt: now,
               updatedAt: now,
-            } as WeeklyAllocation;
+            } as Allocation;
             
-            return { ...p, weeklyAllocations: [...p.weeklyAllocations, newAllocation] };
+            return { ...p, allocations: [...p.allocations, newAllocation] };
           });
           
           onResourcePlansChange(updatedResourcePlans);
@@ -755,11 +769,11 @@ export function ResourcePlan({
         return;
       }
     }
-  }, [resourcePlans, weekNumbers, resourceLists, project.defaultMargin, project.exchangeRate, onResourcePlansChange]);
+  }, [resourcePlans, periodNumbers, resourceLists, project.defaultMargin, project.exchangeRate, onResourcePlansChange]);
 
   // Handle batch cell edits (used by fill handle)
   const onCellsEdited = useCallback((newValues: readonly { location: Item; value: EditableGridCell }[]) => {
-    const weekColumnStartIndex = 9; // Skip the first 9 columns
+    const periodColumnStartIndex = 9; // Skip the first 9 columns
     
     // Group changes by resource plan
     const planUpdates = new Map<number, { plan: ResourcePlanType; updates: { weekNum: number; value: number }[] }>();
@@ -770,9 +784,9 @@ export function ResourcePlan({
       if (!plan) return;
       
       // Only process week columns
-      if (col >= weekColumnStartIndex && col < weekColumnStartIndex + weekNumbers.length) {
-        const weekColumnIndex = col - weekColumnStartIndex;
-        const weekNum = weekNumbers[weekColumnIndex];
+      if (col >= periodColumnStartIndex && col < periodColumnStartIndex + periodNumbers.length) {
+        const periodColumnIndex = col - periodColumnStartIndex;
+        const weekNum = periodNumbers[periodColumnIndex];
         
         if (value.kind === GridCellKind.Number) {
           const clampedValue = Math.max(0, Math.min(100, value.data || 0));
@@ -791,10 +805,10 @@ export function ResourcePlan({
         const planUpdate = planUpdates.get(plan.id);
         if (!planUpdate) return plan;
         
-        let updatedAllocations = [...plan.weeklyAllocations];
+        let updatedAllocations = [...plan.allocations];
         
         planUpdate.updates.forEach(({ weekNum, value }) => {
-          const existingIndex = updatedAllocations.findIndex(wa => wa.weekNumber === weekNum);
+          const existingIndex = updatedAllocations.findIndex(wa => wa.periodNumber === weekNum);
           
           if (existingIndex >= 0) {
             updatedAllocations[existingIndex] = {
@@ -806,16 +820,16 @@ export function ResourcePlan({
             const now = new Date().toISOString();
             updatedAllocations.push({
               id: 0,
-              weekNumber: weekNum,
+              periodNumber: weekNum,
               allocation: value,
               resourcePlanId: plan.id,
               createdAt: now,
               updatedAt: now,
-            } as WeeklyAllocation);
+            } as Allocation);
           }
         });
         
-        return { ...plan, weeklyAllocations: updatedAllocations };
+        return { ...plan, allocations: updatedAllocations };
       });
       
       onResourcePlansChange(updatedResourcePlans);
@@ -823,83 +837,83 @@ export function ResourcePlan({
     }
     
     return false; // Allow individual onCellEdited calls for non-week columns
-  }, [resourcePlans, weekNumbers, onResourcePlansChange]);
+  }, [resourcePlans, periodNumbers, onResourcePlansChange]);
 
-  const addWeek = useCallback(() => {
+  const addPeriod = useCallback(() => {
     if (phases.length === 0) return;
     const newPhases = phases.map((p, i) =>
-      i === phases.length - 1 ? { ...p, weekCount: p.weekCount + 1 } : p
+      i === phases.length - 1 ? { ...p, periodCount: (p.periodCount ?? 0) + 1 } : p
     );
     persistPhases(newPhases);
-    const newWeekNumber = weekNumbers.length + 1;
+    const newWeekNumber = periodNumbers.length + 1;
     const updatedResourcePlans = resourcePlans.map((plan) => ({
       ...plan,
-      weeklyAllocations: [
-        ...plan.weeklyAllocations,
+      allocations: [
+        ...plan.allocations,
         {
           id: 0,
-          weekNumber: newWeekNumber,
+          periodNumber: newWeekNumber,
           allocation: 0,
           resourcePlanId: plan.id,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-        } as WeeklyAllocation,
+        } as Allocation,
       ],
     }));
     onResourcePlansChange(updatedResourcePlans);
-  }, [phases, weekNumbers.length, resourcePlans, persistPhases, onResourcePlansChange]);
+  }, [phases, periodNumbers.length, resourcePlans, persistPhases, onResourcePlansChange]);
 
   const addPhase = useCallback(() => {
     const nextIndex = phases.length + 1;
     const color = PHASE_COLORS[phases.length % PHASE_COLORS.length];
-    persistPhases([...phases, { name: `Phase ${nextIndex}`, weekCount: 4, color }]);
+    persistPhases([...phases, { name: `Phase ${nextIndex}`, periodCount: 4, color }]);
   }, [phases, persistPhases]);
 
-  const addWeekToPhase = useCallback(
+  const addPeriodToPhase = useCallback(
     (phaseIndex: number) => {
-      const start = phases.slice(0, phaseIndex).reduce((s, p) => s + p.weekCount, 0);
-      const insertAt = start + phases[phaseIndex].weekCount;
-      insertWeekAfter(insertAt, phaseIndex);
+      const start = phases.slice(0, phaseIndex).reduce((s, p) => s + (p.periodCount ?? 0), 0);
+      const insertAt = start + (phases[phaseIndex].periodCount ?? 0);
+      insertPeriodAfter(insertAt, phaseIndex);
     },
-    [phases, insertWeekAfter]
+    [phases, insertPeriodAfter]
   );
 
-  const removeLastWeekFromPhase = useCallback(
+  const removeLastPeriodFromPhase = useCallback(
     (phaseIndex: number) => {
       const phase = phases[phaseIndex];
-      if (phase.weekCount <= 1) return;
-      const start = phases.slice(0, phaseIndex).reduce((s, p) => s + p.weekCount, 0);
-      const weekToRemove = start + phase.weekCount;
-      removeSpecificWeek(weekToRemove);
+      if ((phase.periodCount ?? 0) <= 1) return;
+      const start = phases.slice(0, phaseIndex).reduce((s, p) => s + (p.periodCount ?? 0), 0);
+      const weekToRemove = start + (phase.periodCount ?? 0);
+      removeSpecificPeriod(weekToRemove);
     },
-    [phases, removeSpecificWeek]
+    [phases, removeSpecificPeriod]
   );
 
   const deletePhase = useCallback(
     (phaseIndex: number) => {
       if (phases.length <= 1) return;
-      const start = phases.slice(0, phaseIndex).reduce((s, p) => s + p.weekCount, 0);
+      const start = phases.slice(0, phaseIndex).reduce((s, p) => s + (p.periodCount ?? 0), 0);
       const phase = phases[phaseIndex];
       const weeksToRemove = Array.from(
-        { length: phase.weekCount },
+        { length: phase.periodCount ?? 0 },
         (_, i) => start + i + 1
       );
       const newPhases = phases.filter((_, i) => i !== phaseIndex);
       persistPhases(newPhases);
-      const remainingWeekNumbers = weekNumbers.filter((w) => !weeksToRemove.includes(w));
+      const remainingWeekNumbers = periodNumbers.filter((w) => !weeksToRemove.includes(w));
       const renumberedWeeks = remainingWeekNumbers.map((_, i) => i + 1);
       const updatedResourcePlans = resourcePlans.map((plan) => {
-        const newAllocations = plan.weeklyAllocations
-          .filter((wa) => !weeksToRemove.includes(wa.weekNumber))
+        const newAllocations = plan.allocations
+          .filter((wa) => !weeksToRemove.includes(wa.periodNumber))
           .map((wa) => {
-            const idx = remainingWeekNumbers.indexOf(wa.weekNumber);
-            return { ...wa, weekNumber: renumberedWeeks[idx] };
+            const idx = remainingWeekNumbers.indexOf(wa.periodNumber);
+            return { ...wa, periodNumber: renumberedWeeks[idx] };
           });
-        return { ...plan, weeklyAllocations: newAllocations };
+        return { ...plan, allocations: newAllocations };
       });
       onResourcePlansChange(updatedResourcePlans);
     },
-    [phases, weekNumbers, resourcePlans, persistPhases, onResourcePlansChange]
+    [phases, periodNumbers, resourcePlans, persistPhases, onResourcePlansChange]
   );
 
   const renamePhase = useCallback(
@@ -926,20 +940,20 @@ export function ResourcePlan({
   );
 
   const addRole = useCallback(() => {
-    // Send only fields allowed by server resourcePlanCreateSchema (strict): role, clientRole, name, intHourlyRate, clientHourlyRate, weeklyAllocations (each only weekNumber + allocation)
+    // Send only fields allowed by server resourcePlanCreateSchema (strict): role, clientRole, name, intHourlyRate, clientHourlyRate, allocations (each only periodNumber + allocation)
     const newResourcePlan = {
       role: 'New role', // placeholder; schema requires min(1); user can change via grid or role picker
       clientRole: undefined as string | undefined,
       name: undefined as string | undefined,
       intHourlyRate: 0,
       clientHourlyRate: 0,
-      weeklyAllocations: weekNumbers.map(weekNum => ({
-        weekNumber: weekNum,
+      allocations: periodNumbers.map(weekNum => ({
+        periodNumber: weekNum,
         allocation: 0
       }))
     };
     onAddResourcePlan(newResourcePlan);
-  }, [weekNumbers, onAddResourcePlan]);
+  }, [periodNumbers, onAddResourcePlan]);
 
   const validateRole = useCallback((role: string): boolean => {
     return resourceLists.some(r => r.role === role);
@@ -953,12 +967,12 @@ export function ResourcePlan({
     }
     
     // Calculate the week column offset - skip the first 9 columns (actions, role, client role, name, hourly cost, daily cost, hourly rate, daily rate, margin)
-    const weekColumnStartIndex = 9;
-    const weekColumnIndex = colIndex - weekColumnStartIndex;
+    const periodColumnStartIndex = 9;
+    const periodColumnIndex = colIndex - periodColumnStartIndex;
     
-    // Only show context menu for week columns
-    if (weekColumnIndex >= 0 && weekColumnIndex < weekNumbers.length) {
-      const weekNumber = weekNumbers[weekColumnIndex];
+    // Only show context menu for period columns
+    if (periodColumnIndex >= 0 && periodColumnIndex < periodNumbers.length) {
+      const periodNum = periodNumbers[periodColumnIndex];
       
       // Use the actual mouse position captured by the mouse event listeners
       let absoluteX = lastMousePosition.x;
@@ -983,11 +997,11 @@ export function ResourcePlan({
         show: true,
         x: finalX,
         y: finalY,
-        weekNumber,
+        periodNumber: periodNum,
         colIndex
       });
     }
-  }, [weekNumbers, lastMousePosition]);
+  }, [periodNumbers, lastMousePosition]);
 
   // Close context menu when clicking elsewhere and prevent browser context menu
   useEffect(() => {
@@ -1027,38 +1041,38 @@ export function ResourcePlan({
   }, [contextMenu.show]);
 
   // Handle delete week from context menu
-  const handleDeleteWeekFromContextMenu = useCallback(() => {
-    if (contextMenu.weekNumber !== null) {
-      removeSpecificWeek(contextMenu.weekNumber);
+  const handleDeletePeriodFromContextMenu = useCallback(() => {
+    if (contextMenu.periodNumber !== null) {
+      removeSpecificPeriod(contextMenu.periodNumber);
     }
     setContextMenu(prev => ({ ...prev, show: false }));
-  }, [contextMenu.weekNumber, removeSpecificWeek]);
+  }, [contextMenu.periodNumber, removeSpecificPeriod]);
 
   // Handle insert week before from context menu
-  const handleInsertWeekBefore = useCallback(() => {
-    if (contextMenu.weekNumber !== null) {
+  const handleInsertPeriodBefore = useCallback(() => {
+    if (contextMenu.periodNumber !== null) {
       // Find the position of the current week and insert before it
-      const weekPosition = weekNumbers.findIndex(week => week === contextMenu.weekNumber);
+      const weekPosition = periodNumbers.findIndex(week => week === contextMenu.periodNumber);
       if (weekPosition >= 0) {
-        // insertWeekAfter actually inserts AT the position, so to insert BEFORE we use the current position
-        insertWeekAfter(weekPosition);
+        // insertPeriodAfter actually inserts AT the position, so to insert BEFORE we use the current position
+        insertPeriodAfter(weekPosition);
       }
     }
     setContextMenu(prev => ({ ...prev, show: false }));
-  }, [contextMenu.weekNumber, weekNumbers, insertWeekAfter]);
+  }, [contextMenu.periodNumber, periodNumbers, insertPeriodAfter]);
 
   // Handle insert week after from context menu
-  const handleInsertWeekAfter = useCallback(() => {
-    if (contextMenu.weekNumber !== null) {
+  const handleInsertPeriodAfter = useCallback(() => {
+    if (contextMenu.periodNumber !== null) {
       // Find the position of the current week and insert after it
-      const weekPosition = weekNumbers.findIndex(week => week === contextMenu.weekNumber);
+      const weekPosition = periodNumbers.findIndex(week => week === contextMenu.periodNumber);
       if (weekPosition >= 0) {
-        // insertWeekAfter actually inserts AT the position, so to insert AFTER we use position + 1
-        insertWeekAfter(weekPosition + 1);
+        // insertPeriodAfter actually inserts AT the position, so to insert AFTER we use position + 1
+        insertPeriodAfter(weekPosition + 1);
       }
     }
     setContextMenu(prev => ({ ...prev, show: false }));
-  }, [contextMenu.weekNumber, weekNumbers, insertWeekAfter]);
+  }, [contextMenu.periodNumber, periodNumbers, insertPeriodAfter]);
 
   const totals = useMemo(() => {
     const totalIntCost = resourcePlans.reduce((sum, plan) => sum + calculateTotalIntCost(plan), 0);
@@ -1068,32 +1082,33 @@ export function ResourcePlan({
     const blendedHourlyRate = totalEfforts > 0 ? totalPrice / totalEfforts : 0;
     const blendedDailyRate = blendedHourlyRate * 8;
     return { totalIntCost, totalPrice, totalEfforts, calculatedMargin, blendedHourlyRate, blendedDailyRate };
-  }, [resourcePlans, project.exchangeRate, weekNumbers]);
+  }, [resourcePlans, project.exchangeRate, periodNumbers]);
 
   const phaseTotals = useMemo(() => {
-    let startWeek = 1;
+    let startPeriod = 1;
     return phases.map((phase) => {
-      const endWeek = startWeek + phase.weekCount - 1;
+      const count = phase.periodCount ?? 0;
+      const endPeriod = startPeriod + count - 1;
       let cost = 0,
         price = 0,
         efforts = 0;
       resourcePlans.forEach((plan) => {
-        let weeksEquiv = 0;
-        for (let w = startWeek; w <= endWeek; w++) {
-          const alloc = plan.weeklyAllocations.find((wa) => wa.weekNumber === w);
-          weeksEquiv += (alloc?.allocation || 0) / 100;
+        let periodsEquiv = 0;
+        for (let p = startPeriod; p <= endPeriod; p++) {
+          const alloc = plan.allocations.find((a) => a.periodNumber === p);
+          periodsEquiv += (alloc?.allocation || 0) / 100;
         }
-        const hours = estimatedEffortHours(weeksEquiv, 40);
+        const hours = estimatedEffortHours(periodsEquiv, hrsPerPeriod);
         cost += totalInternalCost(hours, plan.intHourlyRate);
         price += totalClientCost(hours, plan.clientHourlyRate);
         efforts += hours;
       });
       const margin = grossMarginPct(cost, price, project.exchangeRate);
       const result = { name: phase.name, cost, price, efforts, margin };
-      startWeek = endWeek + 1;
+      startPeriod = endPeriod + 1;
       return result;
     });
-  }, [phases, resourcePlans, project.exchangeRate]);
+  }, [phases, resourcePlans, project.exchangeRate, hrsPerPeriod]);
 
   // Custom cells for actions - simplified implementation
   const customRenderers = [ActionCellRenderer];
@@ -1187,7 +1202,7 @@ export function ResourcePlan({
                   <Label htmlFor="clientCurrency">Client currency</Label>
                   <Select
                     value={project.clientCurrency}
-                    onValueChange={(value) => onProjectSettingsChange({ clientCurrency: value })}
+                    onValueChange={(value: string) => onProjectSettingsChange({ clientCurrency: value })}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -1228,6 +1243,29 @@ export function ResourcePlan({
                     }}
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="planningMode">Planning Mode</Label>
+                  <Select
+                    value={planningMode}
+                    onValueChange={(value: string) => {
+                      const targetMode = value as 'weekly' | 'monthly';
+                      if (targetMode !== planningMode && onConvertPlanningMode) {
+                        if (window.confirm(`Switch to ${targetMode} planning? This will recalculate all allocations. The conversion is lossy and may not be perfectly reversible.`)) {
+                          onConvertPlanningMode(targetMode);
+                        }
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           </div>
@@ -1256,8 +1294,8 @@ export function ResourcePlan({
               <div className="text-lg">{Math.round(totals.totalEfforts)}h</div>
             </div>
             <div>
-              <Label>Duration (weeks)</Label>
-              <div className="text-lg">{totalWeeks}</div>
+              <Label>Duration ({periodLabelPlural.toLowerCase()})</Label>
+              <div className="text-lg">{totalPeriods}</div>
             </div>
             <div>
               <Label>Calculated Project Margin</Label>
@@ -1331,7 +1369,7 @@ export function ResourcePlan({
                 {phase.name}
               </span>
             )}
-            <span className="text-xs text-muted-foreground">{phase.weekCount}w</span>
+            <span className="text-xs text-muted-foreground">{phase.periodCount ?? 0}{periodSuffix}</span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-6 w-6">
@@ -1363,16 +1401,16 @@ export function ResourcePlan({
                     </div>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-                <DropdownMenuItem onClick={() => addWeekToPhase(idx)}>
+                <DropdownMenuItem onClick={() => addPeriodToPhase(idx)}>
                   <Plus className="mr-2 h-3.5 w-3.5" />
-                  Add Week
+                  Add {periodLabel}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => removeLastWeekFromPhase(idx)}
-                  disabled={phase.weekCount <= 1}
+                  onClick={() => removeLastPeriodFromPhase(idx)}
+                  disabled={(phase.periodCount ?? 0) <= 1}
                 >
                   <Minus className="mr-2 h-3.5 w-3.5" />
-                  Remove Last Week
+                  Remove Last {periodLabel}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => deletePhase(idx)}
@@ -1399,9 +1437,9 @@ export function ResourcePlan({
               <Plus className="h-4 w-4 mr-1" />
               Add Role
             </Button>
-            <Button onClick={addWeek} size="sm">
+            <Button onClick={addPeriod} size="sm">
               <Plus className="h-4 w-4 mr-1" />
-              Add Week at End
+              Add {periodLabel} at End
             </Button>
             {onClearAllResourcePlans && resourcePlans.length > 0 && (
               <Button
@@ -1414,15 +1452,15 @@ export function ResourcePlan({
                 Clear all
               </Button>
             )}
-            <span className="text-sm text-muted-foreground">Weeks: {weekNumbers.length} | Roles: {resourcePlans.length}</span>
+            <span className="text-sm text-muted-foreground">{periodLabelPlural}: {periodNumbers.length} | Roles: {resourcePlans.length}</span>
           </div>
         </div>
-        
+
         <div className="mb-2 text-sm text-muted-foreground">
-         
-          <span className="text-blue-600 font-medium">🖱️ New:</span> Right-click on any week column header to insert weeks before/after or delete that specific week from the planning table.
+
+          <span className="text-blue-600 font-medium">Right-click</span> on any {periodLabel.toLowerCase()} column header to insert {periodLabelPlural.toLowerCase()} before/after or delete that specific {periodLabel.toLowerCase()} from the planning table.
           <br />
-          <span className="text-purple-600 font-medium">📋 Fill Handle:</span> Select week cells and use the fill handle (small square in corner) to drag and fill adjacent cells, or use Ctrl+D (fill down) and Ctrl+R (fill right) keyboard shortcuts.
+          <span className="text-purple-600 font-medium">Fill Handle:</span> Select cells and use the fill handle (small square in corner) to drag and fill adjacent cells, or use Ctrl+D (fill down) and Ctrl+R (fill right) keyboard shortcuts.
           <br />
         </div>
         
@@ -1537,30 +1575,30 @@ export function ResourcePlan({
             >
               <button
                 className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-blue-50 flex items-center gap-2"
-                onClick={handleInsertWeekBefore}
+                onClick={handleInsertPeriodBefore}
               >
                 <ChevronLeft className="h-4 w-4" />
-                Insert Week Before
+                Insert {periodLabel} Before
               </button>
               <button
                 className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-blue-50 flex items-center gap-2"
-                onClick={handleInsertWeekAfter}
+                onClick={handleInsertPeriodAfter}
               >
                 <ChevronRight className="h-4 w-4" />
-                Insert Week After
+                Insert {periodLabel} After
               </button>
               <div className="border-t border-gray-200 my-1"></div>
               <button
                 className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                onClick={handleDeleteWeekFromContextMenu}
-                disabled={weekNumbers.length <= 1}
+                onClick={handleDeletePeriodFromContextMenu}
+                disabled={periodNumbers.length <= 1}
               >
                 <Trash2 className="h-4 w-4" />
-                Delete Week {contextMenu.weekNumber}
+                Delete {periodLabel} {contextMenu.periodNumber}
               </button>
-              {weekNumbers.length <= 1 && (
+              {periodNumbers.length <= 1 && (
                 <div className="px-4 py-2 text-xs text-gray-500">
-                  Cannot delete the last week
+                  Cannot delete the last {periodLabel.toLowerCase()}
                 </div>
               )}
             </div>
@@ -1568,7 +1606,7 @@ export function ResourcePlan({
         </div>
 
         {/* Role picker dialog */}
-        <Dialog open={rolePicker.open} onOpenChange={(open) => setRolePicker(p => ({ ...p, open }))}>
+        <Dialog open={rolePicker.open} onOpenChange={(open: boolean) => setRolePicker(p => ({ ...p, open }))}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Select Rate Card Role</DialogTitle>

@@ -48,6 +48,10 @@ export function ProjectList({
   const [editDescription, setEditDescription] = useState('');
   const [copyProject, setCopyProject] = useState<Project | null>(null);
   const [copyName, setCopyName] = useState('');
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [createName, setCreateName] = useState('New project');
+  const [createDescription, setCreateDescription] = useState('');
+  const [createPlanningMode, setCreatePlanningMode] = useState<'weekly' | 'monthly'>('weekly');
 
   const fetchProjects = async () => {
     try {
@@ -69,13 +73,18 @@ export function ProjectList({
   const handleCreateProject = async () => {
     try {
       const created = await api.createProject({
-        name: 'New project',
-        description: '',
+        name: createName.trim() || 'New project',
+        description: createDescription.trim() || undefined,
         daysInFTE: 20,
         clientCurrency: 'EUR',
         exchangeRate: 0.89,
+        planningMode: createPlanningMode,
       });
       setProjects((prev) => [...prev, created]);
+      setShowCreateDialog(false);
+      setCreateName('New project');
+      setCreateDescription('');
+      setCreatePlanningMode('weekly');
       onOpenProject(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create project');
@@ -155,7 +164,7 @@ export function ProjectList({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Projects</h2>
-        <Button onClick={handleCreateProject}>New project</Button>
+        <Button onClick={() => setShowCreateDialog(true)}>New project</Button>
       </div>
 
       {projects.length === 0 ? (
@@ -168,6 +177,7 @@ export function ProjectList({
             <TableRow>
               <TableHead>Project name</TableHead>
               <TableHead>Project description</TableHead>
+              <TableHead>Mode</TableHead>
               <TableHead>Created</TableHead>
               <TableHead>Last updated</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -183,6 +193,7 @@ export function ProjectList({
                 <TableCell className="max-w-xs truncate">
                   {project.description ?? '—'}
                 </TableCell>
+                <TableCell className="capitalize">{project.planningMode || 'weekly'}</TableCell>
                 <TableCell>{formatDate(project.createdAt)}</TableCell>
                 <TableCell>{formatDate(project.updatedAt)}</TableCell>
                 <TableCell className="text-right space-x-2">
@@ -222,7 +233,7 @@ export function ProjectList({
         </Table>
       )}
 
-      <Dialog open={!!copyProject} onOpenChange={(open) => !open && setCopyProject(null)}>
+      <Dialog open={!!copyProject} onOpenChange={(open: boolean) => !open && setCopyProject(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Copy project</DialogTitle>
@@ -248,7 +259,69 @@ export function ProjectList({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editProject} onOpenChange={(open) => !open && setEditProject(null)}>
+      <Dialog open={showCreateDialog} onOpenChange={(open: boolean) => !open && setShowCreateDialog(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create new project</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Project name</label>
+              <Input
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="Project name"
+              />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                placeholder="Description (optional)"
+                rows={2}
+              />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Planning mode</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="planningMode"
+                    value="weekly"
+                    checked={createPlanningMode === 'weekly'}
+                    onChange={() => setCreatePlanningMode('weekly')}
+                    className="accent-primary"
+                  />
+                  <span className="text-sm">Weekly</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="planningMode"
+                    value="monthly"
+                    checked={createPlanningMode === 'monthly'}
+                    onChange={() => setCreatePlanningMode('monthly')}
+                    className="accent-primary"
+                  />
+                  <span className="text-sm">Monthly</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateProject} disabled={!createName.trim()}>
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editProject} onOpenChange={(open: boolean) => !open && setEditProject(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit project</DialogTitle>

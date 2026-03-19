@@ -7,8 +7,9 @@ import {
   resourceListUpdateSchema,
   resourcePlanCreateSchema,
   resourcePlanUpdateSchema,
-  weeklyAllocationSchema,
-  weeklyAllocationUpdateSchema,
+  allocationSchema,
+  allocationUpdateSchema,
+  convertPlanningModeSchema,
 } from './server-validation';
 
 describe('server-validation Zod schemas', () => {
@@ -35,6 +36,16 @@ describe('server-validation Zod schemas', () => {
 
     it('rejects wrong type for name', () => {
       const result = projectCreateSchema.safeParse({ name: 123 });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts planningMode', () => {
+      const result = projectCreateSchema.safeParse({ name: 'P', planningMode: 'monthly' });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects invalid planningMode', () => {
+      const result = projectCreateSchema.safeParse({ name: 'P', planningMode: 'daily' });
       expect(result.success).toBe(false);
     });
   });
@@ -92,19 +103,19 @@ describe('server-validation Zod schemas', () => {
     });
   });
 
-  describe('weeklyAllocationSchema', () => {
+  describe('allocationSchema', () => {
     it('accepts valid payload', () => {
-      const result = weeklyAllocationSchema.safeParse({ weekNumber: 1, allocation: 100 });
+      const result = allocationSchema.safeParse({ periodNumber: 1, allocation: 100 });
       expect(result.success).toBe(true);
     });
 
     it('rejects allocation > 100', () => {
-      const result = weeklyAllocationSchema.safeParse({ weekNumber: 1, allocation: 101 });
+      const result = allocationSchema.safeParse({ periodNumber: 1, allocation: 101 });
       expect(result.success).toBe(false);
     });
 
-    it('rejects weekNumber < 1', () => {
-      const result = weeklyAllocationSchema.safeParse({ weekNumber: 0, allocation: 50 });
+    it('rejects periodNumber < 1', () => {
+      const result = allocationSchema.safeParse({ periodNumber: 0, allocation: 50 });
       expect(result.success).toBe(false);
     });
   });
@@ -113,7 +124,7 @@ describe('server-validation Zod schemas', () => {
     it('accepts valid payload', () => {
       const result = resourcePlanCreateSchema.safeParse({
         role: 'Developer',
-        weeklyAllocations: [{ weekNumber: 1, allocation: 50 }],
+        allocations: [{ periodNumber: 1, allocation: 50 }],
       });
       expect(result.success).toBe(true);
     });
@@ -123,10 +134,10 @@ describe('server-validation Zod schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('rejects invalid weeklyAllocations element', () => {
+    it('rejects invalid allocations element', () => {
       const result = resourcePlanCreateSchema.safeParse({
         role: 'Dev',
-        weeklyAllocations: [{ weekNumber: 1, allocation: 150 }],
+        allocations: [{ periodNumber: 1, allocation: 150 }],
       });
       expect(result.success).toBe(false);
     });
@@ -139,10 +150,27 @@ describe('server-validation Zod schemas', () => {
     });
   });
 
-  describe('weeklyAllocationUpdateSchema', () => {
+  describe('allocationUpdateSchema', () => {
     it('accepts valid payload', () => {
-      const result = weeklyAllocationUpdateSchema.safeParse({ weekNumber: 2, allocation: 75 });
+      const result = allocationUpdateSchema.safeParse({ periodNumber: 2, allocation: 75 });
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('convertPlanningModeSchema', () => {
+    it('accepts weekly', () => {
+      const result = convertPlanningModeSchema.safeParse({ targetMode: 'weekly' });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts monthly', () => {
+      const result = convertPlanningModeSchema.safeParse({ targetMode: 'monthly' });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects invalid mode', () => {
+      const result = convertPlanningModeSchema.safeParse({ targetMode: 'daily' });
+      expect(result.success).toBe(false);
     });
   });
 });

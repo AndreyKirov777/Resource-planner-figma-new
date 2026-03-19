@@ -4,8 +4,11 @@ import { z } from 'zod';
 
 const phaseSchema = z.object({
   name: z.string().min(1).max(200),
-  weekCount: z.number().int().min(1).max(104),
+  periodCount: z.number().int().min(1).max(104).optional(),
+  weekCount: z.number().int().min(1).max(104).optional(), // backward compat
   color: z.string().max(30).optional(),
+}).refine(data => (data.periodCount ?? data.weekCount) !== undefined, {
+  message: 'Either periodCount or weekCount must be provided',
 });
 
 const phasesStringSchema = z
@@ -20,13 +23,13 @@ const phasesStringSchema = z
         return (
           Array.isArray(parsed) &&
           parsed.length > 0 &&
-          parsed.every((p) => phaseSchema.safeParse(p).success)
+          parsed.every((p: any) => phaseSchema.safeParse(p).success)
         );
       } catch {
         return false;
       }
     },
-    { message: 'phases must be a JSON array of { name, weekCount }' }
+    { message: 'phases must be a JSON array of { name, periodCount }' }
   );
 
 export const projectCreateSchema = z.object({
@@ -36,6 +39,7 @@ export const projectCreateSchema = z.object({
   clientCurrency: z.string().max(10).optional(),
   exchangeRate: z.number().min(0).optional(),
   defaultMargin: z.number().min(0).max(100).optional().nullable(),
+  planningMode: z.enum(['weekly', 'monthly']).optional(),
   phases: phasesStringSchema,
 }).strict();
 
@@ -46,6 +50,7 @@ export const projectUpdateSchema = z.object({
   clientCurrency: z.string().max(10).optional(),
   exchangeRate: z.number().min(0).optional(),
   defaultMargin: z.number().min(0).max(100).optional().nullable(),
+  planningMode: z.enum(['weekly', 'monthly']).optional(),
   phases: phasesStringSchema,
 }).strict();
 
@@ -83,8 +88,8 @@ export const resourceListUpdateSchema = z.object({
   description: z.string().max(2000).optional().nullable(),
 }).strict();
 
-export const weeklyAllocationSchema = z.object({
-  weekNumber: z.number().int().min(1),
+export const allocationSchema = z.object({
+  periodNumber: z.number().int().min(1),
   allocation: z.number().int().min(0).max(100),
 }).strict();
 
@@ -95,7 +100,7 @@ export const resourcePlanCreateSchema = z.object({
   intHourlyRate: z.number().optional(),
   clientHourlyRate: z.number().optional(),
   displayOrder: z.number().int().min(0).optional(),
-  weeklyAllocations: z.array(weeklyAllocationSchema).optional(),
+  allocations: z.array(allocationSchema).optional(),
 }).strict();
 
 export const resourcePlanUpdateSchema = z.object({
@@ -105,16 +110,20 @@ export const resourcePlanUpdateSchema = z.object({
   intHourlyRate: z.number().optional(),
   clientHourlyRate: z.number().optional(),
   displayOrder: z.number().int().min(0).optional(),
-  weeklyAllocations: z.array(weeklyAllocationSchema).optional(),
+  allocations: z.array(allocationSchema).optional(),
 }).strict();
 
 export const reorderSchema = z.object({
   orderedIds: z.array(z.number().int().positive()).min(1),
 }).strict();
 
-export const weeklyAllocationUpdateSchema = z.object({
-  weekNumber: z.number().int().min(1).optional(),
+export const allocationUpdateSchema = z.object({
+  periodNumber: z.number().int().min(1).optional(),
   allocation: z.number().int().min(0).max(100).optional(),
+}).strict();
+
+export const convertPlanningModeSchema = z.object({
+  targetMode: z.enum(['weekly', 'monthly']),
 }).strict();
 
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;
@@ -124,4 +133,4 @@ export type ResourceListCreateInput = z.infer<typeof resourceListCreateSchema>;
 export type ResourceListUpdateInput = z.infer<typeof resourceListUpdateSchema>;
 export type ResourcePlanCreateInput = z.infer<typeof resourcePlanCreateSchema>;
 export type ResourcePlanUpdateInput = z.infer<typeof resourcePlanUpdateSchema>;
-export type WeeklyAllocationUpdateInput = z.infer<typeof weeklyAllocationUpdateSchema>;
+export type AllocationUpdateInput = z.infer<typeof allocationUpdateSchema>;

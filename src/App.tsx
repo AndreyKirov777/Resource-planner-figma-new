@@ -7,12 +7,12 @@ import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
 import { ProjectList } from './components/ProjectList';
-import { api, Project, Phase, ResourceList as ResourceListType, RateCard as RateCardType, ResourcePlan as ResourcePlanType } from './services/api';
+import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, ResourcePlan as ResourcePlanType } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
 import * as ExcelJS from 'exceljs';
-import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct } from './utils/calculations';
+import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct, hoursPerPeriod } from './utils/calculations';
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -210,18 +210,17 @@ export default function App() {
       for (const resourcePlan of updatedResourcePlans) {
         if (resourcePlan.id) {
           try {
-            const updateData = {
+            await api.updateResourcePlan(resourcePlan.id, {
               role: resourcePlan.role,
               clientRole: resourcePlan.clientRole ?? undefined,
               name: resourcePlan.name ?? undefined,
               intHourlyRate: resourcePlan.intHourlyRate,
               clientHourlyRate: resourcePlan.clientHourlyRate,
-              weeklyAllocations: resourcePlan.weeklyAllocations?.map(wa => ({
-                weekNumber: wa.weekNumber,
+              allocations: resourcePlan.allocations?.map(wa => ({
+                periodNumber: wa.periodNumber,
                 allocation: wa.allocation
-              }))
-            };
-            await api.updateResourcePlan(resourcePlan.id, updateData);
+              })),
+            });
           } catch (updateErr) {
             console.error(`Failed to update resource plan ${resourcePlan.id}:`, updateErr);
             // Continue with other updates even if one fails
@@ -245,7 +244,7 @@ export default function App() {
     }
   };
 
-  const handleAddResourcePlan = async (newResourcePlan: Partial<ResourcePlanType>) => {
+  const handleAddResourcePlan = async (newResourcePlan: Omit<Partial<ResourcePlanType>, 'allocations'> & { allocations?: Partial<Allocation>[] }) => {
     if (!currentProject) return;
     
     try {
@@ -301,6 +300,18 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clear resource plan');
       console.error('Error clearing resource plan:', err);
+    }
+  };
+
+  const handleConvertPlanningMode = async (targetMode: 'weekly' | 'monthly') => {
+    if (!currentProject) return;
+    try {
+      const result = await api.convertPlanningMode(currentProject.id, targetMode);
+      setCurrentProject(result);
+      setResourcePlans(result.resourcePlans);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to convert planning mode');
+      console.error('Error converting planning mode:', err);
     }
   };
 
@@ -382,7 +393,7 @@ export default function App() {
       if (currentProject.phases) {
         try {
           const parsed = JSON.parse(currentProject.phases) as Phase[];
-          if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && p.weekCount > 0)) {
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && (p.periodCount ?? p.weekCount ?? 0) > 0)) {
             phases = parsed;
           }
         } catch {
@@ -390,13 +401,18 @@ export default function App() {
         }
       }
       if (phases.length === 0) {
-        const allWeeks = new Set<number>();
-        resourcePlans.forEach((p) => p.weeklyAllocations.forEach((wa) => allWeeks.add(wa.weekNumber)));
-        const totalWeeks = allWeeks.size > 0 ? Math.max(...allWeeks) : 8;
-        phases = [{ name: 'Phase 1', weekCount: totalWeeks }];
+        const allPeriods = new Set<number>();
+        resourcePlans.forEach((p) => p.allocations.forEach((wa) => allPeriods.add(wa.periodNumber)));
+        const totalPeriods = allPeriods.size > 0 ? Math.max(...allPeriods) : 8;
+        phases = [{ name: 'Phase 1', periodCount: totalPeriods }];
       }
 
-      const totalWeeks = phases.reduce((s, p) => s + p.weekCount, 0);
+      const planMode = (currentProject.planningMode || 'weekly') as 'weekly' | 'monthly';
+      const isMonthlyExport = planMode === 'monthly';
+      const periodLbl = isMonthlyExport ? 'Month' : 'Week';
+      const hrsPerPrd = hoursPerPeriod(planMode, currentProject.daysInFTE);
+
+      const totalWeeks = phases.reduce((s, p) => s + (p.periodCount ?? p.weekCount ?? 0), 0);
       const weekNumbers = Array.from({ length: totalWeeks }, (_, i) => i + 1);
 
       const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€' :
@@ -418,9 +434,10 @@ export default function App() {
       const phaseHeaderRow = worksheet.addRow([]);
       let col = firstWeekCol;
       phases.forEach((phase) => {
-        const endCol = col + phase.weekCount - 1;
+        const pc = phase.periodCount ?? phase.weekCount ?? 0;
+        const endCol = col + pc - 1;
         const phaseColorArgb = phase.color ? hexToArgb(phase.color) : defaultPhaseColor;
-        if (phase.weekCount === 1) {
+        if (pc === 1) {
           const cell = worksheet.getCell(1, col);
           cell.value = phase.name;
           cell.font = { bold: true };
@@ -445,7 +462,7 @@ export default function App() {
         `Client Hourly Rate (${currencySymbol})`,
         `Client Daily Rate (${currencySymbol})`,
         'Margin (%)',
-        ...weekNumbers.map((w) => `Week ${w} (%)`),
+        ...weekNumbers.map((w) => `${periodLbl} ${w} (%)`),
         'Total Internal Cost ($)',
         `Total Price (${currencySymbol})`,
         'Estimated Efforts (h)',
@@ -461,10 +478,10 @@ export default function App() {
         const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
         let totalWeeksEquivalent = 0;
         weekNumbers.forEach((weekNum) => {
-          const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
+          const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
           totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
         });
-        const totalEfforts = estimatedEffortHours(totalWeeksEquivalent, 40);
+        const totalEfforts = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
         const totalIntCost = totalInternalCost(totalEfforts, plan.intHourlyRate);
         const totalPrice = totalClientCost(totalEfforts, plan.clientHourlyRate);
         const rowData = [
@@ -477,7 +494,7 @@ export default function App() {
           clientDailyRate,
           margin,
           ...weekNumbers.map((weekNum) => {
-            const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
+            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
             return allocation?.allocation || 0;
           }),
           totalIntCost,
@@ -501,28 +518,28 @@ export default function App() {
         resourcePlans.reduce((sum, plan) => {
           let totalWeeksEquivalent = 0;
           weekNumbers.forEach((weekNum) => {
-            const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
+            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
             totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          const hours = estimatedEffortHours(totalWeeksEquivalent, 40);
+          const hours = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
           return sum + totalInternalCost(hours, plan.intHourlyRate);
         }, 0),
         resourcePlans.reduce((sum, plan) => {
           let totalWeeksEquivalent = 0;
           weekNumbers.forEach((weekNum) => {
-            const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
+            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
             totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          const hours = estimatedEffortHours(totalWeeksEquivalent, 40);
+          const hours = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
           return sum + totalClientCost(hours, plan.clientHourlyRate);
         }, 0),
         resourcePlans.reduce((sum, plan) => {
           let totalWeeksEquivalent = 0;
           weekNumbers.forEach((weekNum) => {
-            const allocation = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
+            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
             totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          return sum + estimatedEffortHours(totalWeeksEquivalent, 40);
+          return sum + estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
         }, 0),
       ];
       const totalsRowIndex = worksheet.addRow(totalsRow);
@@ -548,15 +565,15 @@ export default function App() {
       const phaseSummaryDataRowNumbers: number[] = [];
       let startWeek = 1;
       phases.forEach((phase) => {
-        const endWeek = startWeek + phase.weekCount - 1;
+        const endWeek = startWeek + (phase.periodCount ?? phase.weekCount ?? 0) - 1;
         let cost = 0, price = 0, efforts = 0;
         resourcePlans.forEach((plan) => {
           let weeksEquiv = 0;
           for (let w = startWeek; w <= endWeek; w++) {
-            const alloc = plan.weeklyAllocations.find((wa) => wa.weekNumber === w);
+            const alloc = plan.allocations.find((wa) => wa.periodNumber === w);
             weeksEquiv += (alloc?.allocation || 0) / 100;
           }
-          const hours = estimatedEffortHours(weeksEquiv, 40);
+          const hours = estimatedEffortHours(weeksEquiv, hrsPerPrd);
           cost += totalInternalCost(hours, plan.intHourlyRate);
           price += totalClientCost(hours, plan.clientHourlyRate);
           efforts += hours;
@@ -643,19 +660,22 @@ export default function App() {
     if (currentProject.phases) {
       try {
         const parsed = JSON.parse(currentProject.phases) as Phase[];
-        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && p.weekCount > 0)) {
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && (p.periodCount ?? p.weekCount ?? 0) > 0)) {
           phases = parsed;
         }
       } catch { /* fall through */ }
     }
     if (phases.length === 0) {
-      const allWeeks = new Set<number>();
-      resourcePlans.forEach((p) => p.weeklyAllocations.forEach((wa) => allWeeks.add(wa.weekNumber)));
-      const totalWeeks = allWeeks.size > 0 ? Math.max(...allWeeks) : 8;
-      phases = [{ name: 'Phase 1', weekCount: totalWeeks }];
+      const allPeriods = new Set<number>();
+      resourcePlans.forEach((p) => p.allocations.forEach((wa) => allPeriods.add(wa.periodNumber)));
+      const totalPeriods = allPeriods.size > 0 ? Math.max(...allPeriods) : 8;
+      phases = [{ name: 'Phase 1', periodCount: totalPeriods }];
     }
 
-    const totalWeekCount = phases.reduce((s, p) => s + p.weekCount, 0);
+    const pngPlanMode = (currentProject.planningMode || 'weekly') as 'weekly' | 'monthly';
+    const hrsPerPrd = hoursPerPeriod(pngPlanMode, currentProject.daysInFTE);
+
+    const totalWeekCount = phases.reduce((s, p) => s + (p.periodCount ?? p.weekCount ?? 0), 0);
     const weekNumbers = Array.from({ length: totalWeekCount }, (_, i) => i + 1);
     const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€'
       : currentProject.clientCurrency === 'GBP' ? '£' : '$';
@@ -664,10 +684,10 @@ export default function App() {
     const rows = resourcePlans.map((plan) => {
       let totalWeeksEquivalent = 0;
       weekNumbers.forEach((weekNum) => {
-        const alloc = plan.weeklyAllocations.find((wa) => wa.weekNumber === weekNum);
+        const alloc = plan.allocations.find((wa) => wa.periodNumber === weekNum);
         totalWeeksEquivalent += (alloc?.allocation || 0) / 100;
       });
-      const efforts = estimatedEffortHours(totalWeeksEquivalent, 40);
+      const efforts = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
       const intCost = totalInternalCost(efforts, plan.intHourlyRate);
       const price = totalClientCost(efforts, plan.clientHourlyRate);
       const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
@@ -872,13 +892,14 @@ export default function App() {
     ctx.font = 'bold 13px system-ui, -apple-system, Arial, sans-serif';
     ctx.fillText('Financial Summary', cardX + 16, cardY + 28);
 
-    const totalWeeks = phases.reduce((s, p) => s + p.weekCount, 0);
+    const totalPeriods = phases.reduce((s, p) => s + (p.periodCount ?? p.weekCount ?? 0), 0);
+    const pngDurationLabel = pngPlanMode === 'monthly' ? 'Duration (months)' : 'Duration (weeks)';
 
     const metrics = [
       { label: 'Total Internal Cost',                      value: `$${Math.round(grandIntCost).toLocaleString()}` },
       { label: `Total Price (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandPrice).toLocaleString()}` },
       { label: 'Total Estimated Efforts',                  value: `${Math.round(grandEfforts).toLocaleString()} h` },
-      { label: 'Duration (weeks)',                         value: `${totalWeeks}` },
+      { label: pngDurationLabel,                           value: `${totalPeriods}` },
       { label: 'Project Margin',                           value: `${projectMargin.toFixed(1)}%`, highlight: projectMargin > 0 },
       { label: `Blended Hourly Rate (${currentProject.clientCurrency})`, value: `${currencySymbol}${blendedHourlyRate.toFixed(0)}` },
       { label: `Blended Daily Rate (${currentProject.clientCurrency})`,  value: `${currencySymbol}${blendedDailyRate.toFixed(0)}` },
@@ -928,7 +949,7 @@ export default function App() {
         <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
           <div className="text-red-800 font-medium">Error: {error}</div>
           <button 
-            onClick={loadProjectData}
+            onClick={() => loadProjectData()}
             className="mt-2 text-red-600 hover:text-red-800 underline"
           >
             Retry
@@ -992,6 +1013,7 @@ export default function App() {
             onExportToExcel={handleExportToExcel}
             onExportToPNG={handleExportToPNG}
             onClearAllResourcePlans={handleClearAllResourcePlans}
+            onConvertPlanningMode={handleConvertPlanningMode}
             projectName={editableProjectName}
             projectDescription={editableProjectDescription}
             onProjectNameChange={(name) => {

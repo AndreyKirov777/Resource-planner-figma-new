@@ -64,15 +64,27 @@ export function marginPct(
 }
 
 /**
- * Estimated effort in hours from total "weeks" (sum of allocation percentages / 100).
- * @param totalWeeksEquivalent - Sum over weeks of (allocation/100)
- * @param hoursPerWeek - Default 40
+ * Hours per planning period based on mode.
+ * Weekly: 5 days * 8h = 40h.
+ * Monthly: daysInFTE * 8h (e.g. 20 * 8 = 160h).
+ */
+export function hoursPerPeriod(
+  mode: 'weekly' | 'monthly',
+  daysInFTE: number = 20,
+): number {
+  return mode === 'monthly' ? daysInFTE * 8 : 40;
+}
+
+/**
+ * Estimated effort in hours from total "periods" (sum of allocation percentages / 100).
+ * @param totalPeriodsEquivalent - Sum over periods of (allocation/100)
+ * @param hoursPerPeriodValue - Hours per period (40 for weekly, daysInFTE*8 for monthly)
  */
 export function estimatedEffortHours(
-  totalWeeksEquivalent: number,
-  hoursPerWeek: number = 40
+  totalPeriodsEquivalent: number,
+  hoursPerPeriodValue: number = 40
 ): number {
-  return totalWeeksEquivalent * hoursPerWeek;
+  return totalPeriodsEquivalent * hoursPerPeriodValue;
 }
 
 /**

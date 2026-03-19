@@ -4,7 +4,8 @@ const API_BASE_URL = '/api';
 // Types
 export interface Phase {
   name: string;
-  weekCount: number;
+  periodCount?: number;
+  weekCount?: number; // backward compat for import
   color?: string;
 }
 
@@ -16,6 +17,7 @@ export interface Project {
   clientCurrency: string;
   exchangeRate: number;
   defaultMargin?: number;
+  planningMode: string; // 'weekly' | 'monthly'
   phases?: string;
   createdAt: string;
   updatedAt: string;
@@ -54,9 +56,9 @@ export interface ResourceList {
   updatedAt: string;
 }
 
-export interface WeeklyAllocation {
+export interface Allocation {
   id: number;
-  weekNumber: number;
+  periodNumber: number;
   allocation: number;
   resourcePlanId: number;
   createdAt: string;
@@ -66,7 +68,7 @@ export interface WeeklyAllocation {
 export interface ResourcePlan {
   id: number;
   role: string;
-  clientRole?: string;  // Added client role field
+  clientRole?: string;
   name?: string;
   intHourlyRate: number;
   clientHourlyRate: number;
@@ -74,7 +76,7 @@ export interface ResourcePlan {
   projectId: number;
   createdAt: string;
   updatedAt: string;
-  weeklyAllocations: WeeklyAllocation[];
+  allocations: Allocation[];
 }
 
 // API functions
@@ -146,6 +148,20 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (!response.ok) throw new Error('Failed to import project');
+    return response.json();
+  },
+
+  async convertPlanningMode(projectId: number, targetMode: 'weekly' | 'monthly'): Promise<Project & {
+    rateCards: RateCard[];
+    resourceLists: ResourceList[];
+    resourcePlans: ResourcePlan[];
+  }> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/convert-planning-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetMode }),
+    });
+    if (!response.ok) throw new Error('Failed to convert planning mode');
     return response.json();
   },
 
@@ -248,7 +264,7 @@ export const api = {
     return response.json();
   },
 
-  async createResourcePlan(projectId: number, data: Partial<ResourcePlan> & { weeklyAllocations?: Partial<WeeklyAllocation>[] }): Promise<ResourcePlan> {
+  async createResourcePlan(projectId: number, data: Omit<Partial<ResourcePlan>, 'allocations'> & { allocations?: Partial<Allocation>[] }): Promise<ResourcePlan> {
     const response = await fetch(`${API_BASE_URL}/projects/${projectId}/resource-plans`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -258,7 +274,7 @@ export const api = {
     return response.json();
   },
 
-  async updateResourcePlan(id: number, data: Partial<ResourcePlan> & { weeklyAllocations?: Partial<WeeklyAllocation>[] }): Promise<ResourcePlan> {
+  async updateResourcePlan(id: number, data: Omit<Partial<ResourcePlan>, 'allocations'> & { allocations?: Partial<Allocation>[] }): Promise<ResourcePlan> {
     const response = await fetch(`${API_BASE_URL}/resource-plans/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -288,37 +304,37 @@ export const api = {
     if (!response.ok) throw new Error('Failed to reorder resource plans');
   },
 
-  // Weekly Allocation endpoints
-  async getWeeklyAllocations(resourcePlanId: number): Promise<WeeklyAllocation[]> {
-    const response = await fetch(`${API_BASE_URL}/resource-plans/${resourcePlanId}/weekly-allocations`);
-    if (!response.ok) throw new Error('Failed to fetch weekly allocations');
+  // Allocation endpoints
+  async getAllocations(resourcePlanId: number): Promise<Allocation[]> {
+    const response = await fetch(`${API_BASE_URL}/resource-plans/${resourcePlanId}/allocations`);
+    if (!response.ok) throw new Error('Failed to fetch allocations');
     return response.json();
   },
 
-  async createWeeklyAllocation(resourcePlanId: number, data: Partial<WeeklyAllocation>): Promise<WeeklyAllocation> {
-    const response = await fetch(`${API_BASE_URL}/resource-plans/${resourcePlanId}/weekly-allocations`, {
+  async createAllocation(resourcePlanId: number, data: Partial<Allocation>): Promise<Allocation> {
+    const response = await fetch(`${API_BASE_URL}/resource-plans/${resourcePlanId}/allocations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Failed to create weekly allocation');
+    if (!response.ok) throw new Error('Failed to create allocation');
     return response.json();
   },
 
-  async updateWeeklyAllocation(id: number, data: Partial<WeeklyAllocation>): Promise<WeeklyAllocation> {
-    const response = await fetch(`${API_BASE_URL}/weekly-allocations/${id}`, {
+  async updateAllocation(id: number, data: Partial<Allocation>): Promise<Allocation> {
+    const response = await fetch(`${API_BASE_URL}/allocations/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Failed to update weekly allocation');
+    if (!response.ok) throw new Error('Failed to update allocation');
     return response.json();
   },
 
-  async deleteWeeklyAllocation(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/weekly-allocations/${id}`, {
+  async deleteAllocation(id: number): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/allocations/${id}`, {
       method: 'DELETE',
     });
-    if (!response.ok) throw new Error('Failed to delete weekly allocation');
+    if (!response.ok) throw new Error('Failed to delete allocation');
   },
 };
