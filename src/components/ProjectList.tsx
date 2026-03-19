@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api, Project } from '../services/api';
+import { APP_DEFAULTS, SUPPORTED_CURRENCIES } from '../config/defaults';
 import { Button } from './ui/button';
 import {
   Table,
@@ -18,6 +19,13 @@ import {
 } from './ui/dialog';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -51,7 +59,10 @@ export function ProjectList({
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createName, setCreateName] = useState('New project');
   const [createDescription, setCreateDescription] = useState('');
-  const [createPlanningMode, setCreatePlanningMode] = useState<'weekly' | 'monthly'>('weekly');
+  const [createPlanningMode, setCreatePlanningMode] = useState<'weekly' | 'monthly'>(APP_DEFAULTS.planningMode);
+  const [createDaysInFTE, setCreateDaysInFTE] = useState(APP_DEFAULTS.daysInFTE);
+  const [createCurrency, setCreateCurrency] = useState(APP_DEFAULTS.clientCurrency);
+  const [createMargin, setCreateMargin] = useState(APP_DEFAULTS.defaultMargin);
 
   const fetchProjects = async () => {
     try {
@@ -75,16 +86,20 @@ export function ProjectList({
       const created = await api.createProject({
         name: createName.trim() || 'New project',
         description: createDescription.trim() || undefined,
-        daysInFTE: 20,
-        clientCurrency: 'EUR',
-        exchangeRate: 0.89,
+        daysInFTE: createDaysInFTE,
+        clientCurrency: createCurrency,
+        exchangeRate: APP_DEFAULTS.exchangeRate,
+        defaultMargin: createMargin,
         planningMode: createPlanningMode,
       });
       setProjects((prev) => [...prev, created]);
       setShowCreateDialog(false);
       setCreateName('New project');
       setCreateDescription('');
-      setCreatePlanningMode('weekly');
+      setCreatePlanningMode(APP_DEFAULTS.planningMode);
+      setCreateDaysInFTE(APP_DEFAULTS.daysInFTE);
+      setCreateCurrency(APP_DEFAULTS.clientCurrency);
+      setCreateMargin(APP_DEFAULTS.defaultMargin);
       onOpenProject(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create project');
@@ -307,6 +322,41 @@ export function ProjectList({
                   />
                   <span className="text-sm">Monthly</span>
                 </label>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Days in FTE/Month</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={createDaysInFTE}
+                  onChange={(e) => setCreateDaysInFTE(Math.max(1, parseInt(e.target.value) || 1))}
+                />
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Client currency</label>
+                <Select value={createCurrency} onValueChange={setCreateCurrency}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_CURRENCIES.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Default margin (%)</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={createMargin}
+                  onChange={(e) => setCreateMargin(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+                />
               </div>
             </div>
           </div>

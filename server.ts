@@ -29,6 +29,7 @@ import {
   convertPhasesToWeekly,
   getWeeksPerMonth,
 } from './src/utils/modeConversion';
+import { APP_DEFAULTS } from './src/config/defaults';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -48,10 +49,10 @@ async function initializeDefaultProject() {
       data: {
         name: 'Default Project',
         description: 'Default project for resource planning',
-        daysInFTE: 20,
-        clientCurrency: 'EUR',
-        exchangeRate: 0.89,
-        defaultMargin: 25.0
+        daysInFTE: APP_DEFAULTS.daysInFTE,
+        clientCurrency: APP_DEFAULTS.clientCurrency,
+        exchangeRate: APP_DEFAULTS.exchangeRate,
+        defaultMargin: APP_DEFAULTS.defaultMargin,
       }
     });
   }
@@ -100,11 +101,11 @@ app.post('/api/projects', async (req, res) => {
       data: {
         name: parsed.data.name,
         description: parsed.data.description ?? null,
-        daysInFTE: parsed.data.daysInFTE ?? 20,
-        clientCurrency: parsed.data.clientCurrency ?? 'EUR',
-        exchangeRate: parsed.data.exchangeRate ?? 0.89,
-        defaultMargin: parsed.data.defaultMargin ?? 25.0,
-        planningMode: parsed.data.planningMode ?? 'weekly',
+        daysInFTE: parsed.data.daysInFTE ?? APP_DEFAULTS.daysInFTE,
+        clientCurrency: parsed.data.clientCurrency ?? APP_DEFAULTS.clientCurrency,
+        exchangeRate: parsed.data.exchangeRate ?? APP_DEFAULTS.exchangeRate,
+        defaultMargin: parsed.data.defaultMargin ?? APP_DEFAULTS.defaultMargin,
+        planningMode: parsed.data.planningMode ?? APP_DEFAULTS.planningMode,
         phases: parsed.data.phases ?? undefined,
       }
     });
@@ -294,11 +295,11 @@ app.post('/api/projects/import', async (req, res) => {
       data: {
         name: projectData.name + ' (Imported)',
         description: projectData.description || null,
-        daysInFTE: projectData.daysInFTE ?? 20,
-        clientCurrency: projectData.clientCurrency ?? 'EUR',
-        exchangeRate: projectData.exchangeRate ?? 0.89,
-        defaultMargin: projectData.defaultMargin ?? 25.0,
-        planningMode: projectData.planningMode ?? 'weekly',
+        daysInFTE: projectData.daysInFTE ?? APP_DEFAULTS.daysInFTE,
+        clientCurrency: projectData.clientCurrency ?? APP_DEFAULTS.clientCurrency,
+        exchangeRate: projectData.exchangeRate ?? APP_DEFAULTS.exchangeRate,
+        defaultMargin: projectData.defaultMargin ?? APP_DEFAULTS.defaultMargin,
+        planningMode: projectData.planningMode ?? APP_DEFAULTS.planningMode,
         phases: projectData.phases ?? undefined,
       }
     });

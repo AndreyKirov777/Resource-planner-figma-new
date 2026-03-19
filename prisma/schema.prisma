@@ -15,10 +15,10 @@ model Project {
   id              Int             @id @default(autoincrement())
   name            String
   description     String?
-  daysInFTE       Int             @default(20)
+  daysInFTE       Int             @default(21)
   clientCurrency  String          @default("EUR")
   exchangeRate    Float           @default(0.89)
-  defaultMargin   Float?          @default(25.0)
+  defaultMargin   Float?          @default(45.0)
   planningMode    String          @default("weekly")
   phases          String?         @default("[{\"name\":\"Phase 1\",\"periodCount\":8,\"color\":\"#E3F2FD\"}]")
   createdAt       DateTime        @default(now())
