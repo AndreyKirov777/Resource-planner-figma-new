@@ -18,6 +18,7 @@ import {
   DropdownMenuSubContent,
 } from './ui/dropdown-menu';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette } from 'lucide-react';
 import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation } from '../services/api';
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
@@ -1137,13 +1138,29 @@ export function ResourcePlan({
 
   return (
     <div className="space-y-6">
+      {/* Action buttons above project parameters */}
+      <div className="flex items-center gap-2">
+        <Button onClick={onExportProject} size="sm" variant="default">
+          Save file
+        </Button>
+        <Button onClick={onImportProject} size="sm" variant="secondary">
+          Load file
+        </Button>
+        <Button onClick={onExportToExcel} size="sm" variant="outline">
+          Export to Excel
+        </Button>
+        <Button onClick={onExportToPNG} size="sm" variant="outline">
+          Export to PNG
+        </Button>
+      </div>
+
       {/* Project Header - Two columns layout */}
       <Card>
         <CardContent className="relative pt-6 pr-44">
           <div className="grid grid-cols-2 gap-6">
             {/* Project Controls Column - Split into two columns */}
             <div className="grid grid-cols-2 gap-4">
-              {/* Left Column: Project name and buttons */}
+              {/* Left Column: Project name and planning mode toggle */}
               <div className="flex flex-col gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="projectName">Project name</Label>
@@ -1154,23 +1171,31 @@ export function ResourcePlan({
                     placeholder="Enter project name"
                   />
                 </div>
-                
-                <div className="relative z-10 flex items-center gap-2 mt-5">
-                  <Button onClick={onExportProject} size="sm" variant="default">
-                    Save file
-                  </Button>
-                  <Button onClick={onImportProject} size="sm" variant="secondary">
-                    Load file
-                  </Button>
-                  <Button onClick={onExportToExcel} size="sm" variant="outline">
-                    Export to Excel
-                  </Button>
-                  <Button onClick={onExportToPNG} size="sm" variant="outline">
-                    Export to PNG
-                  </Button>
+
+                <div className="space-y-2">
+                  <Label>Planning Mode</Label>
+                  <ToggleGroup
+                    type="single"
+                    value={planningMode}
+                    onValueChange={(value: string) => {
+                      if (!value) return;
+                      const targetMode = value as 'weekly' | 'monthly';
+                      if (targetMode !== planningMode && onConvertPlanningMode) {
+                        if (window.confirm(`Switch to ${targetMode} planning? This will recalculate all allocations. The conversion is lossy and may not be perfectly reversible.`)) {
+                          onConvertPlanningMode(targetMode);
+                        }
+                      }
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                  >
+                    <ToggleGroupItem value="weekly" className="flex-1">Weekly</ToggleGroupItem>
+                    <ToggleGroupItem value="monthly" className="flex-1">Monthly</ToggleGroupItem>
+                  </ToggleGroup>
                 </div>
               </div>
-              
+
               {/* Right Column: Project description */}
               <div className="space-y-2">
                 <Label htmlFor="projectDescription">Project description</Label>
@@ -1183,7 +1208,7 @@ export function ResourcePlan({
                 />
               </div>
             </div>
-            
+
             {/* Project Settings - Split into two columns */}
             <div className="grid grid-cols-2 gap-4">
               {/* Left Column: Days in FTE/month and Client currency */}
@@ -1197,7 +1222,7 @@ export function ResourcePlan({
                     onChange={(e) => onProjectSettingsChange({ daysInFTE: parseInt(e.target.value) || 20 })}
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="clientCurrency">Client currency</Label>
                   <Select
@@ -1215,7 +1240,7 @@ export function ResourcePlan({
                   </Select>
                 </div>
               </div>
-              
+
               {/* Right Column: Exchange rate and Default margin */}
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -1228,7 +1253,7 @@ export function ResourcePlan({
                     onChange={(e) => onProjectSettingsChange({ exchangeRate: parseFloat(e.target.value) || 0.89 })}
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="defaultMargin">Default Margin</Label>
                   <Input
@@ -1242,29 +1267,6 @@ export function ResourcePlan({
                       onProjectSettingsChange({ defaultMargin: clamped });
                     }}
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="planningMode">Planning Mode</Label>
-                  <Select
-                    value={planningMode}
-                    onValueChange={(value: string) => {
-                      const targetMode = value as 'weekly' | 'monthly';
-                      if (targetMode !== planningMode && onConvertPlanningMode) {
-                        if (window.confirm(`Switch to ${targetMode} planning? This will recalculate all allocations. The conversion is lossy and may not be perfectly reversible.`)) {
-                          onConvertPlanningMode(targetMode);
-                        }
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
             </div>
