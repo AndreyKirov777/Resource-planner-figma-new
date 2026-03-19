@@ -1110,9 +1110,22 @@ export function ResourcePlan({
           variant="outline"
           onClick={() => {
             const url = `${window.location.origin}/client/${project.id}`;
-            navigator.clipboard.writeText(url).then(() => {
+            if (navigator.clipboard) {
+              navigator.clipboard.writeText(url).then(() => {
+                alert('Client link copied to clipboard');
+              });
+            } else {
+              const el = document.createElement('textarea');
+              el.value = url;
+              el.style.position = 'fixed';
+              el.style.opacity = '0';
+              document.body.appendChild(el);
+              el.focus();
+              el.select();
+              document.execCommand('copy');
+              document.body.removeChild(el);
               alert('Client link copied to clipboard');
-            });
+            }
           }}
         >
           <Link2 className="h-4 w-4 mr-1" />
