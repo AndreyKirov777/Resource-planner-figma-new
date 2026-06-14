@@ -79,6 +79,24 @@ export interface ResourcePlan {
   allocations: Allocation[];
 }
 
+function pickDefined<T extends Record<string, unknown>>(obj: T, keys: (keyof T)[]): Partial<T> {
+  return Object.fromEntries(
+    keys.filter((key) => obj[key] !== undefined).map((key) => [key, obj[key]])
+  ) as Partial<T>;
+}
+
+function toResourceListUpdatePayload(data: Partial<ResourceList>) {
+  return pickDefined(data, ['role', 'clientRole', 'name', 'intRate', 'location', 'description']);
+}
+
+function toRateCardUpdatePayload(data: Partial<RateCard>) {
+  return pickDefined(data, [
+    'role', 'namingInPM', 'discipline', 'description',
+    'ukraine', 'easternEurope', 'asiaGE', 'asiaARMKZ',
+    'latam', 'mexico', 'india', 'newYork', 'london',
+  ]);
+}
+
 // API functions
 export const api = {
   // Project endpoints
@@ -202,7 +220,7 @@ export const api = {
     const response = await fetch(`${API_BASE_URL}/rate-cards/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(toRateCardUpdatePayload(data)),
     });
     if (!response.ok) throw new Error('Failed to update rate card');
     return response.json();
@@ -244,7 +262,7 @@ export const api = {
     const response = await fetch(`${API_BASE_URL}/resource-lists/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(toResourceListUpdatePayload(data)),
     });
     if (!response.ok) throw new Error('Failed to update resource list');
     return response.json();
