@@ -105,6 +105,7 @@ app.post('/api/projects', async (req, res) => {
         exchangeRate: parsed.data.exchangeRate ?? APP_DEFAULTS.exchangeRate,
         defaultMargin: parsed.data.defaultMargin ?? APP_DEFAULTS.defaultMargin,
         planningMode: parsed.data.planningMode ?? APP_DEFAULTS.planningMode,
+        defaultLocation: parsed.data.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: parsed.data.phases ?? undefined,
       }
     });
@@ -178,6 +179,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
         exchangeRate: project.exchangeRate,
         defaultMargin: project.defaultMargin,
         planningMode: project.planningMode,
+        defaultLocation: project.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: project.phases ?? undefined,
       }
     });
@@ -280,6 +282,7 @@ app.post('/api/projects/import', async (req, res) => {
         exchangeRate: projectData.exchangeRate ?? APP_DEFAULTS.exchangeRate,
         defaultMargin: projectData.defaultMargin ?? APP_DEFAULTS.defaultMargin,
         planningMode: projectData.planningMode ?? APP_DEFAULTS.planningMode,
+        defaultLocation: projectData.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: projectData.phases ?? undefined,
       }
     });

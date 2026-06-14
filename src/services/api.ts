@@ -18,6 +18,7 @@ export interface Project {
   exchangeRate: number;
   defaultMargin?: number;
   planningMode: string; // 'weekly' | 'monthly'
+  defaultLocation?: string;
   phases?: string;
   createdAt: string;
   updatedAt: string;

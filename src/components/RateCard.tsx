@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import { Button } from './ui/button';
@@ -9,6 +9,7 @@ import { Plus, Trash2, Search, X, ArrowLeft, FileSpreadsheet, CalendarClock } fr
 import * as ExcelJS from 'exceljs';
 import { RateCard as RateCardType } from '../services/api';
 import { getClientRoleFromRole } from '../utils/clientRoleMapping';
+import { APP_DEFAULTS } from '../config/defaults';
 
 // Import AG Grid styles
 import 'ag-grid-community/styles/ag-grid.css';
@@ -57,6 +58,7 @@ interface RateCardProps {
   onDeleteRateCard: (id: number) => void;
   onDeleteAllRateCards: () => void;
   onAddResourceList?: (resource: any) => void; // Add this prop for resource list integration
+  defaultLocation?: string;
 }
 
 export function RateCard({
@@ -68,7 +70,8 @@ export function RateCard({
   onAddRateCardsBulk,
   onDeleteRateCard,
   onDeleteAllRateCards,
-  onAddResourceList
+  onAddResourceList,
+  defaultLocation,
 }: RateCardProps) {
   // State for external filters
   const [namingInPMFilter, setNamingInPMFilter] = useState<string>('all');
@@ -79,7 +82,15 @@ export function RateCard({
   const [disciplineArray, setDisciplineArray] = useState<string[]>([]);
   
   // State for regional tab selection
-  const [activeRegionTab, setActiveRegionTab] = useState<string>('ukraine');
+  const [activeRegionTab, setActiveRegionTab] = useState<string>(
+    defaultLocation ?? APP_DEFAULTS.defaultLocation
+  );
+
+  useEffect(() => {
+    if (defaultLocation) {
+      setActiveRegionTab(defaultLocation);
+    }
+  }, [defaultLocation]);
   
   // Update arrays when rateCards change (for existing data)
   React.useEffect(() => {

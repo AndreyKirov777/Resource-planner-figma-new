@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api, Project } from '../services/api';
-import { APP_DEFAULTS, SUPPORTED_CURRENCIES } from '../config/defaults';
+import { APP_DEFAULTS, SUPPORTED_CURRENCIES, LOCATIONS } from '../config/defaults';
+import { PHASE_COLORS } from '../utils/phases';
 import { Button } from './ui/button';
 import {
   Table,
@@ -63,6 +64,8 @@ export function ProjectList({
   const [createDaysInFTE, setCreateDaysInFTE] = useState(APP_DEFAULTS.daysInFTE);
   const [createCurrency, setCreateCurrency] = useState(APP_DEFAULTS.clientCurrency);
   const [createMargin, setCreateMargin] = useState(APP_DEFAULTS.defaultMargin);
+  const [createDefaultLocation, setCreateDefaultLocation] = useState(APP_DEFAULTS.defaultLocation);
+  const [createDurationCount, setCreateDurationCount] = useState(APP_DEFAULTS.durationPeriods);
 
   const fetchProjects = async () => {
     try {
@@ -91,6 +94,14 @@ export function ProjectList({
         exchangeRate: APP_DEFAULTS.exchangeRate,
         defaultMargin: createMargin,
         planningMode: createPlanningMode,
+        defaultLocation: createDefaultLocation,
+        phases: JSON.stringify([
+          {
+            name: 'Phase 1',
+            periodCount: createDurationCount,
+            color: PHASE_COLORS[0],
+          },
+        ]),
       });
       setProjects((prev) => [...prev, created]);
       setShowCreateDialog(false);
@@ -100,6 +111,8 @@ export function ProjectList({
       setCreateDaysInFTE(APP_DEFAULTS.daysInFTE);
       setCreateCurrency(APP_DEFAULTS.clientCurrency);
       setCreateMargin(APP_DEFAULTS.defaultMargin);
+      setCreateDefaultLocation(APP_DEFAULTS.defaultLocation);
+      setCreateDurationCount(APP_DEFAULTS.durationPeriods);
       onOpenProject(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create project');
@@ -298,7 +311,7 @@ export function ProjectList({
               />
             </div>
             <div className="grid gap-2">
-              <label className="text-sm font-medium">Planning mode</label>
+              <label className="text-sm font-medium">Planning mode / duration unit</label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -322,6 +335,35 @@ export function ProjectList({
                   />
                   <span className="text-sm">Monthly</span>
                 </label>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">
+                  Duration ({createPlanningMode === 'weekly' ? 'weeks' : 'months'})
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={104}
+                  value={createDurationCount}
+                  onChange={(e) => setCreateDurationCount(Math.max(1, Math.min(104, parseInt(e.target.value) || 1)))}
+                />
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Default location</label>
+                <Select value={createDefaultLocation} onValueChange={setCreateDefaultLocation}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOCATIONS.map((loc) => (
+                      <SelectItem key={loc.slug} value={loc.slug}>
+                        {loc.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4">

@@ -40,6 +40,7 @@ export const projectCreateSchema = z.object({
   exchangeRate: z.number().min(0).optional(),
   defaultMargin: z.number().min(0).max(100).optional().nullable(),
   planningMode: z.enum(['weekly', 'monthly']).optional(),
+  defaultLocation: z.string().max(50).optional().nullable(),
   phases: phasesStringSchema,
 }).strict();
 
@@ -51,6 +52,7 @@ export const projectUpdateSchema = z.object({
   exchangeRate: z.number().min(0).optional(),
   defaultMargin: z.number().min(0).max(100).optional().nullable(),
   planningMode: z.enum(['weekly', 'monthly']).optional(),
+  defaultLocation: z.string().max(50).optional().nullable(),
   phases: phasesStringSchema,
 }).strict();
 

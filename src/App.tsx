@@ -1067,6 +1067,7 @@ export default function App() {
             onDeleteRateCard={handleDeleteRateCard}
             onDeleteAllRateCards={handleDeleteAllRateCards}
             onAddResourceList={handleAddResourceList}
+            defaultLocation={currentProject?.defaultLocation}
           />
         </TabsContent>
       </Tabs>

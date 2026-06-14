@@ -23,6 +23,7 @@ import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, 
 import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation } from '../services/api';
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod } from '../utils/phases';
+import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
 
 interface ResourcePlanProps {
   project: Project;
@@ -1136,7 +1137,7 @@ export function ResourcePlan({
       {/* Project Header - Two columns layout */}
       <Card>
         <CardContent className="relative pt-6 pr-44">
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-3 gap-6">
             {/* Project Controls Column - Split into two columns */}
             <div className="grid grid-cols-2 gap-4">
               {/* Left Column: Project name and planning mode toggle */}
@@ -1185,6 +1186,35 @@ export function ResourcePlan({
                   placeholder="Enter project description"
                   className="flex-1 resize-none"
                 />
+              </div>
+            </div>
+
+            {/* Location & duration */}
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="defaultLocation">Default location</Label>
+                <Select
+                  value={project.defaultLocation ?? APP_DEFAULTS.defaultLocation}
+                  onValueChange={(value: string) => onProjectSettingsChange({ defaultLocation: value })}
+                >
+                  <SelectTrigger id="defaultLocation">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOCATIONS.map((loc) => (
+                      <SelectItem key={loc.slug} value={loc.slug}>
+                        {loc.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <div className="flex h-9 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                  {totalPeriods} {totalPeriods === 1 ? periodLabel.toLowerCase() : periodLabelPlural.toLowerCase()}
+                </div>
               </div>
             </div>
 
