@@ -54,6 +54,7 @@ vi.mock('./services/api', () => ({
     createProject: vi.fn(),
     getResourceLists: vi.fn(),
     getRateCards: vi.fn(),
+    getRateCardMeta: vi.fn(),
     getResourcePlans: vi.fn(),
     updateProject: vi.fn(),
     deleteProject: vi.fn(),
@@ -69,6 +70,7 @@ beforeEach(async () => {
   vi.mocked(api.getProjects).mockResolvedValue([mockProject]);
   vi.mocked(api.getResourceLists).mockResolvedValue([]);
   vi.mocked(api.getRateCards).mockResolvedValue([]);
+  vi.mocked(api.getRateCardMeta).mockResolvedValue({ fileName: null, importedAt: null });
   vi.mocked(api.getResourcePlans).mockResolvedValue([]);
 });
 
@@ -131,9 +133,10 @@ describe('App', () => {
     });
     await waitFor(() => {
       expect(api.getResourceLists).toHaveBeenCalledWith(2);
-      expect(api.getRateCards).toHaveBeenCalledWith(2);
       expect(api.getResourcePlans).toHaveBeenCalledWith(2);
     });
+    // Rate cards are global and loaded once, with no project id
+    expect(api.getRateCards).toHaveBeenCalledWith();
   });
 
   it('Export JSON triggers download via createObjectURL', async () => {
@@ -144,7 +147,7 @@ describe('App', () => {
     global.URL.revokeObjectURL = revokeObjectURL;
 
     const api = await getApi();
-    vi.mocked(api.exportProject).mockResolvedValue({ project: mockProject, resourceLists: [], rateCards: [], resourcePlans: [] });
+    vi.mocked(api.exportProject).mockResolvedValue({ project: mockProject, resourceLists: [], resourcePlans: [] });
 
     render(<App />);
     await waitFor(() => {

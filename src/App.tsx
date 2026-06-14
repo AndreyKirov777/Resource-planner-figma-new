@@ -8,7 +8,7 @@ import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
 import { ProjectList } from './components/ProjectList';
-import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, ResourcePlan as ResourcePlanType } from './services/api';
+import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
@@ -24,7 +24,9 @@ export default function App() {
   const [editableProjectName, setEditableProjectName] = useState<string>('');
   const [editableProjectDescription, setEditableProjectDescription] = useState<string>('');
   const [resourceLists, setResourceLists] = useState<ResourceListType[]>([]);
+  // Rate cards are global (shared across all projects), not project-scoped.
   const [rateCards, setRateCards] = useState<RateCardType[]>([]);
+  const [rateCardMeta, setRateCardMeta] = useState<RateCardImportMeta | null>(null);
   const [resourcePlans, setResourcePlans] = useState<ResourcePlanType[]>([]);
   const [activeTab, setActiveTab] = useState('resource-plan');
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,22 @@ export default function App() {
   useEffect(() => {
     const projectIdFromUrl = searchParams.get('project');
     loadProjectData(projectIdFromUrl ? parseInt(projectIdFromUrl, 10) : undefined);
+    loadGlobalRateCards();
   }, []);
+
+  // Load the global rate card and its import metadata (once, not per project).
+  const loadGlobalRateCards = async () => {
+    try {
+      const [rateCardsData, meta] = await Promise.all([
+        api.getRateCards(),
+        api.getRateCardMeta(),
+      ]);
+      setRateCards(rateCardsData);
+      setRateCardMeta(meta);
+    } catch (err) {
+      console.error('Error loading global rate cards:', err);
+    }
+  };
 
   const loadProjectData = async (preferredProjectId?: number) => {
     try {
@@ -67,15 +84,14 @@ export default function App() {
       setEditableProjectDescription(project.description || '');
       setSearchParams({ project: String(project.id) }, { replace: true });
 
-      // Load all related data
-      const [resourceListsData, rateCardsData, resourcePlansData] = await Promise.all([
+      // Load all related (project-scoped) data. Rate cards are global and
+      // loaded separately via loadGlobalRateCards().
+      const [resourceListsData, resourcePlansData] = await Promise.all([
         api.getResourceLists(project.id),
-        api.getRateCards(project.id),
         api.getResourcePlans(project.id)
       ]);
-      
+
       setResourceLists(resourceListsData);
-      setRateCards(rateCardsData);
       setResourcePlans(resourcePlansData);
       
     } catch (err) {
@@ -148,11 +164,9 @@ export default function App() {
   };
 
   const handleAddRateCard = async (newRateCard: Partial<RateCardType>) => {
-    if (!currentProject) return;
-    
     try {
       console.log('Adding rate card:', newRateCard);
-      const createdRateCard = await api.createRateCard(currentProject.id, newRateCard);
+      const createdRateCard = await api.createRateCard(newRateCard);
       setRateCards(prev => [...prev, createdRateCard]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to add rate card';
@@ -162,19 +176,19 @@ export default function App() {
     }
   };
 
-  const handleAddRateCardsBulk = async (newRateCards: Partial<RateCardType>[]) => {
-    if (!currentProject) {
-      throw new Error('No current project available');
-    }
-    
+  const handleAddRateCardsBulk = async (newRateCards: Partial<RateCardType>[], fileName?: string) => {
     try {
       console.log('Adding bulk rate cards:', newRateCards);
-      const result = await api.createRateCardsBulk(currentProject.id, newRateCards);
-      
-      // Reload all rate cards to get the updated list with IDs
-      const updatedRateCards = await api.getRateCards(currentProject.id);
+      const result = await api.createRateCardsBulk(newRateCards, fileName);
+
+      // Reload the global rate card + import metadata to reflect the new import
+      const [updatedRateCards, meta] = await Promise.all([
+        api.getRateCards(),
+        api.getRateCardMeta(),
+      ]);
       setRateCards(updatedRateCards);
-      
+      setRateCardMeta(meta);
+
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to add bulk rate cards';
@@ -195,10 +209,10 @@ export default function App() {
   };
 
   const handleDeleteAllRateCards = async () => {
-    if (!currentProject) return;
     try {
-      const result = await api.deleteAllRateCards(currentProject.id);
+      const result = await api.deleteAllRateCards();
       setRateCards([]);
+      setRateCardMeta({ fileName: null, importedAt: null });
       console.log(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete rate cards');
@@ -1044,8 +1058,8 @@ export default function App() {
 
         <TabsContent value="rate-card" className="mt-6">
           <RateCard
-            projectId={currentProject.id}
             rateCards={rateCards}
+            importMeta={rateCardMeta}
             onRateCardsChange={handleRateCardsChange}
             onRateCardUpdate={handleRateCardUpdate}
             onAddRateCard={handleAddRateCard}

@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Plus, Trash2, Search, X, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, Search, X, ArrowLeft, FileSpreadsheet, CalendarClock } from 'lucide-react';
 import * as ExcelJS from 'exceljs';
 import { RateCard as RateCardType } from '../services/api';
 import { getClientRoleFromRole } from '../utils/clientRoleMapping';
@@ -42,28 +42,33 @@ const ActionsCellRenderer = (props: any) => {
   );
 };
 
+interface RateCardImportMeta {
+  fileName: string | null;
+  importedAt: string | null;
+}
+
 interface RateCardProps {
-  projectId: number;
   rateCards: RateCardType[];
+  importMeta?: RateCardImportMeta | null;
   onRateCardsChange: (rateCards: RateCardType[]) => void;
   onRateCardUpdate?: (id: number, data: Partial<RateCardType>) => void;
   onAddRateCard: (rateCard: Partial<RateCardType>) => void;
-  onAddRateCardsBulk: (rateCards: Partial<RateCardType>[]) => Promise<{ message: string; count: number }>;
+  onAddRateCardsBulk: (rateCards: Partial<RateCardType>[], fileName?: string) => Promise<{ message: string; count: number }>;
   onDeleteRateCard: (id: number) => void;
   onDeleteAllRateCards: () => void;
   onAddResourceList?: (resource: any) => void; // Add this prop for resource list integration
 }
 
-export function RateCard({ 
-  projectId,
-  rateCards, 
-  onRateCardsChange, 
+export function RateCard({
+  rateCards,
+  importMeta,
+  onRateCardsChange,
   onRateCardUpdate,
   onAddRateCard,
   onAddRateCardsBulk,
   onDeleteRateCard,
   onDeleteAllRateCards,
-  onAddResourceList 
+  onAddResourceList
 }: RateCardProps) {
   // State for external filters
   const [namingInPMFilter, setNamingInPMFilter] = useState<string>('all');
@@ -419,7 +424,8 @@ export function RateCard({
 
   const handleImportRateCard = async () => {
     try {
-      onDeleteAllRateCards(); // Clear existing rate cards
+      // The bulk import atomically replaces the rate card on the server, so we
+      // do NOT pre-clear here (avoids wiping the table if the dialog is cancelled).
       // Create a file input element
       const fileInput = document.createElement('input');
       fileInput.type = 'file';
@@ -485,7 +491,7 @@ export function RateCard({
             
             // Add all imported rate cards to the database at once
             try {
-              const result = await onAddRateCardsBulk(importedData);
+              const result = await onAddRateCardsBulk(importedData, file.name);
               alert(`Successfully imported ${result.count} rate card entries`);
             } catch (error) {
               console.error('Error adding bulk rate cards:', error);
@@ -607,13 +613,13 @@ export function RateCard({
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <Button onClick={handleImportRateCard} title="Import rate card">
           <Plus className="h-4 w-4 mr-1"/>
           Import rate card
         </Button>
-        <Button 
-          onClick={handleClearAllRateCards} 
+        <Button
+          onClick={handleClearAllRateCards}
           variant="destructive"
           title="Clear all rate cards"
           disabled={rateCards.length === 0}
@@ -621,8 +627,25 @@ export function RateCard({
           <Trash2 className="h-4 w-4 mr-1"/>
           Clear All
         </Button>
+        {importMeta?.fileName && (
+          <div className="ml-2 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm">
+            <span className="flex items-center gap-1.5" title="Imported file">
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              <span className="font-medium text-foreground">{importMeta.fileName}</span>
+            </span>
+            {importMeta.importedAt && (
+              <>
+                <span className="h-4 w-px bg-border" />
+                <span className="flex items-center gap-1.5 text-muted-foreground" title="Last imported">
+                  <CalendarClock className="h-4 w-4" />
+                  {new Date(importMeta.importedAt).toLocaleString()}
+                </span>
+              </>
+            )}
+          </div>
+        )}
       </div>
-      
+
       {/* External Filters */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">

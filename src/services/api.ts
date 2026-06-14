@@ -38,9 +38,14 @@ export interface RateCard {
   india: number;
   newYork: number;
   london: number;
-  projectId: number;
   createdAt: string;
   updatedAt: string;
+}
+
+// Metadata about the last global rate card import.
+export interface RateCardImportMeta {
+  fileName: string | null;
+  importedAt: string | null;
 }
 
 export interface ResourceList {
@@ -107,7 +112,6 @@ export const api = {
   },
 
   async getProject(id: number): Promise<Project & {
-    rateCards: RateCard[];
     resourceLists: ResourceList[];
     resourcePlans: ResourcePlan[];
   }> {
@@ -170,7 +174,6 @@ export const api = {
   },
 
   async convertPlanningMode(projectId: number, targetMode: 'weekly' | 'monthly'): Promise<Project & {
-    rateCards: RateCard[];
     resourceLists: ResourceList[];
     resourcePlans: ResourcePlan[];
   }> {
@@ -183,15 +186,21 @@ export const api = {
     return response.json();
   },
 
-  // Rate Card endpoints
-  async getRateCards(projectId: number): Promise<RateCard[]> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/rate-cards`);
+  // Rate Card endpoints (global: a single shared set common to all projects)
+  async getRateCards(): Promise<RateCard[]> {
+    const response = await fetch(`${API_BASE_URL}/rate-cards`);
     if (!response.ok) throw new Error('Failed to fetch rate cards');
     return response.json();
   },
 
-  async createRateCard(projectId: number, data: Partial<RateCard>): Promise<RateCard> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/rate-cards`, {
+  async getRateCardMeta(): Promise<RateCardImportMeta> {
+    const response = await fetch(`${API_BASE_URL}/rate-cards/meta`);
+    if (!response.ok) throw new Error('Failed to fetch rate card import metadata');
+    return response.json();
+  },
+
+  async createRateCard(data: Partial<RateCard>): Promise<RateCard> {
+    const response = await fetch(`${API_BASE_URL}/rate-cards`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -203,11 +212,11 @@ export const api = {
     return response.json();
   },
 
-  async createRateCardsBulk(projectId: number, data: Partial<RateCard>[]): Promise<{ message: string; count: number }> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/rate-cards/bulk`, {
+  async createRateCardsBulk(data: Partial<RateCard>[], fileName?: string): Promise<{ message: string; count: number }> {
+    const response = await fetch(`${API_BASE_URL}/rate-cards/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ rateCards: data, fileName }),
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -233,8 +242,8 @@ export const api = {
     if (!response.ok) throw new Error('Failed to delete rate card');
   },
 
-  async deleteAllRateCards(projectId: number): Promise<{ message: string }> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/rate-cards`, {
+  async deleteAllRateCards(): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/rate-cards`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete rate cards');

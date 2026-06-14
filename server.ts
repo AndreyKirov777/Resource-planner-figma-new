@@ -73,7 +73,6 @@ app.get('/api/projects/:id', async (req, res) => {
     const project = await prisma.project.findUnique({
       where: { id: parseInt(req.params.id) },
       include: {
-        rateCards: true,
         resourceLists: true,
         resourcePlans: {
           include: {
@@ -157,7 +156,6 @@ app.post('/api/projects/:id/copy', async (req, res) => {
     const project = await prisma.project.findUnique({
       where: { id },
       include: {
-        rateCards: true,
         resourceLists: true,
         resourcePlans: {
           include: { allocations: true }
@@ -184,26 +182,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
       }
     });
 
-    if (project.rateCards.length > 0) {
-      await prisma.rateCard.createMany({
-        data: project.rateCards.map((r) => ({
-          role: r.role,
-          namingInPM: r.namingInPM,
-          discipline: r.discipline,
-          description: r.description,
-          ukraine: r.ukraine,
-          easternEurope: r.easternEurope,
-          asiaGE: r.asiaGE,
-          asiaARMKZ: r.asiaARMKZ,
-          latam: r.latam,
-          mexico: r.mexico,
-          india: r.india,
-          newYork: r.newYork,
-          london: r.london,
-          projectId: copy.id,
-        }))
-      });
-    }
+    // Rate cards are global (shared across all projects) and are not copied.
 
     if (project.resourceLists.length > 0) {
       await prisma.resourceList.createMany({
@@ -253,7 +232,6 @@ app.get('/api/projects/:id/export', async (req, res) => {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
-        rateCards: true,
         resourceLists: true,
         resourcePlans: {
           include: { allocations: true }
@@ -264,6 +242,8 @@ app.get('/api/projects/:id/export', async (req, res) => {
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
+
+    // Rate cards are global and intentionally excluded from per-project export.
 
     // Wrap to allow future schema versioning
     const payload = {
@@ -306,28 +286,7 @@ app.post('/api/projects/import', async (req, res) => {
 
     const newProjectId = createdProject.id;
 
-    // Import rate cards (bulk if present)
-    const rateCards = Array.isArray(projectData.rateCards) ? projectData.rateCards : [];
-    if (rateCards.length > 0) {
-      await prisma.rateCard.createMany({
-        data: rateCards.map((r: any) => ({
-          role: r.role || '',
-          namingInPM: r.namingInPM || r.role || '',
-          discipline: r.discipline || 'General',
-          description: r.description || '',
-          ukraine: parseFloat(r.ukraine) || 0,
-          easternEurope: parseFloat(r.easternEurope) || 0,
-          asiaGE: parseFloat(r.asiaGE) || 0,
-          asiaARMKZ: parseFloat(r.asiaARMKZ) || 0,
-          latam: parseFloat(r.latam) || 0,
-          mexico: parseFloat(r.mexico) || 0,
-          india: parseFloat(r.india) || 0,
-          newYork: parseFloat(r.newYork) || 0,
-          london: parseFloat(r.london) || 0,
-          projectId: newProjectId,
-        }) )
-      });
-    }
+    // Rate cards are global (shared across all projects) and are not imported per project.
 
     // Import resource lists (bulk if present)
     const resourceLists = Array.isArray(projectData.resourceLists) ? projectData.resourceLists : [];
@@ -378,86 +337,91 @@ app.post('/api/projects/import', async (req, res) => {
 });
 
 // Rate Card endpoints
-app.get('/api/projects/:projectId/rate-cards', async (req, res) => {
+// The rate card is global: a single shared set common to all projects.
+
+const RATE_CARD_META_ID = 1;
+
+// Coerce an incoming rate card payload into the GlobalRateCard scalar shape.
+function toGlobalRateCardData(rateCard: any) {
+  return {
+    role: rateCard.role || '',
+    namingInPM: rateCard.namingInPM || rateCard.role || '',
+    discipline: rateCard.discipline || 'General',
+    description: rateCard.description || '',
+    ukraine: parseFloat(rateCard.ukraine) || 0,
+    easternEurope: parseFloat(rateCard.easternEurope) || 0,
+    asiaGE: parseFloat(rateCard.asiaGE) || 0,
+    asiaARMKZ: parseFloat(rateCard.asiaARMKZ) || 0,
+    latam: parseFloat(rateCard.latam) || 0,
+    mexico: parseFloat(rateCard.mexico) || 0,
+    india: parseFloat(rateCard.india) || 0,
+    newYork: parseFloat(rateCard.newYork) || 0,
+    london: parseFloat(rateCard.london) || 0,
+  };
+}
+
+app.get('/api/rate-cards', async (req, res) => {
   try {
-    const rateCards = await prisma.rateCard.findMany({
-      where: { projectId: parseInt(req.params.projectId) }
-    });
+    const rateCards = await prisma.globalRateCard.findMany();
     res.json(rateCards);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch rate cards' });
   }
 });
 
-app.post('/api/projects/:projectId/rate-cards', async (req, res) => {
+// Import metadata (file name + timestamp of the last import)
+app.get('/api/rate-cards/meta', async (req, res) => {
   try {
-    console.log('Creating rate card with data:', req.body);
-    
-    // Ensure all required fields are present with defaults
-    const rateCardData = {
-      role: req.body.role || '',
-      namingInPM: req.body.namingInPM || req.body.role || '',
-      discipline: req.body.discipline || 'General',
-      description: req.body.description || '',
-      ukraine: parseFloat(req.body.ukraine) || 0,
-      easternEurope: parseFloat(req.body.easternEurope) || 0,
-      asiaGE: parseFloat(req.body.asiaGE) || 0,
-      asiaARMKZ: parseFloat(req.body.asiaARMKZ) || 0,
-      latam: parseFloat(req.body.latam) || 0,
-      mexico: parseFloat(req.body.mexico) || 0,
-      india: parseFloat(req.body.india) || 0,
-      newYork: parseFloat(req.body.newYork) || 0,
-      london: parseFloat(req.body.london) || 0,
-      projectId: parseInt(req.params.projectId)
-    };
-    
-    const rateCard = await prisma.rateCard.create({
-      data: rateCardData
+    const meta = await prisma.rateCardImportMeta.findUnique({
+      where: { id: RATE_CARD_META_ID }
+    });
+    res.json({ fileName: meta?.fileName ?? null, importedAt: meta?.importedAt ?? null });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch rate card import metadata' });
+  }
+});
+
+app.post('/api/rate-cards', async (req, res) => {
+  try {
+    const rateCard = await prisma.globalRateCard.create({
+      data: toGlobalRateCardData(req.body)
     });
     res.json(rateCard);
   } catch (error) {
     console.error('Error creating rate card:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to create rate card',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
 
-// Bulk create rate cards endpoint
-app.post('/api/projects/:projectId/rate-cards/bulk', async (req, res) => {
+// Bulk import: atomically replaces the entire global rate card and records
+// the import metadata (file name + timestamp).
+app.post('/api/rate-cards/bulk', async (req, res) => {
   try {
-    console.log('Creating bulk rate cards with data:', req.body);
-    
-    const projectId = parseInt(req.params.projectId);
-    const rateCardsData = req.body.map((rateCard: any) => ({
-      role: rateCard.role || '',
-      namingInPM: rateCard.namingInPM || rateCard.role || '',
-      discipline: rateCard.discipline || 'General',
-      description: rateCard.description || '',
-      ukraine: parseFloat(rateCard.ukraine) || 0,
-      easternEurope: parseFloat(rateCard.easternEurope) || 0,
-      asiaGE: parseFloat(rateCard.asiaGE) || 0,
-      asiaARMKZ: parseFloat(rateCard.asiaARMKZ) || 0,
-      latam: parseFloat(rateCard.latam) || 0,
-      mexico: parseFloat(rateCard.mexico) || 0,
-      india: parseFloat(rateCard.india) || 0,
-      newYork: parseFloat(rateCard.newYork) || 0,
-      london: parseFloat(rateCard.london) || 0,
-      projectId: projectId
-    }));
-    
-    const result = await prisma.rateCard.createMany({
-      data: rateCardsData
+    const rateCards = Array.isArray(req.body) ? req.body : req.body?.rateCards;
+    if (!Array.isArray(rateCards)) {
+      return res.status(400).json({ error: 'rateCards array required' });
+    }
+    const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName : null;
+    const rateCardsData = rateCards.map(toGlobalRateCardData);
+
+    const count = await prisma.$transaction(async (tx) => {
+      await tx.globalRateCard.deleteMany({});
+      const result = await tx.globalRateCard.createMany({ data: rateCardsData });
+      await tx.rateCardImportMeta.upsert({
+        where: { id: RATE_CARD_META_ID },
+        create: { id: RATE_CARD_META_ID, fileName, importedAt: new Date() },
+        update: { fileName, importedAt: new Date() },
+      });
+      return result.count;
     });
-    
-    res.json({ 
-      message: `Successfully created ${result.count} rate cards`,
-      count: result.count
-    });
+
+    res.json({ message: `Successfully created ${count} rate cards`, count });
   } catch (error) {
     console.error('Error creating bulk rate cards:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to create bulk rate cards',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -470,7 +434,7 @@ app.put('/api/rate-cards/:id', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
-    const rateCard = await prisma.rateCard.update({
+    const rateCard = await prisma.globalRateCard.update({
       where: { id: parseInt(req.params.id) },
       data: parsed.data
     });
@@ -482,7 +446,7 @@ app.put('/api/rate-cards/:id', async (req, res) => {
 
 app.delete('/api/rate-cards/:id', async (req, res) => {
   try {
-    await prisma.rateCard.delete({
+    await prisma.globalRateCard.delete({
       where: { id: parseInt(req.params.id) }
     });
     res.json({ message: 'Rate card deleted' });
@@ -491,40 +455,19 @@ app.delete('/api/rate-cards/:id', async (req, res) => {
   }
 });
 
-// Delete all rate cards for a project (project-scoped to avoid wiping all projects)
-app.delete('/api/projects/:projectId/rate-cards', async (req, res) => {
-  try {
-    const projectId = parseInt(req.params.projectId);
-    if (isNaN(projectId)) {
-      return res.status(400).json({ error: 'Invalid projectId' });
-    }
-    const result = await prisma.rateCard.deleteMany({
-      where: { projectId }
-    });
-    res.json({ message: `${result.count} rate cards deleted` });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to delete rate cards' });
-  }
-});
-
-// Legacy route: require projectId query param to prevent accidental delete-all
+// Delete the entire global rate card and clear the import metadata.
 app.delete('/api/rate-cards', async (req, res) => {
-  const projectId = req.query.projectId;
-  if (projectId == null || projectId === '') {
-    return res.status(400).json({
-      error: 'projectId required',
-      details: 'Use DELETE /api/projects/:projectId/rate-cards to delete rate cards for a project'
-    });
-  }
   try {
-    const pid = parseInt(String(projectId));
-    if (isNaN(pid)) {
-      return res.status(400).json({ error: 'Invalid projectId' });
-    }
-    const result = await prisma.rateCard.deleteMany({
-      where: { projectId: pid }
+    const count = await prisma.$transaction(async (tx) => {
+      const result = await tx.globalRateCard.deleteMany({});
+      await tx.rateCardImportMeta.upsert({
+        where: { id: RATE_CARD_META_ID },
+        create: { id: RATE_CARD_META_ID, fileName: null, importedAt: null },
+        update: { fileName: null, importedAt: null },
+      });
+      return result.count;
     });
-    res.json({ message: `${result.count} rate cards deleted` });
+    res.json({ message: `${count} rate cards deleted` });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete rate cards' });
   }
@@ -906,7 +849,6 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
     const updatedProject = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
-        rateCards: true,
         resourceLists: true,
         resourcePlans: {
           orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],

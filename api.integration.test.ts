@@ -105,19 +105,39 @@ describe('API integration', () => {
     });
   });
 
-  describe('DELETE /api/projects/:projectId/rate-cards', () => {
-    it('deletes only that project rate cards', async () => {
-      const createRes = await request(app).post('/api/projects').send({ name: 'Rate Card Test' });
-      const projectId = createRes.body.id;
-      const res = await request(app).delete(`/api/projects/${projectId}/rate-cards`);
-      expect(res.status).toBe(200);
-    });
-  });
+  describe('Global rate card', () => {
+    it('bulk import replaces the rate card and records import metadata', async () => {
+      const importRes = await request(app)
+        .post('/api/rate-cards/bulk')
+        .send({ rateCards: [{ role: 'Developer', ukraine: 50 }], fileName: 'rates.xlsx' });
+      expect(importRes.status).toBe(200);
+      expect(importRes.body.count).toBe(1);
 
-  describe('Legacy DELETE /api/rate-cards', () => {
-    it('returns 400 when projectId query is missing', async () => {
+      const metaRes = await request(app).get('/api/rate-cards/meta');
+      expect(metaRes.status).toBe(200);
+      expect(metaRes.body.fileName).toBe('rates.xlsx');
+      expect(metaRes.body.importedAt).toBeTruthy();
+
+      const listRes = await request(app).get('/api/rate-cards');
+      expect(listRes.status).toBe(200);
+      expect(listRes.body).toHaveLength(1);
+      expect(listRes.body[0].role).toBe('Developer');
+    });
+
+    it('DELETE /api/rate-cards clears all rate cards and metadata', async () => {
+      await request(app)
+        .post('/api/rate-cards/bulk')
+        .send({ rateCards: [{ role: 'QA', ukraine: 30 }], fileName: 'qa.xlsx' });
+
       const res = await request(app).delete('/api/rate-cards');
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+
+      const listRes = await request(app).get('/api/rate-cards');
+      expect(listRes.body).toHaveLength(0);
+
+      const metaRes = await request(app).get('/api/rate-cards/meta');
+      expect(metaRes.body.fileName).toBeNull();
+      expect(metaRes.body.importedAt).toBeNull();
     });
   });
 
