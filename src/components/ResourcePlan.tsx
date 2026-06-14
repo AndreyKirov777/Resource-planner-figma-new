@@ -1137,59 +1137,56 @@ export function ResourcePlan({
       {/* Project Header - Two columns layout */}
       <Card>
         <CardContent className="relative pt-6 pr-44">
-          <div className="grid grid-cols-3 gap-6">
-            {/* Project Controls Column - Split into two columns */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Left Column: Project name and planning mode toggle */}
-              <div className="flex flex-col gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="projectName">Project name</Label>
-                  <Input
-                    id="projectName"
-                    value={projectName}
-                    onChange={(e) => onProjectNameChange(e.target.value)}
-                    placeholder="Enter project name"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Planning Mode</Label>
-                  <ToggleGroup
-                    type="single"
-                    value={planningMode}
-                    onValueChange={(value: string) => {
-                      if (!value) return;
-                      const targetMode = value as 'weekly' | 'monthly';
-                      if (targetMode !== planningMode && onConvertPlanningMode) {
-                        if (window.confirm(`Switch to ${targetMode} planning? This will recalculate all allocations. The conversion is lossy and may not be perfectly reversible.`)) {
-                          onConvertPlanningMode(targetMode);
-                        }
-                      }
-                    }}
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                  >
-                    <ToggleGroupItem value="weekly" className="flex-1">Weekly</ToggleGroupItem>
-                    <ToggleGroupItem value="monthly" className="flex-1">Monthly</ToggleGroupItem>
-                  </ToggleGroup>
-                </div>
+          <div className="grid grid-cols-5 gap-4">
+            {/* Project name and planning mode */}
+            <div className="flex flex-col gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="projectName">Project name</Label>
+                <Input
+                  id="projectName"
+                  value={projectName}
+                  onChange={(e) => onProjectNameChange(e.target.value)}
+                  placeholder="Enter project name"
+                />
               </div>
 
-              {/* Right Column: Project description */}
-              <div className="flex flex-col">
-                <Label htmlFor="projectDescription" className="mb-2">Project description</Label>
-                <Textarea
-                  id="projectDescription"
-                  value={projectDescription}
-                  onChange={(e) => onProjectDescriptionChange(e.target.value)}
-                  placeholder="Enter project description"
-                  className="flex-1 resize-none"
-                />
+              <div className="space-y-2">
+                <Label>Planning Mode</Label>
+                <ToggleGroup
+                  type="single"
+                  value={planningMode}
+                  onValueChange={(value: string) => {
+                    if (!value) return;
+                    const targetMode = value as 'weekly' | 'monthly';
+                    if (targetMode !== planningMode && onConvertPlanningMode) {
+                      if (window.confirm(`Switch to ${targetMode} planning? This will recalculate all allocations. The conversion is lossy and may not be perfectly reversible.`)) {
+                        onConvertPlanningMode(targetMode);
+                      }
+                    }
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                >
+                  <ToggleGroupItem value="weekly" className="flex-1">Weekly</ToggleGroupItem>
+                  <ToggleGroupItem value="monthly" className="flex-1">Monthly</ToggleGroupItem>
+                </ToggleGroup>
               </div>
             </div>
 
-            {/* Location & duration */}
+            {/* Project description */}
+            <div className="flex flex-col">
+              <Label htmlFor="projectDescription" className="mb-2">Project description</Label>
+              <Textarea
+                id="projectDescription"
+                value={projectDescription}
+                onChange={(e) => onProjectDescriptionChange(e.target.value)}
+                placeholder="Enter project description"
+                className="flex-1 resize-none"
+              />
+            </div>
+
+            {/* Location & duration — same width as Days in FTE column */}
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="defaultLocation">Default location</Label>
@@ -1218,65 +1215,62 @@ export function ResourcePlan({
               </div>
             </div>
 
-            {/* Project Settings - Split into two columns */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Left Column: Days in FTE/month and Client currency */}
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="daysInFTE">Days in FTE/month</Label>
-                  <Input
-                    id="daysInFTE"
-                    type="number"
-                    value={project.daysInFTE}
-                    onChange={(e) => onProjectSettingsChange({ daysInFTE: parseInt(e.target.value) || 20 })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="clientCurrency">Client currency</Label>
-                  <Select
-                    value={project.clientCurrency}
-                    onValueChange={(value: string) => onProjectSettingsChange({ clientCurrency: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="EUR">EUR</SelectItem>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="GBP">GBP</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+            {/* Days in FTE/month and Client currency */}
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="daysInFTE">Days in FTE/month</Label>
+                <Input
+                  id="daysInFTE"
+                  type="number"
+                  value={project.daysInFTE}
+                  onChange={(e) => onProjectSettingsChange({ daysInFTE: parseInt(e.target.value) || 20 })}
+                />
               </div>
 
-              {/* Right Column: Exchange rate and Default margin */}
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="exchangeRate">Exchange rate (to USD)</Label>
-                  <Input
-                    id="exchangeRate"
-                    type="number"
-                    step="0.01"
-                    value={project.exchangeRate}
-                    onChange={(e) => onProjectSettingsChange({ exchangeRate: parseFloat(e.target.value) || 0.89 })}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="clientCurrency">Client currency</Label>
+                <Select
+                  value={project.clientCurrency}
+                  onValueChange={(value: string) => onProjectSettingsChange({ clientCurrency: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="GBP">GBP</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="defaultMargin">Default Margin</Label>
-                  <Input
-                    id="defaultMargin"
-                    type="text"
-                    value={`${Number.isFinite(project.defaultMargin as number) ? (project.defaultMargin as number).toFixed(0) : '50'}%`}
-                    onChange={(e) => {
-                      const numeric = e.target.value.replace(/[^0-9.]/g, '');
-                      const parsed = parseFloat(numeric);
-                      const clamped = isNaN(parsed) ? 0 : Math.max(0, Math.min(100, parsed));
-                      onProjectSettingsChange({ defaultMargin: clamped });
-                    }}
-                  />
-                </div>
+            {/* Exchange rate and Default margin */}
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="exchangeRate">Exchange rate (to USD)</Label>
+                <Input
+                  id="exchangeRate"
+                  type="number"
+                  step="0.01"
+                  value={project.exchangeRate}
+                  onChange={(e) => onProjectSettingsChange({ exchangeRate: parseFloat(e.target.value) || 0.89 })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="defaultMargin">Default Margin</Label>
+                <Input
+                  id="defaultMargin"
+                  type="text"
+                  value={`${Number.isFinite(project.defaultMargin as number) ? (project.defaultMargin as number).toFixed(0) : '50'}%`}
+                  onChange={(e) => {
+                    const numeric = e.target.value.replace(/[^0-9.]/g, '');
+                    const parsed = parseFloat(numeric);
+                    const clamped = isNaN(parsed) ? 0 : Math.max(0, Math.min(100, parsed));
+                    onProjectSettingsChange({ defaultMargin: clamped });
+                  }}
+                />
               </div>
             </div>
           </div>
