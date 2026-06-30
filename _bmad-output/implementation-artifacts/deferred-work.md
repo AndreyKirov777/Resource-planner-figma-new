@@ -61,3 +61,14 @@ Goal 2's "Accept" should route through this rather than the non-atomic per-row C
 - `src/services/api.ts` — `+ applyPlan()`, `restoreRevision()`, `listRevisions()`.
 - `src/components/AIAssistant.tsx` / `ResourcePlan.tsx` — "Plan applied — Undo" toast + History list.
 - Note for `mode: "new"`: Undo is just `deleteProject` — handle in UI, don't route through `apply-plan`.
+
+## Deferred from spec-2-generate-plan-ui review (2026-06-30)
+
+Minor issues surfaced during the Goal 2 step-04 review; not blocking, deferred for focused attention.
+
+- **`_planningMode` prop unused** — `GeneratePlanSheet` accepts `planningMode?: string` but the prop is never read (destructured as `_planningMode`). Currently harmless (mode is always `'current'` in v1), but if future work needs to differentiate weekly/monthly in the sheet, this will need wiring.
+- **O(P²) ariaLabel loop** — `AllocTimeline` builds the aria-label string with `phaseBands.slice(0, idx).reduce(...)` inside `.map()` over `phaseBands`. O(P²) in phase count; negligible at typical scale (≤10 phases) but worth fixing if plans grow larger.
+- **O(weeks × allocations) bar rendering** — `AllocTimeline` uses `.find()` inside `weekNums.map()` inside `phaseBands.map()`. O(W×A) per component render; negligible for ≤52 weeks and ≤20 allocations but a `Map<periodNumber, allocation>` pre-index would be cleaner.
+- **ariaLabel averaged % mismatch** — the aria-label reports the mean of snapped per-week values per phase (e.g., "38%") which may not match any individual bar's visual height. The screen-reader summary is informative but technically imprecise; consider reporting a range or predominant value instead.
+- **`resolvePhases` fallback name diverges from `parsePhases`** — when no phases exist, `resolvePhases()` returns `[{ name: 'Plan', … }]` while `parsePhases` (the rest of the app) returns `[{ name: 'Phase 1', … }]`. Cosmetic divergence; align them if the fallback ever becomes user-visible.
+- **Out-of-range `periodNumber` inflates ariaLabel** — `getPhaseForPeriod` maps any period beyond the last phase's end to the last phase. In the ariaLabel loop, stray out-of-range periods silently count toward the last band's `avgPct`. Not a visual bug (bar rendering uses `band.weekCount` bounds), but aria output is inaccurate for plans whose allocations exceed the declared phase timeline.

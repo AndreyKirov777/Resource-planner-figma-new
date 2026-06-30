@@ -2,6 +2,39 @@
 const API_BASE_URL = '/api';
 
 // Types
+export type GeneratePlanRegion =
+  | 'ukraine' | 'easternEurope' | 'asiaGE' | 'asiaARMKZ'
+  | 'latam' | 'mexico' | 'india' | 'newYork' | 'london';
+
+export interface GeneratePlanResourcePlan {
+  role: string;
+  clientRole: string | null;
+  name: string | null;
+  intHourlyRate: number;
+  clientHourlyRate: number;
+  displayOrder: number;
+  rationale?: string;
+  allocations: Array<{ periodNumber: number; allocation: number }>;
+}
+
+export interface GeneratePlanDraft {
+  resourcePlans: GeneratePlanResourcePlan[];
+  phases?: Array<{ name: string; periodCount: number }>;
+}
+
+export interface GeneratePlanResponse {
+  draft: GeneratePlanDraft;
+  warnings: string[];
+}
+
+export interface GeneratePlanRequest {
+  mode: 'current' | 'new';
+  projectId?: number;
+  description: string;
+  region: GeneratePlanRegion;
+  applyProposedPhases?: boolean;
+}
+
 export interface Phase {
   name: string;
   periodCount?: number;
@@ -330,6 +363,20 @@ export const api = {
       body: JSON.stringify({ orderedIds }),
     });
     if (!response.ok) throw new Error('Failed to reorder resource plans');
+  },
+
+  async generatePlan(data: GeneratePlanRequest, signal?: AbortSignal): Promise<GeneratePlanResponse> {
+    const response = await fetch(`${API_BASE_URL}/projects/generate-plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(body.error ?? 'Request failed');
+    }
+    return response.json();
   },
 
   // Allocation endpoints

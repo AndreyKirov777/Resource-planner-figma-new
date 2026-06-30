@@ -24,6 +24,7 @@ import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as Resou
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod } from '../utils/phases';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
+import { GeneratePlanSheet } from './GeneratePlanSheet';
 
 interface ResourcePlanProps {
   project: Project;
@@ -197,6 +198,7 @@ export function ResourcePlan({
   const periodSuffix = isMonthly ? 'm' : 'w';
 
   const [phases, setPhases] = useState<Phase[]>(() => parsePhases(project.phases, resourcePlans));
+  const [showGeneratePlan, setShowGeneratePlan] = useState(false);
   const [rolePicker, setRolePicker] = useState<{ open: boolean; row: number | null }>({ open: false, row: null });
   const [roleSelection, setRoleSelection] = useState<string>('');
   const [contextMenu, setContextMenu] = useState<{ 
@@ -1457,6 +1459,7 @@ export function ResourcePlan({
                 Clear all
               </Button>
             )}
+            <Button size="sm" variant="outline" onClick={() => setShowGeneratePlan(true)}>✦ Generate AI Plan</Button>
             <span className="text-sm text-muted-foreground">{periodLabelPlural}: {periodNumbers.length} | Roles: {resourcePlans.length}</span>
           </div>
         </div>
@@ -1671,6 +1674,13 @@ export function ResourcePlan({
           </DialogContent>
         </Dialog>
 
+        <GeneratePlanSheet
+          open={showGeneratePlan}
+          onOpenChange={setShowGeneratePlan}
+          projectId={project.id}
+          phases={phases}
+          planningMode={planningMode}
+        />
 
       </div>
     </div>
