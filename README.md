@@ -1,7 +1,7 @@
 
   # Resource Planning Application
 
-  A comprehensive resource planning application built with React, AG-Grid, Prisma ORM, and SQLite database. This application allows you to manage projects, resources, rate cards, and create detailed resource plans with weekly allocations.
+  A comprehensive resource planning application built with React, data grids (Glide Data Grid and AG Grid), Prisma ORM, and a SQLite database. This application allows you to manage projects, resources, a shared rate card, and create detailed resource plans with weekly or monthly allocations.
 
   ## Features
 
@@ -9,42 +9,47 @@
   - **SQLite Database**: Persistent data storage using Prisma ORM
   - **Project Management**: Create and manage multiple projects with settings
   - **Resource Lists**: Manage available resources with roles, names, and rates
-  - **Rate Cards**: Import and manage rate cards from Excel files with regional pricing
-  - **Resource Plans**: Create detailed resource plans with variable weekly allocations
-  - **Weekly Allocations**: Track resource allocation percentages by week
+  - **Global Rate Card**: A single shared rate card (common to all projects), importable from Excel with regional pricing
+  - **Resource Plans**: Create detailed resource plans with variable per-period allocations
+  - **Allocations**: Track resource allocation percentages per planning period (weekly or monthly)
 
-  ### AG-Grid Integration
+  ### Grid Integration
+  - **Two grid libraries**: Glide Data Grid (Resource Plan / Client view) and AG Grid (Resource List / Rate Card)
   - **Editable Grids**: Inline editing for all data fields
-  - **Dynamic Columns**: Variable number of weeks in resource planning
+  - **Dynamic Columns**: Variable number of planning periods (weeks or months)
   - **Real-time Calculations**: Automatic cost and effort calculations
-  - **Excel Import**: Import rate cards from Excel files
+  - **Excel Import**: Import the rate card from Excel files
   - **Sorting and Filtering**: Advanced grid features for data management
 
   ### API Endpoints
   - **Project Management**: CRUD operations for projects
   - **Resource Lists**: Manage resource availability
-  - **Rate Cards**: Handle rate card data and Excel imports
-  - **Resource Plans**: Manage planning data with weekly allocations
-  - **Weekly Allocations**: Track resource allocation by week
+  - **Rate Card**: Handle the global rate card data and Excel imports
+  - **Resource Plans**: Manage planning data with per-period allocations
+  - **Allocations**: Track resource allocation by planning period
 
   ## Database Schema
 
-  ### Tables
+  > Authoritative schema: [`prisma/schema.prisma`](prisma/schema.prisma). The summary below is for orientation — if the two disagree, the `.prisma` file wins.
+
+  ### Models
   1. **Project**: Project configuration and settings
-  2. **Rate_card**: Rate card data imported from Excel
-  3. **Resource_list**: Available resources for projects
-  4. **Resource_plan**: Planning table with variable weeks
-  5. **Weekly_allocations**: Resource allocation by week
+  2. **GlobalRateCard**: Shared rate card data imported from Excel (not project-scoped)
+  3. **RateCardImportMeta**: Singleton (id = 1) holding metadata about the last rate card import
+  4. **ResourceList**: Available resources for a project
+  5. **ResourcePlan**: Planning rows with a variable number of periods
+  6. **Allocation**: Resource allocation by planning period
 
   ### Relationships
-  - Projects have many Rate Cards, Resource Lists, and Resource Plans
-  - Resource Plans have many Weekly Allocations
-  - All relationships use proper foreign keys with cascade deletes
+  - A Project has many Resource Lists and Resource Plans
+  - A Resource Plan has many Allocations
+  - The rate card (`GlobalRateCard`) is global — shared across all projects, not related to any single project
+  - Project/Resource Plan relationships use foreign keys with cascade deletes
 
   ## Getting Started
 
   ### Prerequisites
-  - Node.js (v16 or higher)
+  - Node.js (v20 or higher)
   - npm or yarn
 
   ### Installation
@@ -104,9 +109,9 @@
   - Add new rate card entries manually
 
   ### Resource Planning
-  - Create resource plans with variable weekly allocations
-  - Add/remove weeks dynamically
-  - Set allocation percentages (0-100%) for each week
+  - Create resource plans with variable per-period allocations (weekly or monthly)
+  - Add/remove planning periods dynamically, and convert a project between weekly and monthly
+  - Set allocation percentages (0-100%) for each period
   - View calculated costs, efforts, and margins
   - Auto-populate rates when selecting roles from resource list
 
@@ -117,18 +122,26 @@
 
   ### Endpoints
 
+  > The list below is the authoritative API reference and is verified against `server.ts` by an automated test (`readme.test.ts`). If you add, remove, or rename a route, update this list — `npm test` will fail otherwise.
+
   #### Projects
   - `GET /projects` - Get all projects
   - `GET /projects/:id` - Get project with all related data
   - `POST /projects` - Create new project
   - `PUT /projects/:id` - Update project
-  - `DELETE /projects/:id` - Delete project (cascades to rate cards, resource lists, resource plans)
+  - `DELETE /projects/:id` - Delete project (cascades to resource lists, resource plans, and their allocations)
+  - `POST /projects/:id/copy` - Duplicate a project with all of its data
+  - `GET /projects/:id/export` - Export a project (and its data) as JSON
+  - `POST /projects/import` - Import a project from JSON
 
-  #### Rate Cards
-  - `GET /projects/:projectId/rate-cards` - Get rate cards for project
-  - `POST /projects/:projectId/rate-cards` - Create rate card
-  - `PUT /rate-cards/:id` - Update rate card
-  - `DELETE /rate-cards/:id` - Delete rate card
+  #### Rate Card (global — shared across all projects)
+  - `GET /rate-cards` - Get the global rate card
+  - `GET /rate-cards/meta` - Get metadata about the last rate card import
+  - `POST /rate-cards` - Create a rate card entry
+  - `POST /rate-cards/bulk` - Bulk import/replace rate card entries (Excel import)
+  - `PUT /rate-cards/:id` - Update a rate card entry
+  - `DELETE /rate-cards/:id` - Delete a rate card entry
+  - `DELETE /rate-cards` - Clear the entire rate card
 
   #### Resource Lists
   - `GET /projects/:projectId/resource-lists` - Get resource list for project
@@ -141,32 +154,37 @@
   - `POST /projects/:projectId/resource-plans` - Create resource plan
   - `PUT /resource-plans/:id` - Update resource plan
   - `DELETE /resource-plans/:id` - Delete resource plan
+  - `PUT /projects/:projectId/resource-plans/reorder` - Reorder a project's resource plans
+  - `POST /projects/:id/convert-planning-mode` - Convert a project between weekly and monthly planning
 
-  #### Weekly Allocations
-  - `GET /resource-plans/:resourcePlanId/weekly-allocations` - Get weekly allocations
-  - `POST /resource-plans/:resourcePlanId/weekly-allocations` - Create weekly allocation
-  - `PUT /weekly-allocations/:id` - Update weekly allocation
-  - `DELETE /weekly-allocations/:id` - Delete weekly allocation
+  #### Allocations
+  - `GET /resource-plans/:resourcePlanId/allocations` - Get allocations for a resource plan
+  - `POST /resource-plans/:resourcePlanId/allocations` - Create an allocation
+  - `PUT /allocations/:id` - Update an allocation
+  - `DELETE /allocations/:id` - Delete an allocation
 
   ## Development
 
   ### Project Structure
   ```
   ├── prisma/
-  │   └── schema.prisma          # Database schema
+  │   └── schema.prisma            # Database schema (source of truth)
   ├── src/
-  │   ├── components/            # React components
-  │   │   ├── ResourcePlan.tsx   # Main planning component
-  │   │   ├── ResourceList.tsx   # Resource management
-  │   │   ├── RateCard.tsx       # Rate card management
-  │   │   └── ui/                # UI components
-  ├── services/
-  │   └── api.ts            # API service functions
-  ├── generated/
-  │   └── prisma/           # Generated Prisma client
-  └── App.tsx               # Main application component
- ├── server.ts                 # Express API server
- └── package.json
+  │   ├── App.tsx                  # Main application component (holds top-level state)
+  │   ├── components/              # React components
+  │   │   ├── ResourcePlan.tsx     # Main planning component (Glide Data Grid)
+  │   │   ├── ResourceList.tsx     # Resource management (AG Grid)
+  │   │   ├── RateCard.tsx         # Rate card management (AG Grid)
+  │   │   ├── ClientView.tsx       # Client-facing view (Glide Data Grid)
+  │   │   └── ui/                  # Reusable UI primitives (Radix/shadcn-style)
+  │   ├── services/
+  │   │   └── api.ts               # API service functions (all server I/O)
+  │   ├── config/defaults.ts       # App defaults, locations, currencies
+  │   ├── utils/                   # Calculations, phases, mode conversion
+  │   └── generated/prisma/        # Generated Prisma client (do not edit)
+  ├── server.ts                    # Express API server (single file)
+  ├── server-validation.ts         # Zod request-validation schemas
+  └── package.json
   ```
 
   ### Database Operations
@@ -180,17 +198,30 @@
   3. Add API endpoints in `server.ts`
   4. Update API service functions in `src/services/api.ts`
   5. Modify React components as needed
+  6. **Update this README's API Endpoints list** if you changed any routes (the `readme.test.ts` drift check enforces this)
+
+  ### Keeping this README accurate
+  This README rotted once because it duplicated details that live in code. To prevent that:
+  - **Source of truth lives in code.** For anything beyond a high-level overview, link to the real file (`prisma/schema.prisma`, `server.ts`, `src/services/api.ts`) instead of re-describing it here. Conventions and gotchas are captured in [`_bmad-output/project-context.md`](_bmad-output/project-context.md).
+  - **The API list is test-guarded.** `readme.test.ts` parses the routes out of `server.ts` and fails `npm test` if the README's endpoint list drifts (missing, extra, or renamed routes). Keep the two in sync.
 
   ## Technologies Used
 
   - **Frontend**: React 18, TypeScript, Vite
-  - **UI Components**: Radix UI, Tailwind CSS
-  - **Grid**: AG-Grid Community
-  - **Backend**: Express.js, Node.js
+  - **UI Components**: Radix UI, Tailwind CSS v4
+  - **Grids**: Glide Data Grid and AG Grid Community
+  - **Backend**: Express 5, Node.js (run via `tsx`)
   - **Database**: SQLite with Prisma ORM
+  - **Validation**: Zod
   - **Excel Processing**: ExcelJS
+
+  ## Deployment
+
+  Production builds are served by the Express server from the `build/` directory. See [DEPLOYMENT.md](DEPLOYMENT.md) for VM (`npm run deploy`) and Docker (`Dockerfile` / `docker-compose.yml`) instructions.
 
   ## License
 
+  <!-- NOTE: package.json marks this project as "private" and no LICENSE file is present.
+       Confirm the intended license before publishing, or remove this section. -->
   This project is licensed under the MIT License.
   
