@@ -3,6 +3,7 @@ import {
   projectCreateSchema,
   projectUpdateSchema,
   rateCardUpdateSchema,
+  generatePlanRequestSchema,
   resourceListCreateSchema,
   resourceListUpdateSchema,
   resourcePlanCreateSchema,
@@ -171,6 +172,102 @@ describe('server-validation Zod schemas', () => {
     it('rejects invalid mode', () => {
       const result = convertPlanningModeSchema.safeParse({ targetMode: 'daily' });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('generatePlanRequestSchema', () => {
+    it('accepts valid mode:current payload with projectId', () => {
+      const result = generatePlanRequestSchema.safeParse({
+        mode: 'current',
+        projectId: 1,
+        description: 'Build a web app',
+        region: 'ukraine',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts valid mode:new payload without projectId', () => {
+      const result = generatePlanRequestSchema.safeParse({
+        mode: 'new',
+        description: 'A new project',
+        region: 'easternEurope',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects mode:current without projectId (refine)', () => {
+      const result = generatePlanRequestSchema.safeParse({
+        mode: 'current',
+        description: 'Missing project id',
+        region: 'ukraine',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const paths = result.error.issues.map((i) => i.path.join('.'));
+        expect(paths).toContain('projectId');
+      }
+    });
+
+    it('rejects invalid region', () => {
+      const result = generatePlanRequestSchema.safeParse({
+        mode: 'new',
+        description: 'Test',
+        region: 'mars',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects extra fields (strict)', () => {
+      const result = generatePlanRequestSchema.safeParse({
+        mode: 'new',
+        description: 'Test',
+        region: 'ukraine',
+        unknownField: 'oops',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects empty description', () => {
+      const result = generatePlanRequestSchema.safeParse({
+        mode: 'new',
+        description: '',
+        region: 'ukraine',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects description longer than 4000 chars', () => {
+      const result = generatePlanRequestSchema.safeParse({
+        mode: 'new',
+        description: 'x'.repeat(4001),
+        region: 'ukraine',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts all valid regions', () => {
+      const regions = [
+        'ukraine', 'easternEurope', 'asiaGE', 'asiaARMKZ',
+        'latam', 'mexico', 'india', 'newYork', 'london',
+      ] as const;
+      for (const region of regions) {
+        const result = generatePlanRequestSchema.safeParse({
+          mode: 'new',
+          description: 'Test',
+          region,
+        });
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it('accepts optional applyProposedPhases boolean', () => {
+      const result = generatePlanRequestSchema.safeParse({
+        mode: 'new',
+        description: 'Test',
+        region: 'ukraine',
+        applyProposedPhases: true,
+      });
+      expect(result.success).toBe(true);
     });
   });
 });

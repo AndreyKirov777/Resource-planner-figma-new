@@ -163,6 +163,9 @@
   - `PUT /allocations/:id` - Update an allocation
   - `DELETE /allocations/:id` - Delete an allocation
 
+  #### AI Planner
+  - `POST /projects/generate-plan` - Generate a draft resource plan from a natural-language description (read-only; rate-limited per IP)
+
   ## Development
 
   ### Project Structure

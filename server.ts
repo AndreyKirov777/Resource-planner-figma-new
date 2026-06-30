@@ -21,7 +21,11 @@ import {
   allocationSchema,
   allocationUpdateSchema,
   convertPlanningModeSchema,
+  generatePlanRequestSchema,
 } from './server-validation';
+import { generateResourcePlan } from './server/planner/generateResourcePlan';
+import { loadAIConfig } from './server/llm/config';
+import { StructuredValidationError } from './server/llm/index';
 import {
   convertWeeklyToMonthly,
   convertMonthlyToWeekly,
@@ -34,6 +38,10 @@ import { APP_DEFAULTS } from './src/config/defaults';
 const app = express();
 const prisma = new PrismaClient();
 const PORT = 3001;
+
+// In-memory per-IP sliding-window rate limit store for POST /api/projects/generate-plan.
+// Key: IP address, Value: array of request timestamps (ms).
+const rateLimitStore = new Map<string, number[]>();
 
 app.use(cors());
 app.use(express.json());
@@ -868,6 +876,99 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
   } catch (error) {
     console.error('Error converting planning mode:', error);
     res.status(500).json({ error: 'Failed to convert planning mode' });
+  }
+});
+
+// POST /api/projects/generate-plan
+// Generates a draft resource plan from natural-language description + rate card.
+// Read-only: zero DB writes. Must stay ABOVE the SPA catch-all.
+app.post('/api/projects/generate-plan', async (req, res) => {
+  try {
+    // Validate request body.
+    const parsed = generatePlanRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const { mode, projectId, description, region, applyProposedPhases = false } = parsed.data;
+
+    // Check rate card is not empty.
+    const rows = await prisma.globalRateCard.findMany();
+    if (rows.length === 0) {
+      return res.status(409).json({ error: 'Rate card is empty. Import a rate card before generating a plan.' });
+    }
+
+    // Sliding-window rate limit (per-IP).
+    const cfg = await loadAIConfig();
+    const ip = req.ip ?? 'unknown';
+    const now = Date.now();
+    const windowMs = cfg.rateLimit.windowSeconds * 1000;
+    const hits = (rateLimitStore.get(ip) ?? []).filter((t) => now - t < windowMs);
+    if (hits.length >= cfg.rateLimit.maxPerUser) {
+      const oldest = Math.min(...hits);
+      const retryAfter = Math.ceil((oldest + windowMs - now) / 1000);
+      return res.status(429).json({ error: 'Rate limit exceeded', retryAfter });
+    }
+    rateLimitStore.set(ip, [...hits, now]);
+
+    // Load project for mode:current; use defaults for mode:new.
+    let project: {
+      planningMode: string;
+      defaultMargin: number | null;
+      exchangeRate: number;
+      phases: string | null;
+    };
+
+    if (mode === 'current') {
+      const dbProject = await prisma.project.findUnique({ where: { id: projectId! } });
+      if (!dbProject) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      project = {
+        planningMode: dbProject.planningMode,
+        defaultMargin: dbProject.defaultMargin,
+        exchangeRate: dbProject.exchangeRate,
+        phases: dbProject.phases ?? null,
+      };
+    } else {
+      // mode:new — use application defaults.
+      project = {
+        planningMode: APP_DEFAULTS.planningMode,
+        defaultMargin: APP_DEFAULTS.defaultMargin,
+        exchangeRate: APP_DEFAULTS.exchangeRate,
+        phases: null,
+      };
+    }
+
+    // AbortSignal for client disconnect.
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+
+    const result = await generateResourcePlan({
+      rows,
+      project,
+      description,
+      region,
+      applyProposedPhases,
+      model: undefined,
+    });
+
+    res.json(result);
+  } catch (err) {
+    if (
+      err instanceof StructuredValidationError ||
+      (err as { name?: string })?.name === 'StructuredValidationError'
+    ) {
+      return res.status(422).json({
+        error: 'LLM output did not match the expected schema',
+        details: (err as { text?: string }).text,
+      });
+    }
+    console.error('Error generating plan:', err);
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    if (msg.includes('not installed') || msg.includes('Unknown LLM provider')) {
+      return res.status(503).json({ error: 'AI provider not configured', details: msg });
+    }
+    res.status(502).json({ error: 'AI provider error', details: msg });
   }
 });
 

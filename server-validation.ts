@@ -136,3 +136,38 @@ export type ResourceListUpdateInput = z.infer<typeof resourceListUpdateSchema>;
 export type ResourcePlanCreateInput = z.infer<typeof resourcePlanCreateSchema>;
 export type ResourcePlanUpdateInput = z.infer<typeof resourcePlanUpdateSchema>;
 export type AllocationUpdateInput = z.infer<typeof allocationUpdateSchema>;
+
+// ---------------------------------------------------------------------------
+// Goal 1b — generate-plan endpoint request schema
+// ---------------------------------------------------------------------------
+
+const RATE_CARD_REGIONS = [
+  'ukraine',
+  'easternEurope',
+  'asiaGE',
+  'asiaARMKZ',
+  'latam',
+  'mexico',
+  'india',
+  'newYork',
+  'london',
+] as const;
+
+export const generatePlanRequestSchema = z
+  .object({
+    mode: z.enum(['current', 'new']),
+    projectId: z.number().int().positive().optional(),
+    description: z.string().min(1).max(4000),
+    region: z.enum(RATE_CARD_REGIONS),
+    applyProposedPhases: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (d) => d.mode !== 'current' || d.projectId != null,
+    {
+      message: 'projectId is required when mode is "current"',
+      path: ['projectId'],
+    },
+  );
+
+export type GeneratePlanRequestInput = z.infer<typeof generatePlanRequestSchema>;
