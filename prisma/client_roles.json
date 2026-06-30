@@ -82,27 +82,27 @@
   {
     "Role": "Associate DevOps Engineer L1",
     "Naming in PM": "Junior ",
-    "Client role": "Junior Developer"
+    "Client role": "Junior DevOps Engineer"
   },
   {
     "Role": "Associate DevOps Engineer L2",
     "Naming in PM": "Strong Junior",
-    "Client role": "Strong Junior Developer"
+    "Client role": "Strong Junior DevOps Engineer"
   },
   {
     "Role": "DevOps Engineer",
     "Naming in PM": "Middle",
-    "Client role": "Middle Developer"
+    "Client role": "Middle DevOps Engineer"
   },
   {
     "Role": "Senior DevOps Engineer",
     "Naming in PM": "Strong Middle",
-    "Client role": "Strong Middle Developer"
+    "Client role": "Strong Middle DevOps Engineer"
   },
   {
     "Role": "Principal DevOps Engineer",
     "Naming in PM": "Senior",
-    "Client role": "Senior Developer"
+    "Client role": "Senior DevOps Engineer"
   },
   {
     "Role": "DevOps Team Lead",

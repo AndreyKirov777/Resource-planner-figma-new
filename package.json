@@ -3,6 +3,9 @@
       "version": "0.1.0",
       "private": true,
       "dependencies": {
+            "@ai-sdk/anthropic": "^4.0.3",
+            "@ai-sdk/openai": "^4.0.4",
+            "@glideapps/glide-data-grid": "^6.0.3",
             "@prisma/client": "^6.15.0",
             "@radix-ui/react-accordion": "^1.2.3",
             "@radix-ui/react-alert-dialog": "^1.1.6",
@@ -32,7 +35,9 @@
             "@radix-ui/react-tooltip": "^1.1.8",
             "ag-grid-community": "*",
             "ag-grid-react": "*",
+            "ai": "^7.0.8",
             "better-sqlite3": "^12.2.0",
+            "c12": "^3.1.0",
             "class-variance-authority": "^0.7.1",
             "clsx": "*",
             "cmdk": "^1.1.1",
@@ -49,23 +54,40 @@
             "react-dom": "^18.3.1",
             "react-hook-form": "^7.55.0",
             "react-resizable-panels": "^2.1.7",
+            "react-router-dom": "^7.13.1",
             "recharts": "^2.15.2",
             "sonner": "^2.0.3",
             "tailwind-merge": "*",
-            "vaul": "^1.1.2"
+            "tsx": "^4.20.5",
+            "vaul": "^1.1.2",
+            "zod": "^3.23.8"
       },
       "devDependencies": {
+            "@tailwindcss/vite": "^4.0.0",
+            "@testing-library/jest-dom": "^6.9.1",
+            "@testing-library/react": "^16.3.2",
+            "@testing-library/user-event": "^14.6.1",
             "@types/cors": "^2.8.19",
             "@types/express": "^5.0.3",
             "@types/node": "^20.10.0",
+            "@types/supertest": "^7.2.0",
             "@vitejs/plugin-react-swc": "^3.10.2",
-            "tsx": "^4.20.5",
-            "vite": "^5.4.19"
+            "@vitest/coverage-v8": "^4.0.18",
+            "jsdom": "^28.1.0",
+            "supertest": "^7.2.2",
+            "tailwindcss": "^4.0.0",
+            "typescript": "~5.7.2",
+            "vite": "^5.4.19",
+            "vitest": "^4.0.18"
       },
       "scripts": {
             "dev": "vite",
             "build": "vite build",
             "server": "tsx server.ts",
-            "dev:server": "tsx watch server.ts"
+            "dev:server": "tsx watch server.ts",
+            "test": "vitest",
+            "run": "./run.sh",
+            "stop": "./stop.sh",
+            "deploy": "./scripts/deploy-to-vm.sh"
       }
 }

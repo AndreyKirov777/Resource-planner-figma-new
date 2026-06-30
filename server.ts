@@ -1,13 +1,53 @@
+import path from 'path';
+
+// Use a stable database path so data persists across all runs (same file every time)
+if (!process.env.DATABASE_URL) {
+  const dbPath = path.join(__dirname, 'prisma', 'dev.db').replace(/\\/g, '/');
+  process.env.DATABASE_URL = `file:${dbPath}`;
+}
+
 import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from './src/generated/prisma';
+import {
+  projectCreateSchema,
+  projectUpdateSchema,
+  rateCardUpdateSchema,
+  resourceListCreateSchema,
+  resourceListUpdateSchema,
+  resourcePlanCreateSchema,
+  resourcePlanUpdateSchema,
+  reorderSchema,
+  allocationSchema,
+  allocationUpdateSchema,
+  convertPlanningModeSchema,
+  generatePlanRequestSchema,
+} from './server-validation';
+import { generateResourcePlan } from './server/planner/generateResourcePlan';
+import { loadAIConfig } from './server/llm/config';
+import { StructuredValidationError } from './server/llm/index';
+import {
+  convertWeeklyToMonthly,
+  convertMonthlyToWeekly,
+  convertPhasesToMonthly,
+  convertPhasesToWeekly,
+  getWeeksPerMonth,
+} from './src/utils/modeConversion';
+import { APP_DEFAULTS } from './src/config/defaults';
 
 const app = express();
 const prisma = new PrismaClient();
 const PORT = 3001;
 
+// In-memory per-IP sliding-window rate limit store for POST /api/projects/generate-plan.
+// Key: IP address, Value: array of request timestamps (ms).
+const rateLimitStore = new Map<string, number[]>();
+
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from the React app build directory
+app.use(express.static(path.join(__dirname, 'build')));
 
 // Initialize default project if none exists
 async function initializeDefaultProject() {
@@ -17,10 +57,10 @@ async function initializeDefaultProject() {
       data: {
         name: 'Default Project',
         description: 'Default project for resource planning',
-        daysInFTE: 20,
-        clientCurrency: 'EUR',
-        exchangeRate: 0.89,
-        defaultMargin: 25.0
+        daysInFTE: APP_DEFAULTS.daysInFTE,
+        clientCurrency: APP_DEFAULTS.clientCurrency,
+        exchangeRate: APP_DEFAULTS.exchangeRate,
+        defaultMargin: APP_DEFAULTS.defaultMargin,
       }
     });
   }
@@ -41,11 +81,10 @@ app.get('/api/projects/:id', async (req, res) => {
     const project = await prisma.project.findUnique({
       where: { id: parseInt(req.params.id) },
       include: {
-        rateCards: true,
         resourceLists: true,
         resourcePlans: {
           include: {
-            weeklyAllocations: true
+            allocations: true
           }
         }
       }
@@ -61,8 +100,22 @@ app.get('/api/projects/:id', async (req, res) => {
 
 app.post('/api/projects', async (req, res) => {
   try {
+    const parsed = projectCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const project = await prisma.project.create({
-      data: req.body
+      data: {
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        daysInFTE: parsed.data.daysInFTE ?? APP_DEFAULTS.daysInFTE,
+        clientCurrency: parsed.data.clientCurrency ?? APP_DEFAULTS.clientCurrency,
+        exchangeRate: parsed.data.exchangeRate ?? APP_DEFAULTS.exchangeRate,
+        defaultMargin: parsed.data.defaultMargin ?? APP_DEFAULTS.defaultMargin,
+        planningMode: parsed.data.planningMode ?? APP_DEFAULTS.planningMode,
+        defaultLocation: parsed.data.defaultLocation ?? APP_DEFAULTS.defaultLocation,
+        phases: parsed.data.phases ?? undefined,
+      }
     });
     res.json(project);
   } catch (error) {
@@ -72,13 +125,113 @@ app.post('/api/projects', async (req, res) => {
 
 app.put('/api/projects/:id', async (req, res) => {
   try {
+    const parsed = projectUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const project = await prisma.project.update({
       where: { id: parseInt(req.params.id) },
-      data: req.body
+      data: parsed.data
     });
     res.json(project);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update project' });
+  }
+});
+
+app.delete('/api/projects/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid project id' });
+    }
+    await prisma.project.delete({
+      where: { id },
+    });
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete project' });
+  }
+});
+
+// Project copy endpoint
+app.post('/api/projects/:id/copy', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid project id' });
+    }
+
+    const project = await prisma.project.findUnique({
+      where: { id },
+      include: {
+        resourceLists: true,
+        resourcePlans: {
+          include: { allocations: true }
+        }
+      }
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const newName = req.body?.name || `${project.name} (Copy)`;
+
+    const copy = await prisma.project.create({
+      data: {
+        name: newName,
+        description: project.description,
+        daysInFTE: project.daysInFTE,
+        clientCurrency: project.clientCurrency,
+        exchangeRate: project.exchangeRate,
+        defaultMargin: project.defaultMargin,
+        planningMode: project.planningMode,
+        defaultLocation: project.defaultLocation ?? APP_DEFAULTS.defaultLocation,
+        phases: project.phases ?? undefined,
+      }
+    });
+
+    // Rate cards are global (shared across all projects) and are not copied.
+
+    if (project.resourceLists.length > 0) {
+      await prisma.resourceList.createMany({
+        data: project.resourceLists.map((rl) => ({
+          role: rl.role,
+          clientRole: rl.clientRole,
+          name: rl.name,
+          intRate: rl.intRate,
+          location: rl.location,
+          description: rl.description,
+          projectId: copy.id,
+        }))
+      });
+    }
+
+    for (const rp of project.resourcePlans) {
+      await prisma.resourcePlan.create({
+        data: {
+          role: rp.role,
+          clientRole: rp.clientRole,
+          name: rp.name,
+          intHourlyRate: rp.intHourlyRate,
+          clientHourlyRate: rp.clientHourlyRate,
+          displayOrder: rp.displayOrder,
+          projectId: copy.id,
+          allocations: {
+            create: rp.allocations.map((a) => ({
+              periodNumber: a.periodNumber,
+              allocation: a.allocation,
+            }))
+          }
+        }
+      });
+    }
+
+    res.json(copy);
+  } catch (error) {
+    console.error('Error copying project:', error);
+    res.status(500).json({ error: 'Failed to copy project' });
   }
 });
 
@@ -89,10 +242,9 @@ app.get('/api/projects/:id/export', async (req, res) => {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
-        rateCards: true,
         resourceLists: true,
         resourcePlans: {
-          include: { weeklyAllocations: true }
+          include: { allocations: true }
         }
       }
     });
@@ -101,9 +253,11 @@ app.get('/api/projects/:id/export', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // Rate cards are global and intentionally excluded from per-project export.
+
     // Wrap to allow future schema versioning
     const payload = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: new Date().toISOString(),
       data: project
     };
@@ -131,37 +285,19 @@ app.post('/api/projects/import', async (req, res) => {
       data: {
         name: projectData.name + ' (Imported)',
         description: projectData.description || null,
-        daysInFTE: projectData.daysInFTE ?? 20,
-        clientCurrency: projectData.clientCurrency ?? 'EUR',
-        exchangeRate: projectData.exchangeRate ?? 0.89,
-        defaultMargin: projectData.defaultMargin ?? 25.0,
+        daysInFTE: projectData.daysInFTE ?? APP_DEFAULTS.daysInFTE,
+        clientCurrency: projectData.clientCurrency ?? APP_DEFAULTS.clientCurrency,
+        exchangeRate: projectData.exchangeRate ?? APP_DEFAULTS.exchangeRate,
+        defaultMargin: projectData.defaultMargin ?? APP_DEFAULTS.defaultMargin,
+        planningMode: projectData.planningMode ?? APP_DEFAULTS.planningMode,
+        defaultLocation: projectData.defaultLocation ?? APP_DEFAULTS.defaultLocation,
+        phases: projectData.phases ?? undefined,
       }
     });
 
     const newProjectId = createdProject.id;
 
-    // Import rate cards (bulk if present)
-    const rateCards = Array.isArray(projectData.rateCards) ? projectData.rateCards : [];
-    if (rateCards.length > 0) {
-      await prisma.rateCard.createMany({
-        data: rateCards.map((r: any) => ({
-          role: r.role || '',
-          namingInPM: r.namingInPM || r.role || '',
-          discipline: r.discipline || 'General',
-          description: r.description || '',
-          ukraine: parseFloat(r.ukraine) || 0,
-          easternEurope: parseFloat(r.easternEurope) || 0,
-          asiaGE: parseFloat(r.asiaGE) || 0,
-          asiaARMKZ: parseFloat(r.asiaARMKZ) || 0,
-          latam: parseFloat(r.latam) || 0,
-          mexico: parseFloat(r.mexico) || 0,
-          india: parseFloat(r.india) || 0,
-          newYork: parseFloat(r.newYork) || 0,
-          london: parseFloat(r.london) || 0,
-          projectId: newProjectId,
-        }) )
-      });
-    }
+    // Rate cards are global (shared across all projects) and are not imported per project.
 
     // Import resource lists (bulk if present)
     const resourceLists = Array.isArray(projectData.resourceLists) ? projectData.resourceLists : [];
@@ -180,9 +316,11 @@ app.post('/api/projects/import', async (req, res) => {
     }
 
     // Import resource plans with nested allocations
+    // Backward compat: accept both old format (weeklyAllocations/weekNumber) and new (allocations/periodNumber)
     const resourcePlans = Array.isArray(projectData.resourcePlans) ? projectData.resourcePlans : [];
     for (const rp of resourcePlans) {
-      const weekly = Array.isArray(rp.weeklyAllocations) ? rp.weeklyAllocations : [];
+      const rawAllocations = Array.isArray(rp.allocations) ? rp.allocations
+        : Array.isArray(rp.weeklyAllocations) ? rp.weeklyAllocations : [];
       await prisma.resourcePlan.create({
         data: {
           role: rp.role || '',
@@ -190,12 +328,13 @@ app.post('/api/projects/import', async (req, res) => {
           name: rp.name || null,
           intHourlyRate: parseFloat(rp.intHourlyRate) || 0,
           clientHourlyRate: parseFloat(rp.clientHourlyRate) || 0,
+          displayOrder: parseInt(rp.displayOrder) || 0,
           projectId: newProjectId,
-          weeklyAllocations: {
-            create: weekly.map((wa: any) => ({
-              weekNumber: parseInt(wa.weekNumber) || 0,
-              allocation: parseInt(wa.allocation) || 0,
-            })).filter((wa: any) => wa.weekNumber > 0)
+          allocations: {
+            create: rawAllocations.map((a: any) => ({
+              periodNumber: parseInt(a.periodNumber ?? a.weekNumber) || 0,
+              allocation: parseInt(a.allocation) || 0,
+            })).filter((a: any) => a.periodNumber > 0)
           }
         }
       });
@@ -209,86 +348,91 @@ app.post('/api/projects/import', async (req, res) => {
 });
 
 // Rate Card endpoints
-app.get('/api/projects/:projectId/rate-cards', async (req, res) => {
+// The rate card is global: a single shared set common to all projects.
+
+const RATE_CARD_META_ID = 1;
+
+// Coerce an incoming rate card payload into the GlobalRateCard scalar shape.
+function toGlobalRateCardData(rateCard: any) {
+  return {
+    role: rateCard.role || '',
+    namingInPM: rateCard.namingInPM || rateCard.role || '',
+    discipline: rateCard.discipline || 'General',
+    description: rateCard.description || '',
+    ukraine: parseFloat(rateCard.ukraine) || 0,
+    easternEurope: parseFloat(rateCard.easternEurope) || 0,
+    asiaGE: parseFloat(rateCard.asiaGE) || 0,
+    asiaARMKZ: parseFloat(rateCard.asiaARMKZ) || 0,
+    latam: parseFloat(rateCard.latam) || 0,
+    mexico: parseFloat(rateCard.mexico) || 0,
+    india: parseFloat(rateCard.india) || 0,
+    newYork: parseFloat(rateCard.newYork) || 0,
+    london: parseFloat(rateCard.london) || 0,
+  };
+}
+
+app.get('/api/rate-cards', async (req, res) => {
   try {
-    const rateCards = await prisma.rateCard.findMany({
-      where: { projectId: parseInt(req.params.projectId) }
-    });
+    const rateCards = await prisma.globalRateCard.findMany();
     res.json(rateCards);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch rate cards' });
   }
 });
 
-app.post('/api/projects/:projectId/rate-cards', async (req, res) => {
+// Import metadata (file name + timestamp of the last import)
+app.get('/api/rate-cards/meta', async (req, res) => {
   try {
-    console.log('Creating rate card with data:', req.body);
-    
-    // Ensure all required fields are present with defaults
-    const rateCardData = {
-      role: req.body.role || '',
-      namingInPM: req.body.namingInPM || req.body.role || '',
-      discipline: req.body.discipline || 'General',
-      description: req.body.description || '',
-      ukraine: parseFloat(req.body.ukraine) || 0,
-      easternEurope: parseFloat(req.body.easternEurope) || 0,
-      asiaGE: parseFloat(req.body.asiaGE) || 0,
-      asiaARMKZ: parseFloat(req.body.asiaARMKZ) || 0,
-      latam: parseFloat(req.body.latam) || 0,
-      mexico: parseFloat(req.body.mexico) || 0,
-      india: parseFloat(req.body.india) || 0,
-      newYork: parseFloat(req.body.newYork) || 0,
-      london: parseFloat(req.body.london) || 0,
-      projectId: parseInt(req.params.projectId)
-    };
-    
-    const rateCard = await prisma.rateCard.create({
-      data: rateCardData
+    const meta = await prisma.rateCardImportMeta.findUnique({
+      where: { id: RATE_CARD_META_ID }
+    });
+    res.json({ fileName: meta?.fileName ?? null, importedAt: meta?.importedAt ?? null });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch rate card import metadata' });
+  }
+});
+
+app.post('/api/rate-cards', async (req, res) => {
+  try {
+    const rateCard = await prisma.globalRateCard.create({
+      data: toGlobalRateCardData(req.body)
     });
     res.json(rateCard);
   } catch (error) {
     console.error('Error creating rate card:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to create rate card',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
 
-// Bulk create rate cards endpoint
-app.post('/api/projects/:projectId/rate-cards/bulk', async (req, res) => {
+// Bulk import: atomically replaces the entire global rate card and records
+// the import metadata (file name + timestamp).
+app.post('/api/rate-cards/bulk', async (req, res) => {
   try {
-    console.log('Creating bulk rate cards with data:', req.body);
-    
-    const projectId = parseInt(req.params.projectId);
-    const rateCardsData = req.body.map((rateCard: any) => ({
-      role: rateCard.role || '',
-      namingInPM: rateCard.namingInPM || rateCard.role || '',
-      discipline: rateCard.discipline || 'General',
-      description: rateCard.description || '',
-      ukraine: parseFloat(rateCard.ukraine) || 0,
-      easternEurope: parseFloat(rateCard.easternEurope) || 0,
-      asiaGE: parseFloat(rateCard.asiaGE) || 0,
-      asiaARMKZ: parseFloat(rateCard.asiaARMKZ) || 0,
-      latam: parseFloat(rateCard.latam) || 0,
-      mexico: parseFloat(rateCard.mexico) || 0,
-      india: parseFloat(rateCard.india) || 0,
-      newYork: parseFloat(rateCard.newYork) || 0,
-      london: parseFloat(rateCard.london) || 0,
-      projectId: projectId
-    }));
-    
-    const result = await prisma.rateCard.createMany({
-      data: rateCardsData
+    const rateCards = Array.isArray(req.body) ? req.body : req.body?.rateCards;
+    if (!Array.isArray(rateCards)) {
+      return res.status(400).json({ error: 'rateCards array required' });
+    }
+    const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName : null;
+    const rateCardsData = rateCards.map(toGlobalRateCardData);
+
+    const count = await prisma.$transaction(async (tx) => {
+      await tx.globalRateCard.deleteMany({});
+      const result = await tx.globalRateCard.createMany({ data: rateCardsData });
+      await tx.rateCardImportMeta.upsert({
+        where: { id: RATE_CARD_META_ID },
+        create: { id: RATE_CARD_META_ID, fileName, importedAt: new Date() },
+        update: { fileName, importedAt: new Date() },
+      });
+      return result.count;
     });
-    
-    res.json({ 
-      message: `Successfully created ${result.count} rate cards`,
-      count: result.count
-    });
+
+    res.json({ message: `Successfully created ${count} rate cards`, count });
   } catch (error) {
     console.error('Error creating bulk rate cards:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to create bulk rate cards',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -297,9 +441,13 @@ app.post('/api/projects/:projectId/rate-cards/bulk', async (req, res) => {
 
 app.put('/api/rate-cards/:id', async (req, res) => {
   try {
-    const rateCard = await prisma.rateCard.update({
+    const parsed = rateCardUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const rateCard = await prisma.globalRateCard.update({
       where: { id: parseInt(req.params.id) },
-      data: req.body
+      data: parsed.data
     });
     res.json(rateCard);
   } catch (error) {
@@ -309,7 +457,7 @@ app.put('/api/rate-cards/:id', async (req, res) => {
 
 app.delete('/api/rate-cards/:id', async (req, res) => {
   try {
-    await prisma.rateCard.delete({
+    await prisma.globalRateCard.delete({
       where: { id: parseInt(req.params.id) }
     });
     res.json({ message: 'Rate card deleted' });
@@ -318,10 +466,19 @@ app.delete('/api/rate-cards/:id', async (req, res) => {
   }
 });
 
+// Delete the entire global rate card and clear the import metadata.
 app.delete('/api/rate-cards', async (req, res) => {
   try {
-    const result = await prisma.rateCard.deleteMany({});
-    res.json({ message: `${result.count} rate cards deleted` });
+    const count = await prisma.$transaction(async (tx) => {
+      const result = await tx.globalRateCard.deleteMany({});
+      await tx.rateCardImportMeta.upsert({
+        where: { id: RATE_CARD_META_ID },
+        create: { id: RATE_CARD_META_ID, fileName: null, importedAt: null },
+        update: { fileName: null, importedAt: null },
+      });
+      return result.count;
+    });
+    res.json({ message: `${count} rate cards deleted` });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete rate cards' });
   }
@@ -341,9 +498,18 @@ app.get('/api/projects/:projectId/resource-lists', async (req, res) => {
 
 app.post('/api/projects/:projectId/resource-lists', async (req, res) => {
   try {
+    const parsed = resourceListCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const resourceList = await prisma.resourceList.create({
       data: {
-        ...req.body,
+        role: parsed.data.role,
+        clientRole: parsed.data.clientRole ?? null,
+        name: parsed.data.name ?? null,
+        intRate: parsed.data.intRate ?? 0,
+        location: parsed.data.location ?? null,
+        description: parsed.data.description ?? null,
         projectId: parseInt(req.params.projectId)
       }
     });
@@ -355,9 +521,13 @@ app.post('/api/projects/:projectId/resource-lists', async (req, res) => {
 
 app.put('/api/resource-lists/:id', async (req, res) => {
   try {
+    const parsed = resourceListUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
     const resourceList = await prisma.resourceList.update({
       where: { id: parseInt(req.params.id) },
-      data: req.body
+      data: parsed.data
     });
     res.json(resourceList);
   } catch (error) {
@@ -381,9 +551,10 @@ app.get('/api/projects/:projectId/resource-plans', async (req, res) => {
   try {
     const resourcePlans = await prisma.resourcePlan.findMany({
       where: { projectId: parseInt(req.params.projectId) },
+      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: {
-        weeklyAllocations: {
-          orderBy: { weekNumber: 'asc' }
+        allocations: {
+          orderBy: { periodNumber: 'asc' }
         }
       }
     });
@@ -395,27 +566,33 @@ app.get('/api/projects/:projectId/resource-plans', async (req, res) => {
 
 app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
   try {
-    const { weeklyAllocations, ...resourcePlanData } = req.body;
-    
-    // Filter and validate weekly allocations
-    const validAllocations = (weeklyAllocations || [])
-      .filter((wa: any) => wa && typeof wa === 'object')
-      .map((wa: any) => ({
-        weekNumber: parseInt(wa.weekNumber) || 0,
-        allocation: parseInt(wa.allocation) || 0
-      }))
-      .filter(wa => wa.weekNumber > 0); // Only create allocations with valid week numbers
-    
+    const parsed = resourcePlanCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const validAllocations = (parsed.data.allocations || [])
+      .filter(a => a.periodNumber > 0)
+      .map(a => ({ periodNumber: a.periodNumber, allocation: a.allocation }));
+    const maxOrder = await prisma.resourcePlan.aggregate({
+      where: { projectId: parseInt(req.params.projectId) },
+      _max: { displayOrder: true }
+    });
+    const nextOrder = (maxOrder._max.displayOrder ?? -1) + 1;
     const resourcePlan = await prisma.resourcePlan.create({
       data: {
-        ...resourcePlanData,
+        role: parsed.data.role,
+        clientRole: parsed.data.clientRole ?? null,
+        name: parsed.data.name ?? null,
+        intHourlyRate: parsed.data.intHourlyRate ?? 0,
+        clientHourlyRate: parsed.data.clientHourlyRate ?? 0,
+        displayOrder: nextOrder,
         projectId: parseInt(req.params.projectId),
-        weeklyAllocations: {
+        allocations: {
           create: validAllocations
         }
       },
       include: {
-        weeklyAllocations: true
+        allocations: true
       }
     });
     res.json(resourcePlan);
@@ -430,58 +607,50 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
 
 app.put('/api/resource-plans/:id', async (req, res) => {
   try {
-    const { weeklyAllocations, ...resourcePlanData } = req.body;
-    
-    // Validate required fields
-    if (!resourcePlanData.role || resourcePlanData.role.trim() === '') {
-      return res.status(400).json({ 
-        error: 'Role is required and cannot be empty',
-        details: 'Please provide a valid role name'
-      });
+    const parsed = resourcePlanUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
-    
-    // Update resource plan
+    const { allocations: incomingAllocations, ...updateData } = parsed.data;
+
+    // Update resource plan (whitelisted fields only)
     const resourcePlan = await prisma.resourcePlan.update({
       where: { id: parseInt(req.params.id) },
-      data: resourcePlanData,
+      data: updateData,
       include: {
-        weeklyAllocations: true
+        allocations: true
       }
     });
-    
-    // Update weekly allocations if provided
-    if (weeklyAllocations) {
-      // Delete existing allocations
-      await prisma.weeklyAllocation.deleteMany({
+
+    // Update allocations if provided
+    if (incomingAllocations && incomingAllocations.length > 0) {
+      const validAllocations = incomingAllocations
+        .filter((a): a is { periodNumber: number; allocation: number } => a != null && a.periodNumber > 0)
+        .map(a => ({
+          periodNumber: a.periodNumber,
+          allocation: a.allocation,
+          resourcePlanId: parseInt(req.params.id)
+        }));
+
+      await prisma.allocation.deleteMany({
         where: { resourcePlanId: parseInt(req.params.id) }
       });
-      
-      // Create new allocations, filtering out any with id=0 and ensuring proper data structure
-      const validAllocations = weeklyAllocations
-        .filter((wa: any) => wa && typeof wa === 'object')
-        .map((wa: any) => ({
-          weekNumber: parseInt(wa.weekNumber) || 0,
-          allocation: parseInt(wa.allocation) || 0,
-          resourcePlanId: parseInt(req.params.id)
-        }))
-        .filter(wa => wa.weekNumber > 0); // Only create allocations with valid week numbers
-      
+
       if (validAllocations.length > 0) {
-        await prisma.weeklyAllocation.createMany({
+        await prisma.allocation.createMany({
           data: validAllocations
         });
       }
-      
-      // Fetch updated resource plan
+
       const updatedResourcePlan = await prisma.resourcePlan.findUnique({
         where: { id: parseInt(req.params.id) },
         include: {
-          weeklyAllocations: {
-            orderBy: { weekNumber: 'asc' }
+          allocations: {
+            orderBy: { periodNumber: 'asc' }
           }
         }
       });
-      
+
       return res.json(updatedResourcePlan);
     }
     
@@ -522,59 +691,301 @@ app.delete('/api/resource-plans/:id', async (req, res) => {
   }
 });
 
-// Weekly Allocation endpoints
-app.get('/api/resource-plans/:resourcePlanId/weekly-allocations', async (req, res) => {
+app.put('/api/projects/:projectId/resource-plans/reorder', async (req, res) => {
   try {
-    const weeklyAllocations = await prisma.weeklyAllocation.findMany({
-      where: { resourcePlanId: parseInt(req.params.resourcePlanId) },
-      orderBy: { weekNumber: 'asc' }
-    });
-    res.json(weeklyAllocations);
+    const parsed = reorderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const { orderedIds } = parsed.data;
+    await prisma.$transaction(
+      orderedIds.map((id, index) =>
+        prisma.resourcePlan.update({
+          where: { id },
+          data: { displayOrder: index },
+        })
+      )
+    );
+    res.json({ message: 'Resource plans reordered' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch weekly allocations' });
+    console.error('Error reordering resource plans:', error);
+    res.status(500).json({ error: 'Failed to reorder resource plans' });
   }
 });
 
-app.post('/api/resource-plans/:resourcePlanId/weekly-allocations', async (req, res) => {
+// Allocation endpoints
+app.get('/api/resource-plans/:resourcePlanId/allocations', async (req, res) => {
   try {
-    const weeklyAllocation = await prisma.weeklyAllocation.create({
+    const allocations = await prisma.allocation.findMany({
+      where: { resourcePlanId: parseInt(req.params.resourcePlanId) },
+      orderBy: { periodNumber: 'asc' }
+    });
+    res.json(allocations);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch allocations' });
+  }
+});
+
+app.post('/api/resource-plans/:resourcePlanId/allocations', async (req, res) => {
+  try {
+    const parsed = allocationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const alloc = await prisma.allocation.create({
       data: {
-        ...req.body,
+        periodNumber: parsed.data.periodNumber,
+        allocation: parsed.data.allocation,
         resourcePlanId: parseInt(req.params.resourcePlanId)
       }
     });
-    res.json(weeklyAllocation);
+    res.json(alloc);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create weekly allocation' });
+    res.status(500).json({ error: 'Failed to create allocation' });
   }
 });
 
-app.put('/api/weekly-allocations/:id', async (req, res) => {
+app.put('/api/allocations/:id', async (req, res) => {
   try {
-    const weeklyAllocation = await prisma.weeklyAllocation.update({
+    const parsed = allocationUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const alloc = await prisma.allocation.update({
       where: { id: parseInt(req.params.id) },
-      data: req.body
+      data: parsed.data
     });
-    res.json(weeklyAllocation);
+    res.json(alloc);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update weekly allocation' });
+    res.status(500).json({ error: 'Failed to update allocation' });
   }
 });
 
-app.delete('/api/weekly-allocations/:id', async (req, res) => {
+app.delete('/api/allocations/:id', async (req, res) => {
   try {
-    await prisma.weeklyAllocation.delete({
+    await prisma.allocation.delete({
       where: { id: parseInt(req.params.id) }
     });
-    res.json({ message: 'Weekly allocation deleted' });
+    res.json({ message: 'Allocation deleted' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete weekly allocation' });
+    res.status(500).json({ error: 'Failed to delete allocation' });
   }
 });
 
-// Initialize default project and start server
-initializeDefaultProject().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}).catch(console.error);
+// Convert planning mode endpoint
+app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
+  try {
+    const parsed = convertPlanningModeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const { targetMode } = parsed.data;
+    const projectId = parseInt(req.params.id);
+
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        resourcePlans: {
+          include: { allocations: true }
+        }
+      }
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    if (project.planningMode === targetMode) {
+      return res.status(400).json({ error: `Project is already in ${targetMode} mode` });
+    }
+
+    const weeksPerMonth = getWeeksPerMonth(project.daysInFTE);
+
+    // Convert phases
+    let phases: any[] = [];
+    try {
+      phases = JSON.parse(project.phases || '[]');
+    } catch { /* empty */ }
+
+    const convertedPhases = targetMode === 'monthly'
+      ? convertPhasesToMonthly(phases, weeksPerMonth)
+      : convertPhasesToWeekly(phases, weeksPerMonth);
+
+    // Perform conversion in a transaction
+    await prisma.$transaction(async (tx) => {
+      // Update project
+      await tx.project.update({
+        where: { id: projectId },
+        data: {
+          planningMode: targetMode,
+          phases: JSON.stringify(convertedPhases),
+        }
+      });
+
+      // Convert allocations for each resource plan
+      for (const rp of project.resourcePlans) {
+        const currentAllocations = rp.allocations.map(a => ({
+          periodNumber: a.periodNumber,
+          allocation: a.allocation,
+        }));
+
+        const totalPeriods = phases.reduce((sum: number, p: any) => sum + (p.periodCount ?? p.weekCount ?? 0), 0);
+
+        let convertedAllocations: { periodNumber: number; allocation: number }[];
+        if (targetMode === 'monthly') {
+          convertedAllocations = convertWeeklyToMonthly(currentAllocations, totalPeriods, weeksPerMonth);
+        } else {
+          convertedAllocations = convertMonthlyToWeekly(currentAllocations, totalPeriods, weeksPerMonth);
+        }
+
+        // Delete old allocations
+        await tx.allocation.deleteMany({
+          where: { resourcePlanId: rp.id }
+        });
+
+        // Create new converted allocations
+        if (convertedAllocations.length > 0) {
+          await tx.allocation.createMany({
+            data: convertedAllocations.map(a => ({
+              periodNumber: a.periodNumber,
+              allocation: a.allocation,
+              resourcePlanId: rp.id,
+            }))
+          });
+        }
+      }
+    });
+
+    // Return updated project with all data
+    const updatedProject = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        resourceLists: true,
+        resourcePlans: {
+          orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+          include: {
+            allocations: {
+              orderBy: { periodNumber: 'asc' }
+            }
+          }
+        }
+      }
+    });
+
+    res.json(updatedProject);
+  } catch (error) {
+    console.error('Error converting planning mode:', error);
+    res.status(500).json({ error: 'Failed to convert planning mode' });
+  }
+});
+
+// POST /api/projects/generate-plan
+// Generates a draft resource plan from natural-language description + rate card.
+// Read-only: zero DB writes. Must stay ABOVE the SPA catch-all.
+app.post('/api/projects/generate-plan', async (req, res) => {
+  try {
+    // Validate request body.
+    const parsed = generatePlanRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const { mode, projectId, description, region, applyProposedPhases = false } = parsed.data;
+
+    // Check rate card is not empty.
+    const rows = await prisma.globalRateCard.findMany();
+    if (rows.length === 0) {
+      return res.status(409).json({ error: 'Rate card is empty. Import a rate card before generating a plan.' });
+    }
+
+    // Sliding-window rate limit (per-IP).
+    const cfg = await loadAIConfig();
+    const ip = req.ip ?? 'unknown';
+    const now = Date.now();
+    const windowMs = cfg.rateLimit.windowSeconds * 1000;
+    const hits = (rateLimitStore.get(ip) ?? []).filter((t) => now - t < windowMs);
+    if (hits.length >= cfg.rateLimit.maxPerUser) {
+      const oldest = Math.min(...hits);
+      const retryAfter = Math.ceil((oldest + windowMs - now) / 1000);
+      return res.status(429).json({ error: 'Rate limit exceeded', retryAfter });
+    }
+    rateLimitStore.set(ip, [...hits, now]);
+
+    // Load project for mode:current; use defaults for mode:new.
+    let project: {
+      planningMode: string;
+      defaultMargin: number | null;
+      exchangeRate: number;
+      phases: string | null;
+    };
+
+    if (mode === 'current') {
+      const dbProject = await prisma.project.findUnique({ where: { id: projectId! } });
+      if (!dbProject) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      project = {
+        planningMode: dbProject.planningMode,
+        defaultMargin: dbProject.defaultMargin,
+        exchangeRate: dbProject.exchangeRate,
+        phases: dbProject.phases ?? null,
+      };
+    } else {
+      // mode:new — use application defaults.
+      project = {
+        planningMode: APP_DEFAULTS.planningMode,
+        defaultMargin: APP_DEFAULTS.defaultMargin,
+        exchangeRate: APP_DEFAULTS.exchangeRate,
+        phases: null,
+      };
+    }
+
+    // AbortSignal for client disconnect.
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+
+    const result = await generateResourcePlan({
+      rows,
+      project,
+      description,
+      region,
+      applyProposedPhases,
+      model: undefined,
+    });
+
+    res.json(result);
+  } catch (err) {
+    if (
+      err instanceof StructuredValidationError ||
+      (err as { name?: string })?.name === 'StructuredValidationError'
+    ) {
+      return res.status(422).json({
+        error: 'LLM output did not match the expected schema',
+        details: (err as { text?: string }).text,
+      });
+    }
+    console.error('Error generating plan:', err);
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    if (msg.includes('not installed') || msg.includes('Unknown LLM provider')) {
+      return res.status(503).json({ error: 'AI provider not configured', details: msg });
+    }
+    res.status(502).json({ error: 'AI provider error', details: msg });
+  }
+});
+
+// Serve React app for all non-API routes (must be last)
+app.get(/^(?!\/api).*/, (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
+
+// Export app for Supertest integration tests
+export { app, initializeDefaultProject };
+
+// Start server when not in test (Vitest sets process.env.VITEST)
+if (typeof process !== 'undefined' && process.env?.VITEST !== 'true') {
+  initializeDefaultProject().then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`API endpoints available at http://localhost:${PORT}/api`);
+    });
+  }).catch(console.error);
+}

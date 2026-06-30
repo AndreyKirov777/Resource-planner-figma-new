@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -6,30 +7,51 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
-import { api, Project, ResourceList as ResourceListType, RateCard as RateCardType, ResourcePlan as ResourcePlanType } from './services/api';
+import { ProjectList } from './components/ProjectList';
+import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
 import * as ExcelJS from 'exceljs';
+import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct, hoursPerPeriod } from './utils/calculations';
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 export default function App() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [editableProjectName, setEditableProjectName] = useState<string>('');
   const [editableProjectDescription, setEditableProjectDescription] = useState<string>('');
   const [resourceLists, setResourceLists] = useState<ResourceListType[]>([]);
+  // Rate cards are global (shared across all projects), not project-scoped.
   const [rateCards, setRateCards] = useState<RateCardType[]>([]);
+  const [rateCardMeta, setRateCardMeta] = useState<RateCardImportMeta | null>(null);
   const [resourcePlans, setResourcePlans] = useState<ResourcePlanType[]>([]);
   const [activeTab, setActiveTab] = useState('resource-plan');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load initial data
+  // Load initial data — restore project from URL if available
   useEffect(() => {
-    loadProjectData();
+    const projectIdFromUrl = searchParams.get('project');
+    loadProjectData(projectIdFromUrl ? parseInt(projectIdFromUrl, 10) : undefined);
+    loadGlobalRateCards();
   }, []);
+
+  // Load the global rate card and its import metadata (once, not per project).
+  const loadGlobalRateCards = async () => {
+    try {
+      const [rateCardsData, meta] = await Promise.all([
+        api.getRateCards(),
+        api.getRateCardMeta(),
+      ]);
+      setRateCards(rateCardsData);
+      setRateCardMeta(meta);
+    } catch (err) {
+      console.error('Error loading global rate cards:', err);
+    }
+  };
 
   const loadProjectData = async (preferredProjectId?: number) => {
     try {
@@ -60,16 +82,16 @@ export default function App() {
       setCurrentProject(project);
       setEditableProjectName(project.name || '');
       setEditableProjectDescription(project.description || '');
-      
-      // Load all related data
-      const [resourceListsData, rateCardsData, resourcePlansData] = await Promise.all([
+      setSearchParams({ project: String(project.id) }, { replace: true });
+
+      // Load all related (project-scoped) data. Rate cards are global and
+      // loaded separately via loadGlobalRateCards().
+      const [resourceListsData, resourcePlansData] = await Promise.all([
         api.getResourceLists(project.id),
-        api.getRateCards(project.id),
         api.getResourcePlans(project.id)
       ]);
-      
+
       setResourceLists(resourceListsData);
-      setRateCards(rateCardsData);
       setResourcePlans(resourcePlansData);
       
     } catch (err) {
@@ -80,19 +102,16 @@ export default function App() {
     }
   };
 
-  const handleResourceListsChange = async (updatedResourceLists: ResourceListType[]) => {
+  const handleResourceListsChange = (updatedResourceLists: ResourceListType[]) => {
+    setResourceLists(updatedResourceLists);
+  };
+
+  const handleResourceListUpdate = async (id: number, data: Partial<ResourceListType>) => {
     try {
-      setResourceLists(updatedResourceLists);
-      
-      // Update the database for any changes
-      for (const resource of updatedResourceLists) {
-        if (resource.id) {
-          await api.updateResourceList(resource.id, resource);
-        }
-      }
+      await api.updateResourceList(id, data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update resource lists');
-      console.error('Error updating resource lists:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update resource list');
+      console.error('Error updating resource list:', err);
     }
   };
 
@@ -118,28 +137,36 @@ export default function App() {
     }
   };
 
-  const handleRateCardsChange = async (updatedRateCards: RateCardType[]) => {
+  const handleClearAllResourceLists = async () => {
+    if (resourceLists.length === 0) return;
     try {
-      setRateCards(updatedRateCards);
-      
-      // Update the database for any changes
-      for (const rateCard of updatedRateCards) {
-        if (rateCard.id) {
-          await api.updateRateCard(rateCard.id, rateCard);
-        }
+      for (const r of resourceLists) {
+        await api.deleteResourceList(r.id);
       }
+      setResourceLists([]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update rate cards');
-      console.error('Error updating rate cards:', err);
+      setError(err instanceof Error ? err.message : 'Failed to clear resource list');
+      console.error('Error clearing resource list:', err);
+    }
+  };
+
+  const handleRateCardsChange = (updatedRateCards: RateCardType[]) => {
+    setRateCards(updatedRateCards);
+  };
+
+  const handleRateCardUpdate = async (id: number, data: Partial<RateCardType>) => {
+    try {
+      await api.updateRateCard(id, data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update rate card');
+      console.error('Error updating rate card:', err);
     }
   };
 
   const handleAddRateCard = async (newRateCard: Partial<RateCardType>) => {
-    if (!currentProject) return;
-    
     try {
       console.log('Adding rate card:', newRateCard);
-      const createdRateCard = await api.createRateCard(currentProject.id, newRateCard);
+      const createdRateCard = await api.createRateCard(newRateCard);
       setRateCards(prev => [...prev, createdRateCard]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to add rate card';
@@ -149,19 +176,19 @@ export default function App() {
     }
   };
 
-  const handleAddRateCardsBulk = async (newRateCards: Partial<RateCardType>[]) => {
-    if (!currentProject) {
-      throw new Error('No current project available');
-    }
-    
+  const handleAddRateCardsBulk = async (newRateCards: Partial<RateCardType>[], fileName?: string) => {
     try {
       console.log('Adding bulk rate cards:', newRateCards);
-      const result = await api.createRateCardsBulk(currentProject.id, newRateCards);
-      
-      // Reload all rate cards to get the updated list with IDs
-      const updatedRateCards = await api.getRateCards(currentProject.id);
+      const result = await api.createRateCardsBulk(newRateCards, fileName);
+
+      // Reload the global rate card + import metadata to reflect the new import
+      const [updatedRateCards, meta] = await Promise.all([
+        api.getRateCards(),
+        api.getRateCardMeta(),
+      ]);
       setRateCards(updatedRateCards);
-      
+      setRateCardMeta(meta);
+
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to add bulk rate cards';
@@ -185,6 +212,7 @@ export default function App() {
     try {
       const result = await api.deleteAllRateCards();
       setRateCards([]);
+      setRateCardMeta({ fileName: null, importedAt: null });
       console.log(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete rate cards');
@@ -196,24 +224,21 @@ export default function App() {
     try {
       setResourcePlans(updatedResourcePlans);
       
-      // Update the database for any changes
+      // Update the database for any changes (send only fields allowed by server resourcePlanUpdateSchema - strict)
       for (const resourcePlan of updatedResourcePlans) {
         if (resourcePlan.id) {
           try {
-            // Ensure weekly allocations are properly included in the update
-            const updateData = {
-              ...resourcePlan,
-              weeklyAllocations: resourcePlan.weeklyAllocations.map(wa => ({
-                id: wa.id,
-                weekNumber: wa.weekNumber,
-                allocation: wa.allocation,
-                resourcePlanId: wa.resourcePlanId,
-                createdAt: wa.createdAt,
-                updatedAt: wa.updatedAt
-              }))
-            };
-            
-            await api.updateResourcePlan(resourcePlan.id, updateData);
+            await api.updateResourcePlan(resourcePlan.id, {
+              role: resourcePlan.role,
+              clientRole: resourcePlan.clientRole ?? undefined,
+              name: resourcePlan.name ?? undefined,
+              intHourlyRate: resourcePlan.intHourlyRate,
+              clientHourlyRate: resourcePlan.clientHourlyRate,
+              allocations: resourcePlan.allocations?.map(wa => ({
+                periodNumber: wa.periodNumber,
+                allocation: wa.allocation
+              })),
+            });
           } catch (updateErr) {
             console.error(`Failed to update resource plan ${resourcePlan.id}:`, updateErr);
             // Continue with other updates even if one fails
@@ -237,7 +262,7 @@ export default function App() {
     }
   };
 
-  const handleAddResourcePlan = async (newResourcePlan: Partial<ResourcePlanType>) => {
+  const handleAddResourcePlan = async (newResourcePlan: Omit<Partial<ResourcePlanType>, 'allocations'> & { allocations?: Partial<Allocation>[] }) => {
     if (!currentProject) return;
     
     try {
@@ -264,6 +289,47 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete resource plan');
       console.error('Error deleting resource plan:', err);
+    }
+  };
+
+  const handleReorderResourcePlans = async (orderedIds: number[]) => {
+    if (!currentProject) return;
+    const previous = resourcePlans;
+    try {
+      const reordered = orderedIds
+        .map(id => resourcePlans.find(rp => rp.id === id))
+        .filter((rp): rp is ResourcePlanType => rp !== undefined);
+      setResourcePlans(reordered);
+      await api.reorderResourcePlans(currentProject.id, orderedIds);
+    } catch (err) {
+      setResourcePlans(previous);
+      setError(err instanceof Error ? err.message : 'Failed to reorder resource plans');
+      console.error('Error reordering resource plans:', err);
+    }
+  };
+
+  const handleClearAllResourcePlans = async () => {
+    if (resourcePlans.length === 0) return;
+    try {
+      for (const plan of resourcePlans) {
+        await api.deleteResourcePlan(plan.id);
+      }
+      setResourcePlans([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear resource plan');
+      console.error('Error clearing resource plan:', err);
+    }
+  };
+
+  const handleConvertPlanningMode = async (targetMode: 'weekly' | 'monthly') => {
+    if (!currentProject) return;
+    try {
+      const result = await api.convertPlanningMode(currentProject.id, targetMode);
+      setCurrentProject(result);
+      setResourcePlans(result.resourcePlans);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to convert planning mode');
+      console.error('Error converting planning mode:', err);
     }
   };
 
@@ -316,6 +382,13 @@ export default function App() {
         const result = await api.importProject(json);
         alert(`Import completed. New project ID: ${result.projectId}`);
         await loadProjectData(result.projectId);
+        
+        // Force recalculation of all calculated values by triggering a re-render
+        // This ensures that all calculated fields are updated after import
+        setTimeout(() => {
+          // Force a state update to trigger recalculation
+          setResourcePlans(prev => [...prev]);
+        }, 100);
       };
       input.click();
     } catch (err) {
@@ -333,20 +406,71 @@ export default function App() {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Resource Planning');
 
-      // Get all week numbers from resource plans
-      const allWeekNumbers = new Set<number>();
-      resourcePlans.forEach(plan => {
-        plan.weeklyAllocations.forEach(allocation => {
-          allWeekNumbers.add(allocation.weekNumber);
-        });
+      // Parse phases (same fallback as ResourcePlan)
+      let phases: Phase[] = [];
+      if (currentProject.phases) {
+        try {
+          const parsed = JSON.parse(currentProject.phases) as Phase[];
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && (p.periodCount ?? p.weekCount ?? 0) > 0)) {
+            phases = parsed;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+      if (phases.length === 0) {
+        const allPeriods = new Set<number>();
+        resourcePlans.forEach((p) => p.allocations.forEach((wa) => allPeriods.add(wa.periodNumber)));
+        const totalPeriods = allPeriods.size > 0 ? Math.max(...allPeriods) : 8;
+        phases = [{ name: 'Phase 1', periodCount: totalPeriods }];
+      }
+
+      const planMode = (currentProject.planningMode || 'weekly') as 'weekly' | 'monthly';
+      const isMonthlyExport = planMode === 'monthly';
+      const periodLbl = isMonthlyExport ? 'Month' : 'Week';
+      const hrsPerPrd = hoursPerPeriod(planMode, currentProject.daysInFTE);
+
+      const totalWeeks = phases.reduce((s, p) => s + (p.periodCount ?? p.weekCount ?? 0), 0);
+      const weekNumbers = Array.from({ length: totalWeeks }, (_, i) => i + 1);
+
+      const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€' :
+        currentProject.clientCurrency === 'GBP' ? '£' : '$';
+
+      const firstWeekCol = 9;
+
+      // Hex to Excel ARGB (e.g. #E3F2FD -> 'FFE3F2FD')
+      const hexToArgb = (hex: string): string => {
+        const h = hex.replace(/^#/, '');
+        if (h.length === 6) return 'FF' + h.toUpperCase();
+        if (h.length === 8) return h.toUpperCase();
+        return 'FFE8E8E8';
+      };
+
+      const defaultPhaseColor = 'FFE8E8E8';
+
+      // Row 1: phase group headers (merged), each phase with its own color
+      const phaseHeaderRow = worksheet.addRow([]);
+      let col = firstWeekCol;
+      phases.forEach((phase) => {
+        const pc = phase.periodCount ?? phase.weekCount ?? 0;
+        const endCol = col + pc - 1;
+        const phaseColorArgb = phase.color ? hexToArgb(phase.color) : defaultPhaseColor;
+        if (pc === 1) {
+          const cell = worksheet.getCell(1, col);
+          cell.value = phase.name;
+          cell.font = { bold: true };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: phaseColorArgb } };
+        } else {
+          worksheet.mergeCells(1, col, 1, endCol);
+          const cell = worksheet.getCell(1, col);
+          cell.value = phase.name;
+          cell.font = { bold: true };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: phaseColorArgb } };
+        }
+        col = endCol + 1;
       });
-      const weekNumbers = Array.from(allWeekNumbers).sort((a, b) => a - b);
 
-      // Get currency symbol based on client currency
-      const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€' : 
-                            currentProject.clientCurrency === 'GBP' ? '£' : '$';
-
-      // Define headers
+      // Row 2: column headers
       const headers = [
         'Rate Card Role',
         'Client Role',
@@ -356,48 +480,28 @@ export default function App() {
         `Client Hourly Rate (${currencySymbol})`,
         `Client Daily Rate (${currencySymbol})`,
         'Margin (%)',
-        ...weekNumbers.map(week => `Week ${week} (%)`),
+        ...weekNumbers.map((w) => `${periodLbl} ${w} (%)`),
         'Total Internal Cost ($)',
         `Total Price (${currencySymbol})`,
-        'Estimated Efforts (h)'
+        'Estimated Efforts (h)',
       ];
-
-      // Add headers to worksheet
-      worksheet.addRow(headers);
-
-      // Style the header row
-      const headerRow = worksheet.getRow(1);
+      const headerRow = worksheet.addRow(headers);
       headerRow.font = { bold: true };
-      headerRow.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE0E0E0' }
-      };
+      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
 
-      // Add data rows
-      resourcePlans.forEach(plan => {
-        // Calculate values
+      // Data rows
+      resourcePlans.forEach((plan) => {
         const intDailyRate = plan.intHourlyRate * 8;
         const clientDailyRate = plan.clientHourlyRate * 8;
-        
-        // Calculate margin
-        const intRateInClientCurrency = plan.intHourlyRate / currentProject.exchangeRate;
-        const margin = plan.clientHourlyRate > 0 ? 
-          ((plan.clientHourlyRate - intRateInClientCurrency) / plan.clientHourlyRate) * 100 : 0;
-
-        // Calculate total efforts (hours)
-        let totalWeeks = 0;
-        weekNumbers.forEach(weekNum => {
-          const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-          totalWeeks += (allocation?.allocation || 0) / 100;
+        const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
+        let totalWeeksEquivalent = 0;
+        weekNumbers.forEach((weekNum) => {
+          const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
+          totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
         });
-        const totalEfforts = totalWeeks * 40; // 40 hours per week
-
-        // Calculate total costs
-        const totalIntCost = totalEfforts * plan.intHourlyRate;
-        const totalPrice = totalEfforts * plan.clientHourlyRate;
-
-        // Prepare row data
+        const totalEfforts = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
+        const totalIntCost = totalInternalCost(totalEfforts, plan.intHourlyRate);
+        const totalPrice = totalClientCost(totalEfforts, plan.clientHourlyRate);
         const rowData = [
           plan.role || '',
           plan.clientRole || '',
@@ -407,19 +511,18 @@ export default function App() {
           plan.clientHourlyRate,
           clientDailyRate,
           margin,
-          ...weekNumbers.map(weekNum => {
-            const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
+          ...weekNumbers.map((weekNum) => {
+            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
             return allocation?.allocation || 0;
           }),
           totalIntCost,
           totalPrice,
-          totalEfforts
+          totalEfforts,
         ];
-
         worksheet.addRow(rowData);
       });
 
-      // Add totals row
+      // Totals row
       const totalsRow = [
         'TOTALS',
         '',
@@ -431,86 +534,125 @@ export default function App() {
         '',
         ...weekNumbers.map(() => ''),
         resourcePlans.reduce((sum, plan) => {
-          let totalWeeks = 0;
-          weekNumbers.forEach(weekNum => {
-            const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-            totalWeeks += (allocation?.allocation || 0) / 100;
+          let totalWeeksEquivalent = 0;
+          weekNumbers.forEach((weekNum) => {
+            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
+            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          return sum + (totalWeeks * 40 * plan.intHourlyRate);
+          const hours = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
+          return sum + totalInternalCost(hours, plan.intHourlyRate);
         }, 0),
         resourcePlans.reduce((sum, plan) => {
-          let totalWeeks = 0;
-          weekNumbers.forEach(weekNum => {
-            const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-            totalWeeks += (allocation?.allocation || 0) / 100;
+          let totalWeeksEquivalent = 0;
+          weekNumbers.forEach((weekNum) => {
+            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
+            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          return sum + (totalWeeks * 40 * plan.clientHourlyRate);
+          const hours = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
+          return sum + totalClientCost(hours, plan.clientHourlyRate);
         }, 0),
         resourcePlans.reduce((sum, plan) => {
-          let totalWeeks = 0;
-          weekNumbers.forEach(weekNum => {
-            const allocation = plan.weeklyAllocations.find(wa => wa.weekNumber === weekNum);
-            totalWeeks += (allocation?.allocation || 0) / 100;
+          let totalWeeksEquivalent = 0;
+          weekNumbers.forEach((weekNum) => {
+            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
+            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
           });
-          return sum + (totalWeeks * 40);
-        }, 0)
+          return sum + estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
+        }, 0),
       ];
-
       const totalsRowIndex = worksheet.addRow(totalsRow);
       const totalsRowObj = worksheet.getRow(totalsRowIndex.number);
       totalsRowObj.font = { bold: true };
-      totalsRowObj.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF0F0F0' }
-      };
+      totalsRowObj.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+
+      // Phase Summary section
+      worksheet.addRow([]);
+      const phaseSummaryTitleRow = worksheet.addRow(['Phase Summary']);
+      phaseSummaryTitleRow.font = { bold: true };
+      const phaseSummaryHeaderRow = worksheet.addRow([
+        'Phase',
+        'Internal Cost ($)',
+        `Price (${currencySymbol})`,
+        'Estimated Efforts (h)',
+        'Margin (%)',
+      ]);
+      phaseSummaryHeaderRow.font = { bold: true };
+      phaseSummaryHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+      const phaseSummaryClientFmt = currentProject.clientCurrency === 'EUR' ? '€#,##0.00'
+        : currentProject.clientCurrency === 'GBP' ? '£#,##0.00' : '$#,##0.00';
+      const phaseSummaryDataRowNumbers: number[] = [];
+      let startWeek = 1;
+      phases.forEach((phase) => {
+        const endWeek = startWeek + (phase.periodCount ?? phase.weekCount ?? 0) - 1;
+        let cost = 0, price = 0, efforts = 0;
+        resourcePlans.forEach((plan) => {
+          let weeksEquiv = 0;
+          for (let w = startWeek; w <= endWeek; w++) {
+            const alloc = plan.allocations.find((wa) => wa.periodNumber === w);
+            weeksEquiv += (alloc?.allocation || 0) / 100;
+          }
+          const hours = estimatedEffortHours(weeksEquiv, hrsPerPrd);
+          cost += totalInternalCost(hours, plan.intHourlyRate);
+          price += totalClientCost(hours, plan.clientHourlyRate);
+          efforts += hours;
+        });
+        const margin = grossMarginPct(cost, price, currentProject.exchangeRate);
+        const phaseRow = worksheet.addRow([
+          phase.name,
+          Math.round(cost * 100) / 100,
+          Math.round(price * 100) / 100,
+          Math.round(efforts * 100) / 100,
+          Math.round(margin * 100) / 100,
+        ]);
+        phaseSummaryDataRowNumbers.push(phaseRow.number);
+        const r = worksheet.getRow(phaseRow.number);
+        if (r.getCell(2).value != null) r.getCell(2).numFmt = '$#,##0.00';
+        if (r.getCell(3).value != null) r.getCell(3).numFmt = phaseSummaryClientFmt;
+        if (r.getCell(4).value != null) r.getCell(4).numFmt = '#,##0.00';
+        if (r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
+        startWeek = endWeek + 1;
+      });
 
       // Auto-fit columns
-      worksheet.columns.forEach(column => {
+      worksheet.columns.forEach((column) => {
         if (column.eachCell) {
           let maxLength = 0;
           column.eachCell({ includeEmpty: true }, (cell) => {
             const columnLength = cell.value ? cell.value.toString().length : 10;
-            if (columnLength > maxLength) {
-              maxLength = columnLength;
-            }
+            if (columnLength > maxLength) maxLength = columnLength;
           });
           column.width = Math.min(maxLength + 2, 20);
         }
       });
 
-      // Format currency columns with appropriate currency symbols
-      const internalCostColumns = [4, 5, 9 + weekNumbers.length]; // Internal Hourly Cost, Internal Daily Cost, Total Internal Cost (always USD)
-      internalCostColumns.forEach(colIndex => {
+      const internalCostColumns = [4, 5, firstWeekCol + weekNumbers.length];
+      internalCostColumns.forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = '$#,##0';
       });
-
-      // Format client currency columns (Client Hourly Rate, Client Daily Rate, Total Price)
-      const clientCurrencyColumns = [6, 7, 10 + weekNumbers.length]; // Client Hourly Rate, Client Daily Rate, Total Price
+      const clientCurrencyColumns = [6, 7, firstWeekCol + weekNumbers.length + 1];
       const clientCurrencyFormat = currentProject.clientCurrency === 'EUR' ? '€#,##0' :
-                                  currentProject.clientCurrency === 'GBP' ? '£#,##0' : '$#,##0';
-      clientCurrencyColumns.forEach(colIndex => {
+        currentProject.clientCurrency === 'GBP' ? '£#,##0' : '$#,##0';
+      clientCurrencyColumns.forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = clientCurrencyFormat;
       });
-
-      // Format percentage columns - Margin and all week columns
       const marginColumn = 8;
-      const weekColumns = weekNumbers.map((_, index) => 9 + index);
-      const percentageColumns = [marginColumn, ...weekColumns];
-      
-      percentageColumns.forEach(colIndex => {
+      const weekColumns = weekNumbers.map((_, index) => firstWeekCol + index);
+      [marginColumn, ...weekColumns].forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = '0"%"';
       });
-      
-      // Format efforts column
-      worksheet.getColumn(9 + weekNumbers.length + 2).numFmt = '0';
+      worksheet.getColumn(firstWeekCol + weekNumbers.length + 2).numFmt = '0';
 
-      // Generate Excel file
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      // Re-apply Phase Summary cell formats (columns 4 & 5 are overwritten by column formats above)
+      phaseSummaryDataRowNumbers.forEach((rowNum) => {
+        const r = worksheet.getRow(rowNum);
+        if (r.getCell(4).value != null) r.getCell(4).numFmt = '#,##0.00';
+        if (r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
       });
-      
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -519,11 +661,294 @@ export default function App() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to export to Excel');
       console.error('Error exporting to Excel:', err);
     }
+  };
+
+  const handleExportToPNG = () => {
+    if (!currentProject || resourcePlans.length === 0) {
+      alert('No planning data to export');
+      return;
+    }
+
+    // Parse phases
+    let phases: Phase[] = [];
+    if (currentProject.phases) {
+      try {
+        const parsed = JSON.parse(currentProject.phases) as Phase[];
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p) => p.name && (p.periodCount ?? p.weekCount ?? 0) > 0)) {
+          phases = parsed;
+        }
+      } catch { /* fall through */ }
+    }
+    if (phases.length === 0) {
+      const allPeriods = new Set<number>();
+      resourcePlans.forEach((p) => p.allocations.forEach((wa) => allPeriods.add(wa.periodNumber)));
+      const totalPeriods = allPeriods.size > 0 ? Math.max(...allPeriods) : 8;
+      phases = [{ name: 'Phase 1', periodCount: totalPeriods }];
+    }
+
+    const pngPlanMode = (currentProject.planningMode || 'weekly') as 'weekly' | 'monthly';
+    const hrsPerPrd = hoursPerPeriod(pngPlanMode, currentProject.daysInFTE);
+
+    const totalWeekCount = phases.reduce((s, p) => s + (p.periodCount ?? p.weekCount ?? 0), 0);
+    const weekNumbers = Array.from({ length: totalWeekCount }, (_, i) => i + 1);
+    const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€'
+      : currentProject.clientCurrency === 'GBP' ? '£' : '$';
+
+    // Per-row financial data
+    const rows = resourcePlans.map((plan) => {
+      let totalWeeksEquivalent = 0;
+      weekNumbers.forEach((weekNum) => {
+        const alloc = plan.allocations.find((wa) => wa.periodNumber === weekNum);
+        totalWeeksEquivalent += (alloc?.allocation || 0) / 100;
+      });
+      const efforts = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
+      const intCost = totalInternalCost(efforts, plan.intHourlyRate);
+      const price = totalClientCost(efforts, plan.clientHourlyRate);
+      const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
+      return {
+        role: plan.role || '',
+        clientRole: plan.clientRole || '',
+        name: plan.name || '',
+        intHourlyRate: plan.intHourlyRate,
+        clientHourlyRate: plan.clientHourlyRate,
+        margin,
+        intCost,
+        price,
+        efforts,
+      };
+    });
+
+    // Project-level totals
+    const grandIntCost = rows.reduce((s, r) => s + r.intCost, 0);
+    const grandPrice = rows.reduce((s, r) => s + r.price, 0);
+    const grandEfforts = rows.reduce((s, r) => s + r.efforts, 0);
+    const projectMargin = grossMarginPct(grandIntCost, grandPrice, currentProject.exchangeRate);
+    const blendedHourlyRate = grandEfforts > 0 ? grandPrice / grandEfforts : 0;
+    const blendedDailyRate = blendedHourlyRate * 8;
+
+    // ── Canvas layout constants ──────────────────────────────────────────────
+    const SCALE = 2; // retina / HiDPI
+    const PAD = 32;
+    const HEADER_H = 88;      // project title + date
+    const COL_H = 38;         // column header row
+    const ROW_H = 30;         // data row
+    const SUMMARY_H = 240;    // financial summary card (3 rows of metrics)
+    const GAP = 24;           // vertical gap between sections
+
+    const columns = [
+      { label: 'Rate Card Role',                    w: 160 },
+      { label: 'Client Role',                       w: 130 },
+      { label: 'Name',                              w: 130 },
+      { label: 'Int. Hourly ($)',                   w: 110 },
+      { label: `Client Hourly (${currencySymbol})`, w: 120 },
+      { label: 'Margin %',                          w: 80  },
+      { label: 'Total Int. Cost ($)',               w: 130 },
+      { label: `Total Price (${currencySymbol})`,   w: 120 },
+      { label: 'Est. Efforts (h)',                  w: 110 },
+    ];
+
+    const tableW = columns.reduce((s, c) => s + c.w, 0);
+    const canvasW = Math.max(tableW + PAD * 2, 900);
+    const tableH = COL_H + (rows.length + 1) * ROW_H; // +1 totals row
+    const canvasH = HEADER_H + GAP + tableH + GAP + SUMMARY_H + PAD;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasW * SCALE;
+    canvas.height = canvasH * SCALE;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(SCALE, SCALE);
+
+    // ── Background ───────────────────────────────────────────────────────────
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    // ── Project header ───────────────────────────────────────────────────────
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 22px system-ui, -apple-system, Arial, sans-serif';
+    ctx.fillText(currentProject.name || 'Resource Plan', PAD, PAD + 26);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '13px system-ui, -apple-system, Arial, sans-serif';
+    ctx.fillText(
+      `Generated: ${new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`,
+      PAD,
+      PAD + 52,
+    );
+
+    // ── Table ────────────────────────────────────────────────────────────────
+    const tableX = PAD;
+    let tableY = HEADER_H + GAP;
+
+    // Column header background
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(tableX, tableY, tableW, COL_H);
+
+    // Column header text
+    ctx.fillStyle = '#f1f5f9';
+    ctx.font = 'bold 10.5px system-ui, -apple-system, Arial, sans-serif';
+    let cx = tableX;
+    columns.forEach((col) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(cx + 1, tableY, col.w - 2, COL_H);
+      ctx.clip();
+      ctx.fillText(col.label, cx + 7, tableY + 24);
+      ctx.restore();
+      cx += col.w;
+    });
+    tableY += COL_H;
+
+    // Data rows
+    rows.forEach((row, i) => {
+      const rowY = tableY + i * ROW_H;
+      ctx.fillStyle = i % 2 === 0 ? '#f8fafc' : '#ffffff';
+      ctx.fillRect(tableX, rowY, tableW, ROW_H);
+
+      const values = [
+        row.role,
+        row.clientRole,
+        row.name,
+        `$${row.intHourlyRate.toFixed(0)}`,
+        `${currencySymbol}${row.clientHourlyRate.toFixed(0)}`,
+        `${row.margin.toFixed(1)}%`,
+        `$${Math.round(row.intCost).toLocaleString()}`,
+        `${currencySymbol}${Math.round(row.price).toLocaleString()}`,
+        `${Math.round(row.efforts).toLocaleString()}h`,
+      ];
+
+      ctx.fillStyle = '#334155';
+      ctx.font = '11px system-ui, -apple-system, Arial, sans-serif';
+      let vx = tableX;
+      values.forEach((val, idx) => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(vx + 1, rowY, columns[idx].w - 2, ROW_H);
+        ctx.clip();
+        ctx.fillText(val, vx + 7, rowY + 19);
+        ctx.restore();
+        vx += columns[idx].w;
+      });
+    });
+
+    // Totals row
+    const totalsY = tableY + rows.length * ROW_H;
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(tableX, totalsY, tableW, ROW_H);
+    const totalsValues = [
+      'TOTALS', '', '', '', '', '',
+      `$${Math.round(grandIntCost).toLocaleString()}`,
+      `${currencySymbol}${Math.round(grandPrice).toLocaleString()}`,
+      `${Math.round(grandEfforts).toLocaleString()}h`,
+    ];
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 11px system-ui, -apple-system, Arial, sans-serif';
+    let tx = tableX;
+    totalsValues.forEach((val, idx) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(tx + 1, totalsY, columns[idx].w - 2, ROW_H);
+      ctx.clip();
+      ctx.fillText(val, tx + 7, totalsY + 19);
+      ctx.restore();
+      tx += columns[idx].w;
+    });
+
+    // Grid lines (drawn over fills)
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 0.5;
+
+    // Horizontal lines
+    const gridTop = HEADER_H + GAP;
+    const gridBottom = gridTop + COL_H + (rows.length + 1) * ROW_H;
+    for (let i = 0; i <= rows.length + 2; i++) {
+      const ly = gridTop + (i === 0 ? 0 : i === 1 ? COL_H : COL_H + (i - 1) * ROW_H);
+      ctx.beginPath();
+      ctx.moveTo(tableX, ly);
+      ctx.lineTo(tableX + tableW, ly);
+      ctx.stroke();
+    }
+
+    // Vertical lines
+    let vlineX = tableX;
+    columns.forEach((col) => {
+      ctx.beginPath();
+      ctx.moveTo(vlineX, gridTop);
+      ctx.lineTo(vlineX, gridBottom);
+      ctx.stroke();
+      vlineX += col.w;
+    });
+    ctx.beginPath();
+    ctx.moveTo(vlineX, gridTop);
+    ctx.lineTo(vlineX, gridBottom);
+    ctx.stroke();
+
+    // ── Financial Summary card ───────────────────────────────────────────────
+    const cardX = PAD;
+    const cardY = HEADER_H + GAP + tableH + GAP;
+    const cardW = canvasW - PAD * 2;
+    const cardH = SUMMARY_H - GAP;
+    const r = 10;
+
+    ctx.fillStyle = '#f1f5f9';
+    ctx.beginPath();
+    ctx.moveTo(cardX + r, cardY);
+    ctx.lineTo(cardX + cardW - r, cardY);
+    ctx.arcTo(cardX + cardW, cardY, cardX + cardW, cardY + r, r);
+    ctx.lineTo(cardX + cardW, cardY + cardH - r);
+    ctx.arcTo(cardX + cardW, cardY + cardH, cardX + cardW - r, cardY + cardH, r);
+    ctx.lineTo(cardX + r, cardY + cardH);
+    ctx.arcTo(cardX, cardY + cardH, cardX, cardY + cardH - r, r);
+    ctx.lineTo(cardX, cardY + r);
+    ctx.arcTo(cardX, cardY, cardX + r, cardY, r);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 13px system-ui, -apple-system, Arial, sans-serif';
+    ctx.fillText('Financial Summary', cardX + 16, cardY + 28);
+
+    const totalPeriods = phases.reduce((s, p) => s + (p.periodCount ?? p.weekCount ?? 0), 0);
+    const pngDurationLabel = pngPlanMode === 'monthly' ? 'Duration (months)' : 'Duration (weeks)';
+
+    const metrics = [
+      { label: 'Total Internal Cost',                      value: `$${Math.round(grandIntCost).toLocaleString()}` },
+      { label: `Total Price (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandPrice).toLocaleString()}` },
+      { label: 'Total Estimated Efforts',                  value: `${Math.round(grandEfforts).toLocaleString()} h` },
+      { label: pngDurationLabel,                           value: `${totalPeriods}` },
+      { label: 'Project Margin',                           value: `${projectMargin.toFixed(1)}%`, highlight: projectMargin > 0 },
+      { label: `Blended Hourly Rate (${currentProject.clientCurrency})`, value: `${currencySymbol}${blendedHourlyRate.toFixed(0)}` },
+      { label: `Blended Daily Rate (${currentProject.clientCurrency})`,  value: `${currencySymbol}${blendedDailyRate.toFixed(0)}` },
+    ];
+
+    const METRICS_COLS = 3;
+    const metricW = cardW / METRICS_COLS;
+    metrics.forEach((m, i) => {
+      const col = i % METRICS_COLS;
+      const row = Math.floor(i / METRICS_COLS);
+      const mx = cardX + col * metricW + 16;
+      const my = cardY + 48 + row * 60;
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px system-ui, -apple-system, Arial, sans-serif';
+      ctx.fillText(m.label, mx, my);
+
+      ctx.fillStyle = m.highlight !== undefined
+        ? (m.highlight ? '#15803d' : '#dc2626')
+        : '#0f172a';
+      ctx.font = 'bold 20px system-ui, -apple-system, Arial, sans-serif';
+      ctx.fillText(m.value, mx, my + 32);
+    });
+
+    // ── Download ─────────────────────────────────────────────────────────────
+    const link = document.createElement('a');
+    link.download = `resource-planning-${currentProject.name || 'project'}-${new Date().toISOString().split('T')[0]}.png`;
+    link.href = canvas.toDataURL('image/png');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   if (loading) {
@@ -542,7 +967,7 @@ export default function App() {
         <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
           <div className="text-red-800 font-medium">Error: {error}</div>
           <button 
-            onClick={loadProjectData}
+            onClick={() => loadProjectData()}
             className="mt-2 text-red-600 hover:text-red-800 underline"
           >
             Retry
@@ -564,89 +989,85 @@ export default function App() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <div className="flex flex-col gap-2 max-w-2xl">
-          <label className="text-sm text-muted-foreground">Project name</label>
-          <div className="flex items-center gap-2">
-            <Input
-              className="w-64 sm:w-72 md:w-80"
-              value={editableProjectName}
-              onChange={(e) => setEditableProjectName(e.target.value)}
-              onBlur={() => {
-                if (editableProjectName !== currentProject.name) {
-                  handleProjectSettingsChange({ name: editableProjectName });
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  (e.target as HTMLInputElement).blur();
-                }
-              }}
-            />
-            <div className="flex gap-2">
-              <Button onClick={handleExportProject} size="sm" variant="default">
-                Save file
-              </Button>
-              <Button onClick={handleImportProject} size="sm" variant="secondary">
-                Load file
-              </Button>
-              <Button onClick={handleExportToExcel} size="sm" variant="outline">
-                Export to Excel
-              </Button>
-            </div>
-          </div>
-          <label className="text-sm text-muted-foreground">Project description</label>
-          <Textarea
-            value={editableProjectDescription}
-            onChange={(e) => setEditableProjectDescription(e.target.value)}
-            onBlur={() => {
-              if ((editableProjectDescription || '') !== (currentProject.description || '')) {
-                handleProjectSettingsChange({ description: editableProjectDescription });
-              }
-            }}
-            rows={3}
-          />
-        </div>
-      </div>
-
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="project-list">Project list</TabsTrigger>
           <TabsTrigger value="resource-plan">Resource Plan</TabsTrigger>
           <TabsTrigger value="resource-list">Resource List</TabsTrigger>
           <TabsTrigger value="rate-card">Rate Card</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="project-list" className="mt-6">
+          <ProjectList
+            onOpenProject={(id) => {
+              loadProjectData(id);
+              setActiveTab('resource-plan');
+            }}
+            currentProjectId={currentProject?.id}
+            onProjectDeleted={() => loadProjectData()}
+            onProjectUpdated={(project) => {
+              if (currentProject?.id === project.id) {
+                setCurrentProject(project);
+                setEditableProjectName(project.name || '');
+                setEditableProjectDescription(project.description || '');
+              }
+            }}
+          />
+        </TabsContent>
         
         <TabsContent value="resource-plan" className="mt-6">
           <ResourcePlan 
+            key={currentProject?.id || 'default'}
             project={currentProject}
             resourceLists={resourceLists}
             resourcePlans={resourcePlans}
             onResourcePlansChange={handleResourcePlansChange}
             onAddResourcePlan={handleAddResourcePlan}
             onDeleteResourcePlan={handleDeleteResourcePlan}
+            onReorderResourcePlans={handleReorderResourcePlans}
             onProjectSettingsChange={handleProjectSettingsChange}
+            onExportProject={handleExportProject}
+            onImportProject={handleImportProject}
+            onExportToExcel={handleExportToExcel}
+            onExportToPNG={handleExportToPNG}
+            onClearAllResourcePlans={handleClearAllResourcePlans}
+            onConvertPlanningMode={handleConvertPlanningMode}
+            projectName={editableProjectName}
+            projectDescription={editableProjectDescription}
+            onProjectNameChange={(name) => {
+              setEditableProjectName(name);
+              handleProjectSettingsChange({ name });
+            }}
+            onProjectDescriptionChange={(description) => {
+              setEditableProjectDescription(description);
+              handleProjectSettingsChange({ description });
+            }}
           />
         </TabsContent>
         
         <TabsContent value="resource-list" className="mt-6">
-          <ResourceList 
+<ResourceList
             resourceLists={resourceLists}
             onResourceListsChange={handleResourceListsChange}
+            onResourceListUpdate={handleResourceListUpdate}
             onAddResourceList={handleAddResourceList}
             onDeleteResourceList={handleDeleteResourceList}
+            onClearAllResourceLists={handleClearAllResourceLists}
           />
         </TabsContent>
 
         <TabsContent value="rate-card" className="mt-6">
           <RateCard
-            projectId={currentProject.id}
             rateCards={rateCards}
+            importMeta={rateCardMeta}
             onRateCardsChange={handleRateCardsChange}
+            onRateCardUpdate={handleRateCardUpdate}
             onAddRateCard={handleAddRateCard}
             onAddRateCardsBulk={handleAddRateCardsBulk}
             onDeleteRateCard={handleDeleteRateCard}
             onDeleteAllRateCards={handleDeleteAllRateCards}
             onAddResourceList={handleAddResourceList}
+            defaultLocation={currentProject?.defaultLocation}
           />
         </TabsContent>
       </Tabs>

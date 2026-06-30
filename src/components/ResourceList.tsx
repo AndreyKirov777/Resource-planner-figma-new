@@ -10,16 +10,16 @@ import { ResourceList as ResourceListType } from '../services/api';
 interface ResourceListProps {
   resourceLists: ResourceListType[];
   onResourceListsChange: (resources: ResourceListType[]) => void;
+  onResourceListUpdate?: (id: number, data: Partial<ResourceListType>) => void;
   onAddResourceList: (resource: Partial<ResourceListType>) => void;
   onDeleteResourceList: (id: number) => void;
+  onClearAllResourceLists?: () => void;
 }
 
 // Custom cell renderer component for the Actions column
 const ActionsCellRenderer = (props: any) => {
   const deleteResource = () => {
-    if ((window as any).deleteResource) {
-      (window as any).deleteResource(props.data.id);
-    }
+    props.context?.deleteResource?.(props.data.id);
   };
 
   return (
@@ -38,8 +38,10 @@ const ActionsCellRenderer = (props: any) => {
 export function ResourceList({ 
   resourceLists, 
   onResourceListsChange, 
+  onResourceListUpdate,
   onAddResourceList,
-  onDeleteResourceList 
+  onDeleteResourceList,
+  onClearAllResourceLists
 }: ResourceListProps) {
   const [newRole, setNewRole] = useState('');
   const [newClientRole, setNewClientRole] = useState('');
@@ -75,6 +77,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -89,6 +93,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -103,6 +109,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -117,6 +125,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
       {
@@ -132,6 +142,8 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       },
 
@@ -153,15 +165,14 @@ export function ResourceList({
               : resource
           );
           onResourceListsChange(updatedResources);
+          const updatedRow = updatedResources.find(r => r.id === params.data.id);
+          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
         }
       }
     ];
 
-    // Make delete function globally available for AG Grid buttons
-    (window as any).deleteResource = deleteResource;
-
     return [actionsColumn, ...otherColumns];
-  }, [resourceLists, onResourceListsChange, deleteResource]);
+  }, [resourceLists, onResourceListsChange, onResourceListUpdate, deleteResource]);
 
   const addResource = () => {
     if (!newRole.trim() || !newRate.trim()) return;
@@ -193,7 +204,7 @@ export function ResourceList({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Add custome resource</CardTitle>
+          <CardTitle>Add custom resource</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-end gap-3 flex-wrap">
@@ -272,13 +283,25 @@ export function ResourceList({
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Resource List</CardTitle>
+          {onClearAllResourceLists && resourceLists.length > 0 && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="bg-red-500 hover:bg-red-600 text-white"
+              onClick={onClearAllResourceLists}
+            >
+              Clear all
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           <div className="ag-theme-alpine" style={{ height: '500px', width: '100%' }}>
             <AgGridReact
               theme="legacy"
+              context={{ deleteResource }}
               rowData={resourceLists}
               columnDefs={columnDefs}
               defaultColDef={{

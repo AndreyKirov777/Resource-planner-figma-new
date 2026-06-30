@@ -15,20 +15,23 @@ model Project {
   id              Int             @id @default(autoincrement())
   name            String
   description     String?
-  daysInFTE       Int             @default(20)
+  daysInFTE       Int             @default(21)
   clientCurrency  String          @default("EUR")
   exchangeRate    Float           @default(0.89)
-  defaultMargin   Float?          @default(25.0)
+  defaultMargin   Float?          @default(45.0)
+  planningMode    String          @default("weekly")
+  defaultLocation String?         @default("ukraine")
+  phases          String?         @default("[{\"name\":\"Phase 1\",\"periodCount\":8,\"color\":\"#E3F2FD\"}]")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  
+
   // Relations
-  rateCards       RateCard[]
   resourceLists   ResourceList[]
   resourcePlans   ResourcePlan[]
 }
 
-model RateCard {
+// Rate card is global: a single shared set common to all projects.
+model GlobalRateCard {
   id              Int             @id @default(autoincrement())
   role            String
   namingInPM      String
@@ -45,10 +48,14 @@ model RateCard {
   london          Float
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  
-  // Relations
-  projectId       Int
-  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// Singleton (id = 1) holding metadata about the last rate card import.
+model RateCardImportMeta {
+  id              Int             @id @default(1)
+  fileName        String?
+  importedAt      DateTime?
+  updatedAt       DateTime        @updatedAt
 }
 
 model ResourceList {
@@ -74,25 +81,26 @@ model ResourcePlan {
   name            String?
   intHourlyRate   Float
   clientHourlyRate Float
+  displayOrder    Int             @default(0)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   
   // Relations
   projectId       Int
   project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  weeklyAllocations WeeklyAllocation[]
+  allocations     Allocation[]
 }
 
-model WeeklyAllocation {
+model Allocation {
   id              Int             @id @default(autoincrement())
-  weekNumber      Int
+  periodNumber    Int
   allocation      Int             @default(0) // Percentage allocation (0-100)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  
+
   // Relations
   resourcePlanId  Int
   resourcePlan    ResourcePlan    @relation(fields: [resourcePlanId], references: [id], onDelete: Cascade)
-  
-  @@unique([resourcePlanId, weekNumber])
+
+  @@unique([resourcePlanId, periodNumber])
 }
