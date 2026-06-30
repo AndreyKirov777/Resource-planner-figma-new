@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 describe('resolveModel', () => {
-  it('resolves the default (anthropic) model without a network call', async () => {
+  it('resolves the configured default model without a network call', async () => {
     delete process.env.AI_PROVIDER;
     __resetAIConfigCache();
     const { model, defaults } = await resolveModel();
@@ -23,8 +23,8 @@ describe('resolveModel', () => {
   });
 
   it('throws an actionable error when a configured provider is not installed', async () => {
-    process.env.AI_PROVIDER = 'openai'; // adapter package not installed
+    process.env.AI_PROVIDER = 'ollama'; // adapter package (ollama-ai-provider) not installed
     __resetAIConfigCache();
-    await expect(resolveModel()).rejects.toThrow(/npm i @ai-sdk\/openai/);
+    await expect(resolveModel()).rejects.toThrow(/npm i ollama-ai-provider/);
   });
 });

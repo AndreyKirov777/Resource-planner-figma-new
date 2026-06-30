@@ -19,8 +19,11 @@ describe('loadAIConfig', () => {
     const a = await loadAIConfig();
     const b = await loadAIConfig();
     expect(a).toBe(b); // second call served from cache (same reference)
-    expect(a.provider).toBe('anthropic');
-    expect(a.model).toBe('claude-opus-4-8');
+    // Vendor-agnostic: don't pin to a specific provider/model so swapping the
+    // selection in ai.config.ts doesn't break this test. We assert the merge
+    // happened (stable fields present) + a valid provider/non-empty model.
+    expect(['anthropic', 'openai', 'ollama']).toContain(a.provider);
+    expect(a.model).toBeTruthy();
     expect(a.maxOutputTokens).toBe(4096);
     expect(a.defaultDeliveryRegion).toBe('easternEurope');
     expect(a.rateLimit).toEqual({ maxPerUser: 10, windowSeconds: 3600 });

@@ -4,8 +4,8 @@ import { defineAIConfig } from './server/llm/config';
 // (read automatically by the provider SDK). Swap the vendor by editing
 // `provider`/`model` here; no code changes needed (see server/llm/registry.ts).
 export default defineAIConfig({
-  provider: 'anthropic', // anthropic | openai | ollama
-  model: 'claude-opus-4-8',
+  provider: 'openai', // anthropic | openai | ollama
+  model: 'gpt-5.5',
   maxOutputTokens: 4096,
   defaultDeliveryRegion: 'easternEurope',
   rateLimit: {

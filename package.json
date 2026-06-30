@@ -4,6 +4,7 @@
       "private": true,
       "dependencies": {
             "@ai-sdk/anthropic": "^4.0.3",
+            "@ai-sdk/openai": "^4.0.4",
             "@glideapps/glide-data-grid": "^6.0.3",
             "@prisma/client": "^6.15.0",
             "@radix-ui/react-accordion": "^1.2.3",
