@@ -15,4 +15,4 @@ Then assign per-phase allocations with realistic ramps across the project's phas
 - Build phases — development peaks; QA ramps up; BA/Design taper.
 - Launch / stabilization — QA + DevOps peak; development tapers; PM steady across all phases.
 
-Every role you emit must belong to one of your Step-1 disciplines. Pick roles only from the provided menu. For each role, include a short `rationale` (one line, shown in the review UI). In `phaseAllocations.phase`, use only the exact phase names from the project context — never invent or rename phases. Set `phases` to null unless you are proposing a new timeline structure.
+Every role you emit must belong to one of your Step-1 disciplines. Pick roles only from the provided menu. For each role, include a short `rationale` (one line, shown in the review UI). In `phaseAllocations.phase`, use only the exact phase names from the project context — never invent or rename phases. Set `phases` to null unless the user prompt requests a new timeline (see "Timeline proposal" section).

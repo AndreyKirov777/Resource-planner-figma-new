@@ -34,6 +34,48 @@ export function parsePhases(
   return [{ name: 'Phase 1', periodCount: totalPeriods, color: PHASE_COLORS[0] }];
 }
 
+/** True when the project still has the default single placeholder phase. */
+export function isPlaceholderSinglePhase(phases: Phase[]): boolean {
+  return phases.length === 1 && /^phase\s*1$/i.test(phases[0].name.trim());
+}
+
+/** Heuristic: description asks for a multi-phase timeline. */
+export function descriptionSuggestsPhaseProposal(description: string): boolean {
+  if (parsePhasesFromDescription(description).length >= 2) return true;
+  return /\b(phases?|timeline|discovery|inception|stabilization|stabilisation|launch|milestones?|uat|implementation)\b/i.test(
+    description,
+  ) || /\d+\s*weeks?\s*[-–:]/i.test(description);
+}
+
+export interface DescriptionPhase {
+  name: string;
+  periodCount: number;
+}
+
+/** Parse explicit week-based phases, e.g. "2 weeks - discovery, 8 weeks - implementation". */
+export function parsePhasesFromDescription(description: string): DescriptionPhase[] {
+  const pattern = /(\d+)\s*weeks?\s*[-–:]\s*([^,;.]+)/gi;
+  const phases: DescriptionPhase[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(description)) !== null) {
+    const periodCount = Number.parseInt(match[1], 10);
+    const rawName = match[2].trim().replace(/\s+/g, ' ');
+    if (!Number.isFinite(periodCount) || periodCount < 1 || !rawName) continue;
+    const name = normalizePhaseName(rawName);
+    phases.push({ name, periodCount });
+  }
+  return phases;
+}
+
+function normalizePhaseName(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower === 'uat') return 'UAT';
+  return raw
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 export function getPhaseForPeriod(
   periodNum: number,
   phases: Phase[]

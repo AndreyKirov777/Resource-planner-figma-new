@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -20,7 +20,7 @@ import {
   GeneratePlanResourcePlan,
   GeneratePlanDraft,
 } from '../services/api';
-import { PHASE_COLORS, getPhaseForPeriod } from '../utils/phases';
+import { PHASE_COLORS, getPhaseForPeriod, descriptionSuggestsPhaseProposal, isPlaceholderSinglePhase, parsePhasesFromDescription } from '../utils/phases';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -262,6 +262,20 @@ export function GeneratePlanSheet({
 
   const abortController = useRef<AbortController | null>(null);
 
+  // Default phase proposal on for placeholder timelines; auto-enable when description asks.
+  useEffect(() => {
+    if (!open) return;
+    if (propPhases && isPlaceholderSinglePhase(propPhases)) {
+      setApplyProposedPhases(true);
+    }
+  }, [open, propPhases]);
+
+  useEffect(() => {
+    if (descriptionSuggestsPhaseProposal(description) || parsePhasesFromDescription(description).length >= 2) {
+      setApplyProposedPhases(true);
+    }
+  }, [description]);
+
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
@@ -297,6 +311,8 @@ export function GeneratePlanSheet({
     abortController.current = ac;
     setLoading(true);
     setError(null);
+    const effectiveApplyPhases =
+      applyProposedPhases || descriptionSuggestsPhaseProposal(description.trim());
     try {
       const response = await api.generatePlan(
         {
@@ -304,7 +320,7 @@ export function GeneratePlanSheet({
           projectId,
           description,
           region,
-          ...(applyProposedPhases ? { applyProposedPhases } : {}),
+          applyProposedPhases: effectiveApplyPhases,
         },
         ac.signal,
       );
@@ -494,7 +510,7 @@ export function GeneratePlanSheet({
                     id="gp-apply-phases-hint"
                     className="text-xs text-muted-foreground mt-0.5"
                   >
-                    Let the AI restructure the project timeline if its plan implies one.
+                    Let the AI define Discovery / Build / Launch-style phases and apply them on accept. Auto-enabled when your description mentions phases or the project still has the default single phase.
                   </p>
                 </div>
               </div>
@@ -558,6 +574,31 @@ export function GeneratePlanSheet({
                       <span>{w}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Proposed timeline */}
+              {resolvePhases().length > 0 && (
+                <div className="rounded-md border bg-muted/30 px-3 py-2">
+                  <p className="text-xs font-medium text-foreground mb-1.5">Proposed timeline</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {resolvePhases().map((phase, idx) => (
+                      <span
+                        key={`${phase.name}-${idx}`}
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                        style={{
+                          background: phase.color ?? PHASE_COLORS[idx % PHASE_COLORS.length],
+                          color: '#444',
+                        }}
+                      >
+                        {phase.name} · {phase.periodCount ?? 0}
+                        {_planningMode === 'monthly' ? 'mo' : 'wk'}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    Phases are applied to the project when you click Accept plan.
+                  </p>
                 </div>
               )}
 

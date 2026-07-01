@@ -1,27 +1,41 @@
 import { z } from 'zod';
 
+export interface BuildOutputSchemaOptions {
+  /** When true, the model may use free-form phase names in phaseAllocations. */
+  proposePhases?: boolean;
+  /** When true, phases must be a non-empty array (defaults to proposePhases). */
+  phasesRequired?: boolean;
+}
+
 /**
  * Builds the Zod output schema for the LLM's structured response.
  *
  * The role enum is built at request time from the live rate card — the model
  * cannot emit an unknown role, and the SDK rejects one if it tries.
  * Similarly, the discipline enum is built from the live distinct disciplines,
- * and the phase enum from the project's phase names.
+ * and the phase enum from the project's phase names (unless proposePhases).
  */
 export function buildOutputSchema(
   roleEnum: [string, ...string[]],
   disciplineEnum: [string, ...string[]],
-  phaseEnum: [string, ...string[]],
+  phaseEnum: [string, ...string[]] | null,
+  options: BuildOutputSchemaOptions = {},
 ) {
-  return z
-    .object({
-      // STEP 1 — emitted before resources (reasoning-first)
-      selectedDisciplines: z.array(z.enum(disciplineEnum)),
-      teamShape: z.string(),
+  const proposePhases = options.proposePhases ?? false;
+  const phasesRequired = options.phasesRequired ?? proposePhases;
 
-      // Nullable (not optional) — OpenAI strict JSON schema requires every property
-      // key in `required`; use null when no timeline is proposed.
-      phases: z
+  const phasesField = phasesRequired
+    ? z
+        .array(
+          z
+            .object({
+              name: z.string().min(1),
+              periodCount: z.number().int().min(1),
+            })
+            .strict(),
+        )
+        .min(1)
+    : z
         .array(
           z
             .object({
@@ -30,7 +44,20 @@ export function buildOutputSchema(
             })
             .strict(),
         )
-        .nullable(),
+        .nullable();
+
+  const phaseNameField = proposePhases
+    ? z.string().min(1)
+    : z.enum(phaseEnum as [string, ...string[]]);
+
+  return z
+    .object({
+      // STEP 1 — emitted before resources (reasoning-first)
+      selectedDisciplines: z.array(z.enum(disciplineEnum)),
+      teamShape: z.string(),
+
+      // Nullable when using existing phases; required array when proposing a timeline.
+      phases: phasesField,
 
       // STEP 2 — roles & allocations
       resources: z.array(
@@ -41,7 +68,7 @@ export function buildOutputSchema(
             phaseAllocations: z.array(
               z
                 .object({
-                  phase: z.enum(phaseEnum),
+                  phase: phaseNameField,
                   allocation: z.number().int().min(0).max(100),
                 })
                 .strict(),

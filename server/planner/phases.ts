@@ -6,6 +6,15 @@
  * the project's phase list.
  */
 
+import {
+  descriptionSuggestsPhaseProposal,
+  parsePhasesFromDescription,
+  type DescriptionPhase,
+} from '../../src/utils/phases';
+
+export { descriptionSuggestsPhaseProposal, parsePhasesFromDescription };
+export type { DescriptionPhase };
+
 export interface PhaseAllocation {
   phase: string;
   allocation: number;
@@ -51,6 +60,11 @@ export function resolvePlannerPhases(
     return [{ name: 'Phase 1', periodCount: defaultTotal }];
   }
   return parsed;
+}
+
+/** True when phases JSON is empty or only the default single placeholder. */
+export function isPlaceholderSinglePhase(phases: ProjectPhase[]): boolean {
+  return phases.length === 1 && /^phase\s*1$/i.test(phases[0].name.trim());
 }
 
 export function buildPhaseEnum(

@@ -261,12 +261,23 @@ describe('generateResourcePlan', () => {
     const model = mockModel(
       makeLLMOutput({
         phases: [{ name: 'Discovery', periodCount: 2 }, { name: 'Build', periodCount: 4 }],
+        resources: [
+          {
+            role: 'Software Engineer',
+            count: 1,
+            phaseAllocations: [
+              { phase: 'Discovery', allocation: 20 },
+              { phase: 'Build', allocation: 100 },
+            ],
+            rationale: 'Core build capacity for the web app.',
+          },
+        ],
       }),
     );
     const result = await generateResourcePlan({
       rows: FIXTURE_ROWS,
       project: DEFAULT_PROJECT,
-      description: 'Phased project',
+      description: 'Phased project with Discovery and Build',
       region: 'ukraine',
       applyProposedPhases: true,
       model,
@@ -274,6 +285,109 @@ describe('generateResourcePlan', () => {
 
     expect(result.draft.phases).toBeDefined();
     expect(result.draft.phases).toHaveLength(2);
+    expect(result.draft.resourcePlans[0].allocations).toHaveLength(6);
+    expect(result.draft.resourcePlans[0].allocations[0]).toEqual({ periodNumber: 1, allocation: 20 });
+    expect(result.draft.resourcePlans[0].allocations[2]).toEqual({ periodNumber: 3, allocation: 100 });
+  });
+
+  it('expands allocations against proposed phases when applyProposedPhases=true', async () => {
+    const model = mockModel(
+      makeLLMOutput({
+        phases: [{ name: 'Discovery', periodCount: 2 }, { name: 'Build', periodCount: 2 }],
+        resources: [
+          {
+            role: 'Software Engineer',
+            count: 1,
+            phaseAllocations: [
+              { phase: 'Discovery', allocation: 50 },
+              { phase: 'Build', allocation: 100 },
+            ],
+            rationale: 'Engineer ramps through build.',
+          },
+        ],
+      }),
+    );
+    const result = await generateResourcePlan({
+      rows: FIXTURE_ROWS,
+      project: { ...DEFAULT_PROJECT, phases: JSON.stringify([{ name: 'Phase 1', periodCount: 8 }]) },
+      description: '3-month phased delivery',
+      region: 'ukraine',
+      applyProposedPhases: true,
+      model,
+    });
+
+    expect(result.draft.phases).toEqual([
+      { name: 'Discovery', periodCount: 2 },
+      { name: 'Build', periodCount: 2 },
+    ]);
+    expect(result.draft.resourcePlans[0].allocations).toHaveLength(4);
+  });
+
+  it('auto-enables phase proposal when description mentions phases', async () => {
+    const model = mockModel(
+      makeLLMOutput({
+        phases: [{ name: 'Discovery', periodCount: 2 }, { name: 'Build', periodCount: 2 }],
+        resources: [
+          {
+            role: 'Software Engineer',
+            count: 1,
+            phaseAllocations: [
+              { phase: 'Discovery', allocation: 40 },
+              { phase: 'Build', allocation: 90 },
+            ],
+            rationale: 'Phased staffing.',
+          },
+        ],
+      }),
+    );
+    const result = await generateResourcePlan({
+      rows: FIXTURE_ROWS,
+      project: DEFAULT_PROJECT,
+      description: 'Create Discovery and Build phases for this timeline',
+      region: 'ukraine',
+      applyProposedPhases: false,
+      model,
+    });
+
+    expect(result.draft.phases).toHaveLength(2);
+    expect(result.draft.resourcePlans[0].allocations).toHaveLength(4);
+  });
+
+  it('falls back to parsed description phases when the model omits phases', async () => {
+    const model = mockModel(
+      makeLLMOutput({
+        phases: null,
+        resources: [
+          {
+            role: 'Software Engineer',
+            count: 1,
+            phaseAllocations: [
+              { phase: 'Discovery', allocation: 50 },
+              { phase: 'Implementation', allocation: 100 },
+              { phase: 'UAT', allocation: 75 },
+            ],
+            rationale: 'Phased staffing.',
+          },
+        ],
+      }),
+    );
+    const result = await generateResourcePlan({
+      rows: FIXTURE_ROWS,
+      project: DEFAULT_PROJECT,
+      description:
+        'AI process automation project. 2 weeks - discovery, 8 weeks - implementation, 1 week - UAT.',
+      region: 'ukraine',
+      applyProposedPhases: true,
+      model,
+    });
+
+    expect(result.draft.phases).toEqual([
+      { name: 'Discovery', periodCount: 2 },
+      { name: 'Implementation', periodCount: 8 },
+      { name: 'UAT', periodCount: 1 },
+    ]);
+    expect(result.draft.resourcePlans[0].allocations).toHaveLength(11);
+    expect(result.warnings.some((w) => w.includes('parsed from your description'))).toBe(true);
   });
 
   it('no phases in draft when applyProposedPhases=false even if LLM emits phases', async () => {

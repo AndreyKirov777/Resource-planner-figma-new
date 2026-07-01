@@ -21,8 +21,14 @@ import {
 } from './rateCard';
 import { buildOutputSchema } from './schema';
 import { renderPrompt } from './prompt';
-import { getScopingSkill } from './scopingSkill';
-import { expandPhaseAllocations, resolvePlannerPhases, buildPhaseEnum } from './phases';
+import { getScopingSkill, PHASE_PROPOSAL_SYSTEM_SUFFIX } from './scopingSkill';
+import {
+  expandPhaseAllocations,
+  resolvePlannerPhases,
+  buildPhaseEnum,
+  descriptionSuggestsPhaseProposal,
+  parsePhasesFromDescription,
+} from './phases';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +80,13 @@ function describePhasesForPrompt(phases: Array<{ name: string; periodCount?: num
     .join(', ');
 }
 
+function resolveWantsProposedPhases(
+  applyProposedPhases: boolean,
+  description: string,
+): boolean {
+  return applyProposedPhases || descriptionSuggestsPhaseProposal(description);
+}
+
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
@@ -95,22 +108,31 @@ export async function generateResourcePlan(
   const roleEnum = roleEnumArr as [string, ...string[]];
   const disciplineEnum = disciplineEnumArr as [string, ...string[]];
 
-  // 3. Resolve project phases (prompt, schema enum, expansion).
+  // 2. Resolve project phases (prompt, schema enum, expansion fallback).
   const projectPhases = resolvePlannerPhases(project.phases, APP_DEFAULTS.durationPeriods);
-  const total = projectPhases.reduce(
-    (sum, p) => sum + (p.periodCount ?? p.weekCount ?? 0),
-    0,
-  );
-  const phaseEnum = buildPhaseEnum(projectPhases);
+  const mandatedPhases = parsePhasesFromDescription(description);
+  const proposePhases = resolveWantsProposedPhases(applyProposedPhases, description);
+  const hasMandatedPhases = mandatedPhases.length >= 2;
 
-  // 4. Build output schema and menu.
-  const schema = buildOutputSchema(roleEnum, disciplineEnum, phaseEnum);
+  const total = mandatedPhases.length > 0
+    ? mandatedPhases.reduce((sum, p) => sum + p.periodCount, 0)
+    : projectPhases.reduce(
+        (sum, p) => sum + (p.periodCount ?? p.weekCount ?? 0),
+        0,
+      );
+  const phaseEnum = proposePhases || hasMandatedPhases ? null : buildPhaseEnum(projectPhases);
+
+  // 3. Build output schema and menu.
+  const schema = buildOutputSchema(roleEnum, disciplineEnum, phaseEnum, {
+    proposePhases: proposePhases || hasMandatedPhases,
+    phasesRequired: proposePhases && !hasMandatedPhases,
+  });
   const menu = buildGroupedMenu(
     rows as Array<{ role: string; discipline: string; namingInPM: string; [key: string]: unknown }>,
     region,
   );
 
-  // 5. Render prompt.
+  // 4. Render prompt.
   const marginPct = project.defaultMargin ?? APP_DEFAULTS.defaultMargin;
   const promptCtx = {
     planningMode: project.planningMode,
@@ -120,20 +142,45 @@ export async function generateResourcePlan(
     clientCurrency: APP_DEFAULTS.clientCurrency,
     defaultMargin: marginPct,
     description,
+    proposePhases,
+    mandatedPhases: mandatedPhases.length > 0 ? mandatedPhases : undefined,
   };
   const prompt = renderPrompt(promptCtx, menu);
 
-  // 6. Load scoping methodology and call LLM.
+  // 5. Load scoping methodology and call LLM.
   const scopingSkill = await getScopingSkill();
+  const systemPrompt =
+    proposePhases || hasMandatedPhases
+      ? `${scopingSkill.systemPrompt}\n\n${PHASE_PROPOSAL_SYSTEM_SUFFIX}`
+      : scopingSkill.systemPrompt;
+
   const output = await generateStructured({
-    system: scopingSkill.systemPrompt,
+    system: systemPrompt,
     prompt,
     schema,
     schemaName: 'ResourcePlanOutput',
     model: opts.model,
   });
 
-  // 7. Assemble resource plans.
+  const proposedPhases =
+    output.phases && output.phases.length > 0
+      ? output.phases
+      : (proposePhases || hasMandatedPhases) && mandatedPhases.length > 0
+        ? mandatedPhases
+        : null;
+  const expansionPhases = proposedPhases ?? projectPhases;
+
+  if (proposePhases && !output.phases?.length && mandatedPhases.length > 0) {
+    warnings.push(
+      'Model did not return phases; using the timeline parsed from your description.',
+    );
+  } else if (proposePhases && !proposedPhases) {
+    warnings.push(
+      'Phase proposal was requested but the model did not return a timeline; allocations were expanded against the existing project phases.',
+    );
+  }
+
+  // 6. Assemble resource plans.
   const resourcePlans: DraftResourcePlan[] = [];
   let displayOrderCounter = 0;
 
@@ -162,12 +209,10 @@ export async function generateResourcePlan(
     const marginDecimal = marginPct / 100;
     const clientRate = clientHourlyRate(resolvedIntRate, marginDecimal, project.exchangeRate);
 
-    // Expand phase allocations → period allocations.
-    const defaultPhase = projectPhases;
-
+    // Expand phase allocations → period allocations (use proposed timeline when present).
     const { result: allocations, warnings: phaseWarnings } = expandPhaseAllocations(
       phaseAllocations,
-      defaultPhase,
+      expansionPhases,
     );
     warnings.push(...phaseWarnings);
 
@@ -203,7 +248,7 @@ export async function generateResourcePlan(
       resourcePlans.push(draft);
     }
 
-    // 7. Discipline coherence check (soft).
+    // Discipline coherence check (soft).
     const row = rows.find((r) => r.role === role);
     if (row) {
       const tax = normalizeTaxonomy(row);
@@ -215,7 +260,7 @@ export async function generateResourcePlan(
     }
   }
 
-  // 8. Soft composition warnings (§8.6).
+  // 7. Soft composition warnings (§8.6).
   const allRoles = resourcePlans.map((r) => r.role.toLowerCase());
 
   const hasBuildRoles = allRoles.some(
@@ -283,14 +328,14 @@ export async function generateResourcePlan(
     );
   }
 
-  // 9. Build result.
+  // 8. Build result.
   const result: GeneratePlanResult = {
     draft: { resourcePlans },
     warnings,
   };
 
-  if (applyProposedPhases && output.phases && output.phases.length > 0) {
-    result.draft.phases = output.phases;
+  if (proposedPhases && (proposePhases || hasMandatedPhases)) {
+    result.draft.phases = proposedPhases;
   }
 
   return result;
