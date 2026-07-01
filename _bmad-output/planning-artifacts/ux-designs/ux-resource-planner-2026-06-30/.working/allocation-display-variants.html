@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Allocation-by-phase — compact display variants</title>
+<style>
+  :root{
+    --foreground:oklch(0.145 0 0);--muted-foreground:#717182;--border:rgba(0,0,0,.1);
+    --muted:#ececf0;--accent:#e9ebef;--primary:#030213;--radius:.625rem;
+    /* phase pastels from src/utils/phases.ts PHASE_COLORS */
+    --p1:#E3F2FD;--p2:#FCE4EC;--p3:#E8F5E9;--p4:#FFF3E0;
+    --p1e:#5b9bd5;--p2e:#d56fa0;--p3e:#6cae6e;--p4e:#d99b4e; /* darker edges */
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f4f6;color:var(--foreground);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .page{max-width:920px;margin:0 auto;padding:28px 22px 70px}
+  h1{font-size:20px;font-weight:600;margin:0 0 2px}
+  .sub{color:var(--muted-foreground);font-size:13px;margin:0 0 8px}
+  .scale{font-size:12px;color:var(--muted-foreground);margin:0 0 22px}
+  .scale b{color:var(--foreground)}
+  .card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:22px;overflow:hidden}
+  .card > h2{font-size:13px;font-weight:600;margin:0;padding:11px 16px;border-bottom:1px solid var(--border);background:#fafafb;display:flex;justify-content:space-between;align-items:center}
+  .card .pick{font-size:11px;color:var(--muted-foreground);font-weight:500}
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .tbl th{text-align:left;font-weight:500;color:var(--muted-foreground);font-size:11.5px;padding:8px 16px;border-bottom:1px solid var(--border)}
+  .tbl td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:middle}
+  .tbl tr:last-child td{border-bottom:none}
+  .role{font-weight:500}.num{text-align:right;font-variant-numeric:tabular-nums}
+  .note{font-size:11.5px;color:var(--muted-foreground);padding:10px 16px;background:#fafafb;border-top:1px solid var(--border)}
+
+  /* legend phase chips */
+  .legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted-foreground);padding:9px 16px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap}
+  .lg{display:inline-flex;align-items:center;gap:5px}
+  .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+
+  /* ---------- A: intensity gantt strip (width=duration, height=h/day) ---------- */
+  .ganttwrap{display:flex;align-items:flex-end;gap:2px;height:30px;width:240px}
+  .seg{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px}
+  .gbar{width:100%;border-radius:3px 3px 0 0;border:1px solid rgba(0,0,0,.06)}
+  .ghr{font-size:9.5px;color:var(--muted-foreground);line-height:1}
+
+  /* ---------- B: equal bars + labels ---------- */
+  .bars{display:flex;gap:10px;align-items:flex-end;height:34px}
+  .b{display:flex;flex-direction:column;align-items:center;gap:3px;width:34px}
+  .bbar{width:18px;border-radius:3px 3px 0 0;border:1px solid rgba(0,0,0,.06)}
+  .blab{font-size:9.5px;color:var(--muted-foreground);line-height:1.1;text-align:center}
+  .bhr{font-size:10px;font-variant-numeric:tabular-nums;color:var(--foreground)}
+
+  /* ---------- C: phase chips (textual) ---------- */
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .pchip{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid rgba(0,0,0,.08);display:inline-flex;gap:5px;align-items:center}
+  .pchip b{font-variant-numeric:tabular-nums;font-weight:600}
+
+  /* expander demo */
+  .exp{margin:14px 16px;border:1px solid var(--border);border-radius:8px;overflow:hidden;max-width:420px}
+  .exp h3{font-size:12px;margin:0;padding:8px 12px;background:#fafafb;border-bottom:1px solid var(--border);font-weight:600}
+  .exp table{width:100%;border-collapse:collapse;font-size:11.5px}
+  .exp td,.exp th{padding:6px 12px;border-bottom:1px solid var(--border);text-align:left}
+  .exp th{color:var(--muted-foreground);font-weight:500}.exp tr:last-child td{border-bottom:none}
+  .exp .num{text-align:right;font-variant-numeric:tabular-nums}
+</style></head>
+<body><div class="page">
+  <h1>Allocation by phase — compact display variants</h1>
+  <p class="sub">Phases: <b>Discovery</b> 2w · <b>Build</b> 8w · <b>Launch</b> 2w. Two roles: a PM (steady) and a Senior Engineer (ramps into Build).</p>
+  <p class="scale">Scale — <b>2h</b>=25% &nbsp; <b>4h</b>=50% &nbsp; <b>6h</b>=75% &nbsp; <b>8h</b>=100% of an 8h day. Bar height encodes h/day (snapped to the 2h grid); phase pastel encodes which phase.</p>
+
+  <!-- VARIANT A -->
+  <div class="card">
+    <h2>A · Intensity gantt strip <span class="pick">width = phase duration · height = h/day</span></h2>
+    <div class="legend">
+      <span class="lg"><span class="sw" style="background:var(--p1)"></span>Discovery</span>
+      <span class="lg"><span class="sw" style="background:var(--p2)"></span>Build</span>
+      <span class="lg"><span class="sw" style="background:var(--p3)"></span>Launch</span>
+    </div>
+    <table class="tbl"><thead><tr><th style="width:200px">Role</th><th class="num">Int.</th><th class="num">Client</th><th>Allocation by phase</th></tr></thead>
+    <tbody>
+      <tr><td class="role">Project Manager</td><td class="num">40.00</td><td class="num">72.73</td>
+        <td><div class="ganttwrap">
+          <div class="seg" style="width:40px"><div class="gbar" style="height:14px;background:var(--p1);border-color:var(--p1e)"></div><span class="ghr">4h</span></div>
+          <div class="seg" style="width:160px"><div class="gbar" style="height:14px;background:var(--p2);border-color:var(--p2e)"></div><span class="ghr">4h</span></div>
+          <div class="seg" style="width:40px"><div class="gbar" style="height:14px;background:var(--p3);border-color:var(--p3e)"></div><span class="ghr">4h</span></div>
+        </div></td></tr>
+      <tr><td class="role">Senior Software Engineer</td><td class="num">35.00</td><td class="num">63.64</td>
+        <td><div class="ganttwrap">
+          <div class="seg" style="width:40px"><div class="gbar" style="height:7px;background:var(--p1);border-color:var(--p1e)"></div><span class="ghr">2h</span></div>
+          <div class="seg" style="width:160px"><div class="gbar" style="height:28px;background:var(--p2);border-color:var(--p2e)"></div><span class="ghr">8h</span></div>
+          <div class="seg" style="width:40px"><div class="gbar" style="height:14px;background:var(--p3);border-color:var(--p3e)"></div><span class="ghr">4h</span></div>
+        </div></td></tr>
+    </tbody></table>
+    <div class="note">Densest: shows the <em>shape</em> of the engagement at a glance (ramp into Build) — width = how long, height = how hard. Risk: very short phases get thin segments; many phases get cramped.</div>
+  </div>
+
+  <!-- VARIANT B -->
+  <div class="card">
+    <h2>B · Equal bars + labels <span class="pick">one bar per phase · height = h/day</span></h2>
+    <table class="tbl"><thead><tr><th style="width:200px">Role</th><th class="num">Int.</th><th class="num">Client</th><th>Allocation by phase</th></tr></thead>
+    <tbody>
+      <tr><td class="role">Project Manager</td><td class="num">40.00</td><td class="num">72.73</td>
+        <td><div class="bars">
+          <div class="b"><span class="bhr">4h</span><div class="bbar" style="height:14px;background:var(--p1);border-color:var(--p1e)"></div><span class="blab">Disc</span></div>
+          <div class="b"><span class="bhr">4h</span><div class="bbar" style="height:14px;background:var(--p2);border-color:var(--p2e)"></div><span class="blab">Build</span></div>
+          <div class="b"><span class="bhr">4h</span><div class="bbar" style="height:14px;background:var(--p3);border-color:var(--p3e)"></div><span class="blab">Launch</span></div>
+        </div></td></tr>
+      <tr><td class="role">Senior Software Engineer</td><td class="num">35.00</td><td class="num">63.64</td>
+        <td><div class="bars">
+          <div class="b"><span class="bhr">2h</span><div class="bbar" style="height:7px;background:var(--p1);border-color:var(--p1e)"></div><span class="blab">Disc</span></div>
+          <div class="b"><span class="bhr">8h</span><div class="bbar" style="height:28px;background:var(--p2);border-color:var(--p2e)"></div><span class="blab">Build</span></div>
+          <div class="b"><span class="bhr">4h</span><div class="bbar" style="height:14px;background:var(--p3);border-color:var(--p3e)"></div><span class="blab">Launch</span></div>
+        </div></td></tr>
+    </tbody></table>
+    <div class="note">Cleanest & most legible: equal bars, explicit h/day above and phase name below. Doesn't encode duration (a 2w and 8w phase look the same width) — but it's unambiguous and scales to ~5 phases.</div>
+  </div>
+
+  <!-- VARIANT C -->
+  <div class="card">
+    <h2>C · Phase chips (textual) <span class="pick">most compact · no bars</span></h2>
+    <table class="tbl"><thead><tr><th style="width:200px">Role</th><th class="num">Int.</th><th class="num">Client</th><th>Allocation by phase</th></tr></thead>
+    <tbody>
+      <tr><td class="role">Project Manager</td><td class="num">40.00</td><td class="num">72.73</td>
+        <td><div class="chips">
+          <span class="pchip" style="background:var(--p1)">Disc <b>4h</b></span>
+          <span class="pchip" style="background:var(--p2)">Build <b>4h</b></span>
+          <span class="pchip" style="background:var(--p3)">Launch <b>4h</b></span>
+        </div></td></tr>
+      <tr><td class="role">Senior Software Engineer</td><td class="num">35.00</td><td class="num">63.64</td>
+        <td><div class="chips">
+          <span class="pchip" style="background:var(--p1)">Disc <b>2h</b></span>
+          <span class="pchip" style="background:var(--p2)">Build <b>8h</b></span>
+          <span class="pchip" style="background:var(--p3)">Launch <b>4h</b></span>
+        </div></td></tr>
+    </tbody></table>
+    <div class="note">Most compact and precise to read, but no visual “shape” — you read numbers, not a profile. Good fallback when there are many phases or in a narrow Sheet.</div>
+  </div>
+
+  <!-- expander -->
+  <div class="card">
+    <h2>Row expander (any variant) <span class="pick">tap a role → precise table</span></h2>
+    <div class="exp">
+      <h3>Senior Software Engineer — allocation detail</h3>
+      <table><thead><tr><th>Phase</th><th>Weeks</th><th class="num">h/day</th><th class="num">%</th></tr></thead>
+      <tbody>
+        <tr><td>Discovery</td><td>1–2</td><td class="num">2h</td><td class="num">25%</td></tr>
+        <tr><td>Build</td><td>3–10</td><td class="num">8h</td><td class="num">100%</td></tr>
+        <tr><td>Launch</td><td>11–12</td><td class="num">4h</td><td class="num">50%</td></tr>
+      </tbody></table>
+    </div>
+    <div class="note">The bars/chips are the at-a-glance; the expander carries the precise per-phase numbers (weeks · h/day · %). This is also the accessible text alternative to the bars.</div>
+  </div>
+
+</div></body></html>

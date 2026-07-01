@@ -27,6 +27,42 @@ export interface ExpandResult {
   warnings: string[];
 }
 
+/** Parse project phases JSON. Returns [] on null/empty/invalid. */
+export function parseProjectPhases(
+  phasesJson: string | null,
+): ProjectPhase[] {
+  if (!phasesJson) return [];
+  try {
+    const parsed = JSON.parse(phasesJson);
+    if (Array.isArray(parsed)) return parsed;
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/** Phases used for prompt, schema enum, and allocation expansion. */
+export function resolvePlannerPhases(
+  phasesJson: string | null,
+  defaultTotal: number,
+): ProjectPhase[] {
+  const parsed = parseProjectPhases(phasesJson);
+  if (parsed.length === 0) {
+    return [{ name: 'Phase 1', periodCount: defaultTotal }];
+  }
+  return parsed;
+}
+
+export function buildPhaseEnum(
+  phases: ProjectPhase[],
+): [string, ...string[]] {
+  const names = phases.map((p) => p.name);
+  if (names.length === 0) {
+    throw new Error('Cannot build phase enum from empty phase list');
+  }
+  return names as [string, ...string[]];
+}
+
 /**
  * Expands phase-based allocations to period-based allocations.
  *

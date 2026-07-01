@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Generate AI Plan — key screens</title>
+<style>
+  /* ---- Project tokens (mirrored from src/styles/globals.css, light theme) ---- */
+  :root{
+    --background:#ffffff; --foreground:oklch(0.145 0 0);
+    --card:#ffffff; --card-foreground:oklch(0.145 0 0);
+    --primary:#030213; --primary-foreground:oklch(1 0 0);
+    --secondary:oklch(0.95 0.0058 264.53); --secondary-foreground:#030213;
+    --muted:#ececf0; --muted-foreground:#717182;
+    --accent:#e9ebef; --accent-foreground:#030213;
+    --destructive:#d4183d; --destructive-foreground:#ffffff;
+    --border:rgba(0,0,0,0.1); --input-background:#f3f3f5;
+    --switch-background:#cbced4; --ring:oklch(0.708 0 0);
+    --radius:0.625rem;
+    /* ---- DESIGN.md DELTA: feature-introduced warning token (app lacks one) ---- */
+    --warning-bg:#fffbeb; --warning-border:#fde68a; --warning-foreground:#92400e; --warning-icon:#d97706;
+    /* ---- AI accent (glyph only; no new brand colour) ---- */
+    --ai-accent:#6d28d9;
+    --radius-md:calc(var(--radius) - 2px); --radius-sm:calc(var(--radius) - 4px);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#f4f4f6; color:var(--foreground);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:1180px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-size:22px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--muted-foreground);margin:0 0 28px;font-size:13px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:24px;align-items:start}
+  .frame{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .frame > .cap{font-size:12px;font-weight:600;color:var(--muted-foreground);padding:10px 14px;border-bottom:1px solid var(--border);background:#fafafb;display:flex;justify-content:space-between;align-items:center}
+  .cap .tag{font-weight:500;font-size:11px;color:#fff;background:var(--primary);padding:2px 8px;border-radius:999px}
+  .stage{padding:18px;background:repeating-linear-gradient(45deg,#fbfbfc,#fbfbfc 10px,#f6f6f8 10px,#f6f6f8 20px)}
+
+  /* ---- shadcn-ish primitives ---- */
+  .btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:var(--radius-md);font-size:13px;font-weight:500;border:1px solid transparent;cursor:default;white-space:nowrap}
+  .btn-primary{background:var(--primary);color:var(--primary-foreground)}
+  .btn-outline{background:transparent;color:var(--foreground);border-color:var(--border)}
+  .btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+  .btn-ghost{background:transparent;color:var(--foreground)}
+  .btn[disabled],.btn.is-disabled{opacity:.5}
+  .btn-sm{height:28px;padding:0 10px;font-size:12px}
+
+  .sheet{width:100%;max-width:420px;margin-left:auto;background:var(--card);border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius);box-shadow:-8px 0 24px rgba(0,0,0,.08);display:flex;flex-direction:column;min-height:380px}
+  .sheet-head{display:flex;align-items:flex-start;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid var(--border)}
+  .sheet-title{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .sheet-title .spark{color:var(--ai-accent)}
+  .sheet-desc{font-size:12px;color:var(--muted-foreground);margin-top:2px}
+  .x{color:var(--muted-foreground);font-size:16px;line-height:1;padding:2px 4px;border-radius:6px}
+  .sheet-body{padding:16px;display:flex;flex-direction:column;gap:14px;flex:1}
+  .sheet-foot{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;align-items:center}
+  .sheet-foot .spacer{flex:1}
+
+  .field{display:flex;flex-direction:column;gap:6px}
+  .label{font-size:13px;font-weight:500}
+  .hint{font-size:11px;color:var(--muted-foreground)}
+  textarea.ctl{min-height:88px;resize:none}
+  .ctl{width:100%;background:var(--input-background);border:1px solid transparent;border-radius:var(--radius-md);padding:8px 10px;font-size:13px;color:var(--foreground);font-family:inherit}
+  .ctl::placeholder{color:var(--muted-foreground)}
+  .select{display:flex;align-items:center;justify-content:space-between;background:var(--input-background);border:1px solid transparent;border-radius:var(--radius-md);padding:8px 10px;font-size:13px}
+  .select .chev{color:var(--muted-foreground)}
+  .check{display:flex;align-items:flex-start;gap:8px}
+  .box{width:16px;height:16px;border:1px solid var(--border);border-radius:4px;flex:none;margin-top:1px}
+  .box.on{background:var(--primary);border-color:var(--primary);position:relative}
+  .box.on::after{content:"✓";color:#fff;font-size:11px;position:absolute;left:2px;top:-2px}
+  .ctl[disabled],.disabled{opacity:.55}
+
+  .warn{display:flex;gap:8px;background:var(--warning-bg);border:1px solid var(--warning-border);color:var(--warning-foreground);border-radius:var(--radius-md);padding:9px 11px;font-size:12px;line-height:1.45}
+  .warn .ic{color:var(--warning-icon);flex:none}
+  .err{display:flex;gap:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:var(--radius-md);padding:9px 11px;font-size:12.5px}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  thead th{text-align:left;font-weight:500;color:var(--muted-foreground);padding:6px 8px;border-bottom:1px solid var(--border);font-size:11.5px;text-transform:none}
+  tbody td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  th.num{text-align:right}
+  .role{font-weight:500}
+  .rationale{color:var(--muted-foreground);font-size:11.5px;margin-top:2px;display:flex;gap:4px}
+  .rationale .chev{color:var(--muted-foreground)}
+  .spark-bars{display:inline-flex;gap:2px;align-items:flex-end;height:14px}
+  .spark-bars i{width:5px;background:color-mix(in oklch,var(--primary) 55%,transparent);border-radius:1px}
+  /* per-week allocation timeline (phase header + 1 bar per week, height=snapped %) */
+  .alloc{width:236px;overflow-x:auto}
+  .alloc-in{display:flex;flex-direction:column;gap:4px;min-width:236px}
+  .wkaxis{display:flex;gap:4px}
+  .pcount{font-size:9.5px;color:var(--muted-foreground);text-align:center}
+  .phaserow{display:flex;gap:4px;height:16px}
+  .pband{display:flex;align-items:center;border-radius:5px;font-size:10px;color:#3f3f46;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1}
+  .barsrow{display:flex;gap:4px;align-items:flex-end;height:26px}
+  .pgroup{display:flex;gap:2px;align-items:flex-end}
+  .wk{background:#52525b;border-radius:1.5px;flex:1;min-width:5px}
+  .wk.z{background:#d4d4d8;height:2px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:11px;background:var(--secondary);color:var(--secondary-foreground);border-radius:999px;padding:2px 9px}
+  .teamshape{font-size:12.5px;color:var(--foreground);background:var(--accent);border-radius:var(--radius-md);padding:8px 10px}
+  .phases{font-size:11.5px;color:var(--muted-foreground);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .phasepill{background:var(--muted);border-radius:6px;padding:2px 7px;color:var(--foreground)}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--muted);border-top-color:var(--primary);border-radius:50%;animation:r 1s linear infinite}
+  @keyframes r{to{transform:rotate(360deg)}}
+  .loadwrap{display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;flex:1;color:var(--muted-foreground);font-size:13px;text-align:center;padding:24px}
+  .quoted{font-size:12px;color:var(--foreground);background:var(--accent);border-radius:var(--radius-md);padding:8px 10px;max-width:90%}
+
+  /* toolbar mock */
+  .toolbar{display:flex;align-items:center;gap:8px;padding:14px;flex-wrap:wrap}
+  .note{font-size:12px;color:var(--muted-foreground);margin:8px 2px 0;line-height:1.5}
+  .legend{margin-top:10px;font-size:11.5px;color:var(--muted-foreground)}
+  code{background:var(--muted);padding:1px 5px;border-radius:4px;font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Generate AI Plan — key screens</h1>
+  <p class="sub">Right-docked Sheet (form → loading → result), ResourcePlan grid stays intact. Tokens mirror <code>src/styles/globals.css</code>. Mockup, not production markup — spines win on conflict.</p>
+
+  <div class="grid">
+
+    <!-- 0. Entry point -->
+    <div class="frame">
+      <div class="cap">0 · Toolbar entry point <span class="tag">entry</span></div>
+      <div class="stage">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius)">
+          <div class="toolbar">
+            <span class="btn btn-primary btn-sm">Export project</span>
+            <span class="btn btn-secondary btn-sm">Import project</span>
+            <span class="btn btn-outline btn-sm">Export to Excel</span>
+            <span class="btn btn-outline btn-sm">Client link</span>
+            <span class="btn btn-outline btn-sm" style="border-color:var(--ai-accent);color:var(--ai-accent)"><span class="spark">✦</span> Generate AI Plan</span>
+          </div>
+        </div>
+        <p class="note">New button sits after <em>Client link</em> in the existing <code>flex items-center gap-2</code> toolbar (ResourcePlan.tsx:1096). <code>variant="outline"</code>, <code>size="sm"</code>, ✦ glyph in AI-accent — the only feature-specific colour beyond the warning token.</p>
+      </div>
+    </div>
+
+    <!-- 1. Form -->
+    <div class="frame">
+      <div class="cap">1 · Form (idle) <span class="tag">default</span></div>
+      <div class="stage">
+        <div class="sheet">
+          <div class="sheet-head">
+            <div>
+              <div class="sheet-title"><span class="spark">✦</span> Generate AI Plan</div>
+              <div class="sheet-desc">Acme redesign · weekly · 12w · EUR · 45% margin</div>
+            </div>
+            <span class="x">✕</span>
+          </div>
+          <div class="sheet-body">
+            <div class="field">
+              <span class="label">Describe the project</span>
+              <textarea class="ctl" placeholder="e.g. 3-month e-commerce redesign, ~6 people, build-heavy"></textarea>
+              <span class="hint">The AI proposes roles &amp; allocations grounded in your rate card. Nothing is saved until you accept.</span>
+            </div>
+            <div class="field">
+              <span class="label">Delivery region</span>
+              <div class="select"><span>Ukraine</span><span class="chev">▾</span></div>
+            </div>
+            <label class="check">
+              <span class="box"></span>
+              <span><span class="label">Apply proposed phases</span><br><span class="hint">Let the AI restructure the project timeline if its plan implies one.</span></span>
+            </label>
+          </div>
+          <div class="sheet-foot">
+            <span class="btn btn-ghost">Cancel</span>
+            <span class="btn btn-primary is-disabled">Generate</span>
+          </div>
+        </div>
+        <p class="note">Generate is <strong>disabled</strong> until the description has non-whitespace text. Region defaults to Ukraine. Checkbox off by default — sent only when true.</p>
+      </div>
+    </div>
+
+    <!-- 2. Loading -->
+    <div class="frame">
+      <div class="cap">2 · Generating <span class="tag">loading</span></div>
+      <div class="stage">
+        <div class="sheet">
+          <div class="sheet-head">
+            <div>
+              <div class="sheet-title"><span class="spark">✦</span> Generate AI Plan</div>
+              <div class="sheet-desc">Acme redesign · weekly · 12w · EUR · 45% margin</div>
+            </div>
+            <span class="x disabled">✕</span>
+          </div>
+          <div class="loadwrap">
+            <div class="quoted">“3-month e-commerce redesign, ~6 people, build-heavy”</div>
+            <div><span class="spin"></span></div>
+            <div>Drafting team…</div>
+            <div class="hint">Usually 5–20 seconds.</div>
+          </div>
+          <div class="sheet-foot">
+            <span class="spacer"></span>
+            <span class="btn btn-outline">Cancel</span>
+          </div>
+        </div>
+        <p class="note">Form fields &amp; close (✕) disabled during flight. <strong>Cancel</strong> aborts via <code>AbortSignal</code> and returns to the form with inputs intact.</p>
+      </div>
+    </div>
+
+    <!-- 3. Result (rich) -->
+    <div class="frame" style="grid-column:span 2">
+      <div class="cap">3 · Result — rich within available data <span class="tag">result</span></div>
+      <div class="stage">
+        <div class="sheet" style="max-width:620px">
+          <div class="sheet-head">
+            <div>
+              <div class="sheet-title"><span class="spark">✦</span> Proposed plan</div>
+              <div class="sheet-desc">6 roles · Eastern Europe · grid unchanged until you accept</div>
+            </div>
+            <span class="x">✕</span>
+          </div>
+          <div class="sheet-body">
+            <div class="warn"><span class="ic">⚠</span><span><strong>No QA while development roles are present.</strong> Review before accepting — this is advisory, not blocking.</span></div>
+            <table>
+              <thead><tr>
+                <th>Role</th><th class="num">Int. rate</th><th class="num">Client rate</th>
+                <th><div class="alloc"><div class="alloc-in">
+                  <div class="wkaxis"><div class="pcount" style="flex:2">2w</div><div class="pcount" style="flex:8">8w</div><div class="pcount" style="flex:2">2w</div></div>
+                  <div class="phaserow"><div class="pband" style="flex:2;background:#E3F2FD">Discovery</div><div class="pband" style="flex:8;background:#FCE4EC">Build</div><div class="pband" style="flex:2;background:#E8F5E9">Launch</div></div>
+                </div></div></th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td><div class="role">Project Manager</div><div class="rationale"><span class="chev">▾</span> Steady delivery oversight across all phases.</div></td>
+                  <td class="num">40.00</td><td class="num">72.73</td>
+                  <td><div class="alloc"><div class="alloc-in"><div class="barsrow">
+                    <div class="pgroup" style="flex:2"><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i></div>
+                    <div class="pgroup" style="flex:8"><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i></div>
+                    <div class="pgroup" style="flex:2"><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i></div>
+                  </div></div></div></td>
+                </tr>
+                <tr>
+                  <td><div class="role">Senior Software Engineer</div><div class="rationale"><span class="chev">▾</span> Leads build, ramps from week 3.</div></td>
+                  <td class="num">35.00</td><td class="num">63.64</td>
+                  <td><div class="alloc"><div class="alloc-in"><div class="barsrow">
+                    <div class="pgroup" style="flex:2"><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i></div>
+                    <div class="pgroup" style="flex:8"><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i></div>
+                    <div class="pgroup" style="flex:2"><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i></div>
+                  </div></div></div></td>
+                </tr>
+                <tr>
+                  <td><div class="role">Software Engineer</div><div class="rationale"><span class="chev">▸</span> Build volume; pyramid backbone.</div></td>
+                  <td class="num">25.00</td><td class="num">45.45</td>
+                  <td><div class="alloc"><div class="alloc-in"><div class="barsrow">
+                    <div class="pgroup" style="flex:2"><i class="wk z"></i><i class="wk z"></i></div>
+                    <div class="pgroup" style="flex:8"><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i></div>
+                    <div class="pgroup" style="flex:2"><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i></div>
+                  </div></div></div></td>
+                </tr>
+                <tr>
+                  <td><div class="role">UX Designer</div><div class="rationale"><span class="chev">▸</span> Discovery-heavy, tapers in build.</div></td>
+                  <td class="num">30.00</td><td class="num">54.55</td>
+                  <td><div class="alloc"><div class="alloc-in"><div class="barsrow">
+                    <div class="pgroup" style="flex:2"><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i></div>
+                    <div class="pgroup" style="flex:8"><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i></div>
+                    <div class="pgroup" style="flex:2"><i class="wk z"></i><i class="wk z"></i></div>
+                  </div></div></div></td>
+                </tr>
+              </tbody>
+            </table>
+            <span class="hint">Rates to 2 decimals. Allocation: one bar = one week, height snapped to 0/25/50/75/100% (0–8h/day). Long timelines scroll horizontally.</span>
+          </div>
+          <div class="sheet-foot">
+            <span class="btn btn-ghost">‹ Back</span>
+            <span class="btn btn-outline">Discard</span>
+            <span class="spacer"></span>
+            <span class="btn btn-primary">Accept plan</span>
+          </div>
+        </div>
+        <p class="note"><strong>v1:</strong> Accept → <code>console.log('TODO Goal 3', draft)</code>, Sheet stays open. <strong>Back</strong> → form (keeps result in memory). <strong>Discard</strong> → close + reset. Warnings block hidden when empty. Allocation = per-week bars under a phase header (week counts on top, phase bands below); header + bars scroll together when weeks overflow. Phase grouping uses the project's phases (passed as a prop) or <code>draft.phases</code> when applied; single "Plan · Nw" band when none.</p>
+      </div>
+    </div>
+
+    <!-- 4. Error -->
+    <div class="frame">
+      <div class="cap">4 · Error (recoverable) <span class="tag">error</span></div>
+      <div class="stage">
+        <div class="sheet">
+          <div class="sheet-head">
+            <div>
+              <div class="sheet-title"><span class="spark">✦</span> Generate AI Plan</div>
+              <div class="sheet-desc">Acme redesign · weekly · 12w · EUR · 45% margin</div>
+            </div>
+            <span class="x">✕</span>
+          </div>
+          <div class="sheet-body">
+            <div class="err"><span>⚠</span><span>Rate limit exceeded. Try again in about 12 minutes.</span></div>
+            <div class="field">
+              <span class="label">Describe the project</span>
+              <textarea class="ctl">3-month e-commerce redesign, ~6 people, build-heavy</textarea>
+            </div>
+            <div class="field">
+              <span class="label">Delivery region</span>
+              <div class="select"><span>Eastern Europe</span><span class="chev">▾</span></div>
+            </div>
+          </div>
+          <div class="sheet-foot">
+            <span class="btn btn-ghost">Cancel</span>
+            <span class="btn btn-primary">Generate</span>
+          </div>
+        </div>
+        <p class="note">Server <code>body.error</code> rendered above the form; inputs preserved so the user fixes &amp; retries without closing. Covers 400/409 (empty rate card)/422/429/502/503.</p>
+      </div>
+    </div>
+
+    <!-- 5. Goal-3 future -->
+    <div class="frame">
+      <div class="cap">5 · Accept → apply <span class="tag" style="background:var(--ai-accent)">Goal 3 · future</span></div>
+      <div class="stage">
+        <div class="sheet">
+          <div class="sheet-head">
+            <div>
+              <div class="sheet-title"><span class="spark">✦</span> Proposed plan</div>
+              <div class="sheet-desc">Goal-3 preview — not built in v1</div>
+            </div>
+            <span class="x">✕</span>
+          </div>
+          <div class="sheet-body">
+            <div class="field">
+              <span class="label">Apply to project</span>
+              <div class="check" style="gap:14px;margin-top:2px">
+                <label class="check"><span class="box on"></span><span>Add to existing rows <span class="hint">(append)</span></span></label>
+              </div>
+              <div class="check"><span class="box"></span><span>Replace current plan <span class="hint">(destructive)</span></span></div>
+            </div>
+            <div class="hint">After applying, a <strong>“Plan applied — Undo”</strong> toast appears; History lists recent revisions to restore beyond the last action.</div>
+          </div>
+          <div class="sheet-foot">
+            <span class="btn btn-outline">Discard</span>
+            <span class="spacer"></span>
+            <span class="btn btn-ghost">Regenerate</span>
+            <span class="btn btn-primary">Accept plan</span>
+          </div>
+        </div>
+        <p class="note">Documented in EXPERIENCE.md as a <strong>FUTURE</strong> flow (Goal 3). Needs the transactional <code>apply-plan</code> endpoint + <code>PlanRevision</code> — not part of this build.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="legend">Legend — <span class="tag" style="background:var(--primary)">v1 scope</span> screens 0–4 build now · <span class="tag" style="background:var(--ai-accent)">Goal 3</span> screen 5 is spec-only. Warning token (amber) and AI-accent glyph are the two DESIGN.md deltas over the existing system.</p>
+</div>
+</body>
+</html>

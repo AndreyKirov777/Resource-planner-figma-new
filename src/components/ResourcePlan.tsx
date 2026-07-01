@@ -20,7 +20,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2 } from 'lucide-react';
-import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation } from '../services/api';
+import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft } from '../services/api';
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod } from '../utils/phases';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
@@ -40,6 +40,7 @@ interface ResourcePlanProps {
   onExportToExcel?: () => void;
   onExportToPNG?: () => void;
   onClearAllResourcePlans?: () => void;
+  onApplyGeneratedPlan?: (draft: GeneratePlanDraft) => Promise<void>;
   onConvertPlanningMode?: (targetMode: 'weekly' | 'monthly') => void;
   projectName: string;
   projectDescription: string;
@@ -185,6 +186,7 @@ export function ResourcePlan({
   onExportToExcel,
   onExportToPNG,
   onClearAllResourcePlans,
+  onApplyGeneratedPlan,
   onConvertPlanningMode,
   projectName,
   projectDescription,
@@ -1680,6 +1682,7 @@ export function ResourcePlan({
           projectId={project.id}
           phases={phases}
           planningMode={planningMode}
+          onAcceptPlan={onApplyGeneratedPlan}
         />
 
       </div>

@@ -20,8 +20,9 @@ import {
   normalizeTaxonomy,
 } from './rateCard';
 import { buildOutputSchema } from './schema';
-import { SYSTEM_PROMPT, renderPrompt } from './prompt';
-import { expandPhaseAllocations } from './phases';
+import { renderPrompt } from './prompt';
+import { getScopingSkill } from './scopingSkill';
+import { expandPhaseAllocations, resolvePlannerPhases, buildPhaseEnum } from './phases';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,35 +67,8 @@ export interface GeneratePlanResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Parse project phases JSON into an array. Returns [] on null/empty/invalid. */
-function parseProjectPhases(
-  phasesJson: string | null,
-): Array<{ name: string; periodCount?: number; weekCount?: number }> {
-  if (!phasesJson) return [];
-  try {
-    const parsed = JSON.parse(phasesJson);
-    if (Array.isArray(parsed)) return parsed;
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-/** Compute total period count from project phases. */
-function totalPeriods(
-  phases: Array<{ periodCount?: number; weekCount?: number }>,
-): number {
-  return phases.reduce((sum, p) => sum + (p.periodCount ?? p.weekCount ?? 0), 0);
-}
-
 /** Describe phases as a human-readable string for the prompt. */
-function describePhasesForPrompt(
-  phases: Array<{ name: string; periodCount?: number; weekCount?: number }>,
-  defaultTotal: number,
-): string {
-  if (phases.length === 0) {
-    return `Single phase covering ${defaultTotal} periods`;
-  }
+function describePhasesForPrompt(phases: Array<{ name: string; periodCount?: number; weekCount?: number }>): string {
   return phases
     .map((p) => `${p.name} (${p.periodCount ?? p.weekCount ?? 0} periods)`)
     .join(', ');
@@ -121,39 +95,45 @@ export async function generateResourcePlan(
   const roleEnum = roleEnumArr as [string, ...string[]];
   const disciplineEnum = disciplineEnumArr as [string, ...string[]];
 
-  // 2. Build output schema and menu.
-  const schema = buildOutputSchema(roleEnum, disciplineEnum);
+  // 3. Resolve project phases (prompt, schema enum, expansion).
+  const projectPhases = resolvePlannerPhases(project.phases, APP_DEFAULTS.durationPeriods);
+  const total = projectPhases.reduce(
+    (sum, p) => sum + (p.periodCount ?? p.weekCount ?? 0),
+    0,
+  );
+  const phaseEnum = buildPhaseEnum(projectPhases);
+
+  // 4. Build output schema and menu.
+  const schema = buildOutputSchema(roleEnum, disciplineEnum, phaseEnum);
   const menu = buildGroupedMenu(
     rows as Array<{ role: string; discipline: string; namingInPM: string; [key: string]: unknown }>,
     region,
   );
 
-  // 3. Parse project phases.
-  const projectPhases = parseProjectPhases(project.phases);
-  const total = totalPeriods(projectPhases) || APP_DEFAULTS.durationPeriods;
-
-  // 4. Render prompt.
+  // 5. Render prompt.
   const marginPct = project.defaultMargin ?? APP_DEFAULTS.defaultMargin;
   const promptCtx = {
     planningMode: project.planningMode,
     totalPeriods: total,
-    phases: describePhasesForPrompt(projectPhases, total),
+    phases: describePhasesForPrompt(projectPhases),
+    phaseNames: projectPhases.map((p) => p.name),
     clientCurrency: APP_DEFAULTS.clientCurrency,
     defaultMargin: marginPct,
     description,
   };
   const prompt = renderPrompt(promptCtx, menu);
 
-  // 5. Call LLM.
+  // 6. Load scoping methodology and call LLM.
+  const scopingSkill = await getScopingSkill();
   const output = await generateStructured({
-    system: SYSTEM_PROMPT,
+    system: scopingSkill.systemPrompt,
     prompt,
     schema,
     schemaName: 'ResourcePlanOutput',
     model: opts.model,
   });
 
-  // 6. Assemble resource plans.
+  // 7. Assemble resource plans.
   const resourcePlans: DraftResourcePlan[] = [];
   let displayOrderCounter = 0;
 
@@ -183,9 +163,7 @@ export async function generateResourcePlan(
     const clientRate = clientHourlyRate(resolvedIntRate, marginDecimal, project.exchangeRate);
 
     // Expand phase allocations → period allocations.
-    const defaultPhase = projectPhases.length === 0
-      ? [{ name: 'Phase 1', periodCount: total }]
-      : projectPhases;
+    const defaultPhase = projectPhases;
 
     const { result: allocations, warnings: phaseWarnings } = expandPhaseAllocations(
       phaseAllocations,
@@ -204,7 +182,7 @@ export async function generateResourcePlan(
         displayOrder: displayOrderCounter++,
         allocations,
       };
-      if (rationale !== undefined) draft.rationale = rationale;
+      if (rationale) draft.rationale = rationale;
 
       // Validate with existing gate (soft: collect warnings, still include row).
       const validation = resourcePlanCreateSchema.safeParse({

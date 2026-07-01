@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed plan — per-week allocation bars</title>
+<style>
+  :root{
+    --background:#fff;--foreground:oklch(0.145 0 0);--muted-foreground:#717182;
+    --border:rgba(0,0,0,.1);--muted:#ececf0;--accent:#e9ebef;--secondary:oklch(0.95 0.0058 264.53);
+    --primary:#030213;--primary-foreground:#fff;--input-background:#f3f3f5;--radius:.625rem;
+    --warning-bg:#fffbeb;--warning-border:#fde68a;--warning-foreground:#92400e;--warning-icon:#d97706;
+    --ai-accent:#6d28d9;--radius-md:calc(var(--radius) - 2px);
+    --bar:#52525b;          /* monochrome week bar (matches the reference screenshot) */
+    --bar-zero:#d4d4d8;     /* 0% stub */
+    /* phase band pastels (src/utils/phases.ts) */
+    --p1:#E3F2FD;--p2:#FCE4EC;--p3:#E8F5E9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#eceef1;color:var(--foreground);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .page{max-width:760px;margin:0 auto;padding:28px 18px 60px}
+  .cap{font-size:12px;color:var(--muted-foreground);margin:0 2px 10px}
+  .cap b{color:var(--foreground)}
+
+  .sheet{background:#fff;border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius);box-shadow:-8px 0 24px rgba(0,0,0,.08);display:flex;flex-direction:column;overflow:hidden}
+  .head{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 18px 13px;border-bottom:1px solid var(--border)}
+  .title{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}.title .s{color:var(--ai-accent)}
+  .desc{font-size:12.5px;color:var(--muted-foreground);margin-top:3px}
+  .x{color:var(--muted-foreground);font-size:17px}
+  .body{padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+  .warn{display:flex;gap:8px;background:var(--warning-bg);border:1px solid var(--warning-border);color:var(--warning-foreground);border-radius:var(--radius-md);padding:10px 12px;font-size:12.5px;line-height:1.45}
+  .warn .i{color:var(--warning-icon)}
+
+  /* ---- table ---- */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{text-align:left;font-weight:500;color:var(--muted-foreground);font-size:11.5px;padding:0 0 8px;border-bottom:1px solid var(--border);vertical-align:bottom}
+  th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody td{padding:11px 0;border-bottom:1px solid var(--border);vertical-align:top}
+  .role{font-weight:500}
+  .rat{color:var(--muted-foreground);font-size:11.5px;margin-top:3px;display:flex;gap:5px}
+  .rat .c{color:var(--muted-foreground)}
+  td.r{padding-right:14px}.col-int{width:74px}.col-cli{width:84px}.col-alloc{width:236px}
+
+  /* ---- per-week allocation timeline ---- */
+  .alloc{display:flex;flex-direction:column;gap:4px;width:236px}
+  .phaserow{display:flex;gap:4px;height:18px}
+  .pband{display:flex;flex-direction:column;justify-content:center;border-radius:5px;font-size:10px;color:#3f3f46;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1}
+  .pband b{font-weight:600}
+  .barsrow{display:flex;gap:4px;align-items:flex-end;height:26px}
+  .pgroup{display:flex;gap:2px;align-items:flex-end}
+  .wk{background:var(--bar);border-radius:1.5px;flex:1;min-width:5px}
+  .wk.z{background:var(--bar-zero);height:2px}
+  .wkaxis{display:flex;gap:4px;margin-top:1px}
+  .pcount{font-size:9.5px;color:var(--muted-foreground);text-align:center}
+
+  /* legend / scale */
+  .scale{display:flex;gap:14px;align-items:flex-end;font-size:11px;color:var(--muted-foreground);padding:2px 0 0}
+  .scale .si{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .scale .sb{width:8px;background:var(--bar);border-radius:1.5px}
+
+  .hint{font-size:11.5px;color:var(--muted-foreground)}
+  .foot{display:flex;gap:8px;align-items:center;padding:12px 18px;border-top:1px solid var(--border)}
+  .foot .sp{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:var(--radius-md);font-size:13px;font-weight:500;border:1px solid transparent}
+  .btn-ghost{background:transparent}.btn-outline{border-color:var(--border)}
+  .btn-primary{background:var(--primary);color:#fff}
+
+  /* expander */
+  .exp{border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:9px}
+  .exp h4{margin:0;font-size:11.5px;font-weight:600;padding:7px 11px;background:#fafafb;border-bottom:1px solid var(--border)}
+  .exp table{font-size:11.5px}.exp td,.exp th{padding:5px 11px;border-bottom:1px solid var(--border)}
+  .exp tr:last-child td{border-bottom:none}.exp th{color:var(--muted-foreground);font-weight:500;text-align:left}
+</style></head>
+<body><div class="page">
+  <p class="cap"><b>Proposed plan</b> — Allocation column = per-week bars (1 bar = 1 week), height snapped to 0/25/50/75/100%, grouped under a phase header (name + weeks). 12-week project: Discovery 2w · Build 8w · Launch 2w.</p>
+
+  <div class="sheet">
+    <div class="head">
+      <div><div class="title"><span class="s">✦</span> Proposed plan</div>
+        <div class="desc">6 roles · Eastern Europe · grid unchanged until you accept</div></div>
+      <span class="x">✕</span>
+    </div>
+    <div class="body">
+      <div class="warn"><span class="i">⚠</span><span><b>No QA while development roles are present.</b> Review before accepting — advisory, not blocking.</span></div>
+
+      <table>
+        <thead><tr>
+          <th>Role</th>
+          <th class="num col-int">Int. rate</th>
+          <th class="num col-cli">Client rate</th>
+          <th class="col-alloc">
+            <!-- phase header: names + week counts, widths ∝ weeks -->
+            <div class="alloc">
+              <div class="wkaxis">
+                <div class="pcount" style="flex:2">2w</div>
+                <div class="pcount" style="flex:8">8w</div>
+                <div class="pcount" style="flex:2">2w</div>
+              </div>
+              <div class="phaserow">
+                <div class="pband" style="flex:2;background:var(--p1)">Discovery</div>
+                <div class="pband" style="flex:8;background:var(--p2)">Build</div>
+                <div class="pband" style="flex:2;background:var(--p3)">Launch</div>
+              </div>
+            </div>
+          </th>
+        </tr></thead>
+        <tbody>
+          <!-- PM: steady 50% -->
+          <tr>
+            <td><div class="role">Project Manager</div><div class="rat"><span class="c">▾</span> Steady delivery oversight across all phases.</div></td>
+            <td class="num r">40.00</td><td class="num r">72.73</td>
+            <td><div class="alloc"><div class="barsrow">
+              <div class="pgroup" style="flex:2"><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i></div>
+              <div class="pgroup" style="flex:8"><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i></div>
+              <div class="pgroup" style="flex:2"><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i></div>
+            </div></div></td>
+          </tr>
+          <!-- Sr Eng: 25 / 100 / 50 -->
+          <tr>
+            <td><div class="role">Senior Software Engineer</div><div class="rat"><span class="c">▾</span> Leads build, ramps from week 3.</div></td>
+            <td class="num r">35.00</td><td class="num r">63.64</td>
+            <td><div class="alloc"><div class="barsrow">
+              <div class="pgroup" style="flex:2"><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i></div>
+              <div class="pgroup" style="flex:8"><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i></div>
+              <div class="pgroup" style="flex:2"><i class="wk" style="height:13px"></i><i class="wk" style="height:13px"></i></div>
+            </div></div></td>
+          </tr>
+          <!-- SW Eng: 0 / 100 / 25 -->
+          <tr>
+            <td><div class="role">Software Engineer</div><div class="rat"><span class="c">▸</span> Build volume; pyramid backbone.</div></td>
+            <td class="num r">25.00</td><td class="num r">45.45</td>
+            <td><div class="alloc"><div class="barsrow">
+              <div class="pgroup" style="flex:2"><i class="wk z"></i><i class="wk z"></i></div>
+              <div class="pgroup" style="flex:8"><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i></div>
+              <div class="pgroup" style="flex:2"><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i></div>
+            </div></div></td>
+          </tr>
+          <!-- UX: 100 / 25 / 0 -->
+          <tr>
+            <td><div class="role">UX Designer</div><div class="rat"><span class="c">▸</span> Discovery-heavy, tapers in build.</div></td>
+            <td class="num r">30.00</td><td class="num r">54.55</td>
+            <td><div class="alloc"><div class="barsrow">
+              <div class="pgroup" style="flex:2"><i class="wk" style="height:24px"></i><i class="wk" style="height:24px"></i></div>
+              <div class="pgroup" style="flex:8"><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i><i class="wk" style="height:7px"></i></div>
+              <div class="pgroup" style="flex:2"><i class="wk z"></i><i class="wk z"></i></div>
+            </div></div></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <span class="hint">Each bar = one week, height snapped to the nearest 2h/day step (0/25/50/75/100%).</span>
+    </div>
+    <div class="foot">
+      <span class="btn btn-ghost">‹ Back</span>
+      <span class="btn btn-outline">Discard</span>
+      <span class="sp"></span>
+      <span class="btn btn-primary">Accept plan</span>
+    </div>
+  </div>
+</div></body></html>

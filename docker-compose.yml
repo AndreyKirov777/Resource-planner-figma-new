@@ -8,6 +8,7 @@ services:
       - "8080:3001"   # Alternative Web UI port
     volumes:
       - db-data:/app/data  # Persist database in named volume
+      - ./skills:/app/skills  # Live-edit team-scoping methodology without rebuild
     environment:
       - NODE_ENV=production
       - PORT=3001

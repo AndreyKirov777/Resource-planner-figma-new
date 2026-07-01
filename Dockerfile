@@ -39,7 +39,9 @@ COPY --from=builder /app/src/generated ./src/generated
 COPY --from=builder /app/build ./build
 
 # Copy server code and its runtime source dependencies
-COPY server.ts server-validation.ts ./
+COPY server.ts server-validation.ts ai.config.ts ./
+COPY server ./server
+COPY skills ./skills
 COPY src/utils ./src/utils
 COPY src/config ./src/config
 

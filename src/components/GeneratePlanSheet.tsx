@@ -18,6 +18,7 @@ import {
   GeneratePlanRegion,
   GeneratePlanResponse,
   GeneratePlanResourcePlan,
+  GeneratePlanDraft,
 } from '../services/api';
 import { PHASE_COLORS, getPhaseForPeriod } from '../utils/phases';
 
@@ -236,6 +237,7 @@ interface GeneratePlanSheetProps {
   projectId?: number;
   phases?: Phase[];
   planningMode?: string;
+  onAcceptPlan?: (draft: GeneratePlanDraft) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,11 +250,13 @@ export function GeneratePlanSheet({
   projectId,
   phases: propPhases,
   planningMode: _planningMode,
+  onAcceptPlan,
 }: GeneratePlanSheetProps) {
   const [description, setDescription] = useState('');
   const [region, setRegion] = useState<GeneratePlanRegion>('ukraine');
   const [applyProposedPhases, setApplyProposedPhases] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GeneratePlanResponse | null>(null);
 
@@ -267,6 +271,7 @@ export function GeneratePlanSheet({
     setRegion('ukraine');
     setApplyProposedPhases(false);
     setLoading(false);
+    setAccepting(false);
     setError(null);
     setResult(null);
     abortController.current = null;
@@ -313,6 +318,20 @@ export function GeneratePlanSheet({
     } finally {
       setLoading(false);
       abortController.current = null;
+    }
+  }
+
+  async function handleAccept() {
+    if (!result || !onAcceptPlan) return;
+    setAccepting(true);
+    setError(null);
+    try {
+      await onAcceptPlan(result.draft);
+      handleOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to apply plan');
+    } finally {
+      setAccepting(false);
     }
   }
 
@@ -511,6 +530,17 @@ export function GeneratePlanSheet({
             </SheetHeader>
 
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+              {/* Error banner */}
+              {error !== null && (
+                <div
+                  className="rounded-md bg-red-50 border border-red-200 text-red-800 text-sm px-3 py-2"
+                  aria-live="assertive"
+                  role="alert"
+                >
+                  {error}
+                </div>
+              )}
+
               {/* Warnings callout */}
               {result.warnings.length > 0 && (
                 <div
@@ -596,12 +626,14 @@ export function GeneratePlanSheet({
               <Button
                 variant="outline"
                 onClick={() => setResult(null)}
+                disabled={accepting}
               >
                 ‹ Back
               </Button>
               <Button
                 variant="outline"
                 onClick={() => handleOpenChange(false)}
+                disabled={accepting}
               >
                 Discard
               </Button>
@@ -609,11 +641,10 @@ export function GeneratePlanSheet({
               <div className="flex-1" />
               {/* Primary action */}
               <Button
-                onClick={() => {
-                  console.log('TODO Goal 3:', result.draft);
-                }}
+                onClick={handleAccept}
+                disabled={accepting || !onAcceptPlan}
               >
-                Accept plan
+                {accepting ? 'Applying…' : 'Accept plan'}
               </Button>
             </SheetFooter>
           </>

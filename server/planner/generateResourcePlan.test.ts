@@ -95,11 +95,13 @@ function makeLLMOutput(overrides: Record<string, unknown> = {}) {
   return {
     selectedDisciplines: ['Engineering'],
     teamShape: 'Build-heavy: 1 engineer',
+    phases: null,
     resources: [
       {
         role: 'Software Engineer',
         count: 1,
         phaseAllocations: [{ phase: 'Build', allocation: 80 }],
+        rationale: 'Core build capacity for the web app.',
       },
     ],
     ...overrides,
@@ -154,6 +156,7 @@ describe('generateResourcePlan', () => {
             role: 'Software Engineer',
             count: 2,
             phaseAllocations: [{ phase: 'Build', allocation: 100 }],
+            rationale: 'Two engineers for parallel build work.',
           },
         ],
       }),
@@ -331,6 +334,7 @@ describe('generateResourcePlan', () => {
             role: 'Rare Specialist',
             count: 1,
             phaseAllocations: [{ phase: 'Build', allocation: 50 }],
+            rationale: 'Specialist role for niche requirements.',
           },
         ],
       }),

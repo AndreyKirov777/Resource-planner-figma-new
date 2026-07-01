@@ -8,12 +8,13 @@ import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
 import { ProjectList } from './components/ProjectList';
-import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType } from './services/api';
+import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType, GeneratePlanDraft } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
 import * as ExcelJS from 'exceljs';
 import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct, hoursPerPeriod } from './utils/calculations';
+import { PHASE_COLORS } from './utils/phases';
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -318,6 +319,54 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clear resource plan');
       console.error('Error clearing resource plan:', err);
+    }
+  };
+
+  const handleApplyGeneratedPlan = async (draft: GeneratePlanDraft) => {
+    if (!currentProject) return;
+
+    try {
+      if (draft.phases?.length) {
+        const phasesPayload = draft.phases.map((p, idx) => ({
+          name: p.name,
+          periodCount: p.periodCount,
+          color: PHASE_COLORS[idx % PHASE_COLORS.length],
+        }));
+        const updatedProject = await api.updateProject(currentProject.id, {
+          phases: JSON.stringify(phasesPayload),
+        });
+        setCurrentProject(updatedProject);
+      }
+
+      for (const plan of [...resourcePlans]) {
+        await api.deleteResourcePlan(plan.id);
+      }
+
+      const sortedPlans = [...draft.resourcePlans].sort(
+        (a, b) => a.displayOrder - b.displayOrder,
+      );
+      for (let i = 0; i < sortedPlans.length; i++) {
+        const draftPlan = sortedPlans[i];
+        await api.createResourcePlan(currentProject.id, {
+          role: draftPlan.role,
+          clientRole: draftPlan.clientRole ?? undefined,
+          name: draftPlan.name ?? undefined,
+          intHourlyRate: draftPlan.intHourlyRate,
+          clientHourlyRate: draftPlan.clientHourlyRate,
+          displayOrder: i,
+          allocations: draftPlan.allocations.map((a) => ({
+            periodNumber: a.periodNumber,
+            allocation: a.allocation,
+          })),
+        });
+      }
+
+      const refreshedResourcePlans = await api.getResourcePlans(currentProject.id);
+      setResourcePlans(refreshedResourcePlans);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to apply generated plan';
+      setError(errorMessage);
+      throw err;
     }
   };
 
@@ -1031,6 +1080,7 @@ export default function App() {
             onExportToExcel={handleExportToExcel}
             onExportToPNG={handleExportToPNG}
             onClearAllResourcePlans={handleClearAllResourcePlans}
+            onApplyGeneratedPlan={handleApplyGeneratedPlan}
             onConvertPlanningMode={handleConvertPlanningMode}
             projectName={editableProjectName}
             projectDescription={editableProjectDescription}
