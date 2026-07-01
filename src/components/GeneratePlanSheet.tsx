@@ -21,22 +21,13 @@ import {
   GeneratePlanDraft,
 } from '../services/api';
 import { PHASE_COLORS, getPhaseForPeriod, descriptionSuggestsPhaseProposal, isPlaceholderSinglePhase, parsePhasesFromDescription } from '../utils/phases';
+import { GENERATE_PLAN_REGIONS } from '../utils/regions';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const REGIONS: Array<{ value: GeneratePlanRegion; label: string }> = [
-  { value: 'ukraine', label: 'Ukraine' },
-  { value: 'easternEurope', label: 'Eastern Europe' },
-  { value: 'asiaGE', label: 'Asia (GE)' },
-  { value: 'asiaARMKZ', label: 'Asia (ARM, KZ)' },
-  { value: 'latam', label: 'LATAM' },
-  { value: 'mexico', label: 'Mexico' },
-  { value: 'india', label: 'India' },
-  { value: 'newYork', label: 'New York' },
-  { value: 'london', label: 'London' },
-];
+const REGIONS = GENERATE_PLAN_REGIONS;
 
 // Allocation bar heights (px) per snapped % value
 const ALLOC_HEIGHTS: Record<number, number> = {
@@ -400,7 +391,10 @@ export function GeneratePlanSheet({
     setAccepting(true);
     setError(null);
     try {
-      await onAcceptPlan(result.draft);
+      await onAcceptPlan({
+        ...result.draft,
+        region: result.draft.region ?? region,
+      });
       handleOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to apply plan');
@@ -713,6 +707,14 @@ export function GeneratePlanSheet({
                   </p>
                 </div>
               )}
+
+              {/* Result summary */}
+              <p className="text-xs text-muted-foreground">
+                {result.draft.resourcePlans.length} plan row{result.draft.resourcePlans.length === 1 ? '' : 's'}
+                {' · '}
+                {(result.draft.resourceLists?.length ?? 0)} resource{(result.draft.resourceLists?.length ?? 0) === 1 ? '' : 's'}.
+                {' '}Accepting replaces the Resource Plan and Resource List with the generated team.
+              </p>
 
               {/* Result hint */}
               <p className="text-xs text-muted-foreground">

@@ -175,6 +175,66 @@ describe('generateResourcePlan', () => {
     expect(result.draft.resourcePlans[1].displayOrder).toBe(1);
   });
 
+  it('count:2 → resourceLists has one entry per unique role', async () => {
+    const model = mockModel(
+      makeLLMOutput({
+        resources: [
+          {
+            role: 'Software Engineer',
+            count: 2,
+            phaseAllocations: [{ phase: 'Build', allocation: 100 }],
+            rationale: 'Two engineers for parallel build work.',
+          },
+        ],
+      }),
+    );
+    const result = await generateResourcePlan({
+      rows: FIXTURE_ROWS,
+      project: DEFAULT_PROJECT,
+      description: 'Build a simple web app',
+      region: 'ukraine',
+      applyProposedPhases: false,
+      model,
+    });
+
+    expect(result.draft.resourceLists).toHaveLength(1);
+    expect(result.draft.resourceLists[0].role).toBe('Software Engineer');
+    expect(result.draft.resourceLists[0].intRate).toBe(35);
+    expect(result.draft.resourceLists[0].location).toBe('Ukraine');
+    expect(result.draft.resourceLists[0].description).toBe('Two engineers for parallel build work.');
+  });
+
+  it('resourceLists maps region to location label and intRate from rate card', async () => {
+    const model = mockModel(makeLLMOutput());
+    const result = await generateResourcePlan({
+      rows: FIXTURE_ROWS,
+      project: DEFAULT_PROJECT,
+      description: 'Build a simple web app',
+      region: 'easternEurope',
+      applyProposedPhases: false,
+      model,
+    });
+
+    expect(result.draft.resourceLists).toHaveLength(1);
+    expect(result.draft.resourceLists[0].intRate).toBe(40);
+    expect(result.draft.resourceLists[0].location).toBe('Eastern Europe');
+  });
+
+  it('includes region in draft for client-side apply', async () => {
+    const model = mockModel(makeLLMOutput());
+    const result = await generateResourcePlan({
+      rows: FIXTURE_ROWS,
+      project: DEFAULT_PROJECT,
+      description: 'Build a simple web app',
+      region: 'india',
+      applyProposedPhases: false,
+      model,
+    });
+
+    expect(result.draft.region).toBe('india');
+    expect(result.draft.resourceLists[0].location).toBe('India');
+  });
+
   it('project.defaultMargin = null → falls back to APP_DEFAULTS.defaultMargin', async () => {
     const model = mockModel(makeLLMOutput());
     const project = { ...DEFAULT_PROJECT, defaultMargin: null };

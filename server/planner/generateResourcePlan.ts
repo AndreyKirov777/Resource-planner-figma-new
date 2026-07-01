@@ -29,6 +29,8 @@ import {
   descriptionSuggestsPhaseProposal,
   parsePhasesFromDescription,
 } from './phases';
+import { getClientRoleFromRole } from './clientRole';
+import { regionToLocationLabel } from '../../src/utils/regions';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,9 +63,20 @@ export interface DraftResourcePlan {
   allocations: Array<{ periodNumber: number; allocation: number }>;
 }
 
+export interface DraftResourceList {
+  role: string;
+  clientRole: string | null;
+  name: null;
+  intRate: number;
+  location: string | null;
+  description?: string | null;
+}
+
 export interface GeneratePlanResult {
   draft: {
     resourcePlans: DraftResourcePlan[];
+    resourceLists: DraftResourceList[];
+    region: string;
     phases?: Array<{ name: string; periodCount: number }>;
   };
   warnings: string[];
@@ -180,9 +193,12 @@ export async function generateResourcePlan(
     );
   }
 
-  // 6. Assemble resource plans.
+  // 6. Assemble resource plans and resource list (unique roles).
   const resourcePlans: DraftResourcePlan[] = [];
+  const resourceLists: DraftResourceList[] = [];
+  const seenListRoles = new Set<string>();
   let displayOrderCounter = 0;
+  const locationLabel = regionToLocationLabel(region);
 
   for (const resource of output.resources) {
     const { role, count, phaseAllocations, rationale } = resource;
@@ -204,6 +220,24 @@ export async function generateResourcePlan(
     }
 
     const resolvedIntRate = intRate ?? 0;
+
+    // One Resource List entry per unique role (before count expansion).
+    if (!seenListRoles.has(role)) {
+      seenListRoles.add(role);
+      const rateCardRow = rows.find((r) => r.role === role);
+      const listEntry: DraftResourceList = {
+        role,
+        clientRole: getClientRoleFromRole(role),
+        name: null,
+        intRate: resolvedIntRate,
+        location: locationLabel,
+      };
+      const descriptionText = rateCardRow?.description ?? rationale;
+      if (descriptionText) {
+        listEntry.description = descriptionText;
+      }
+      resourceLists.push(listEntry);
+    }
 
     // Compute client rate (margin critical: divide by 100).
     const marginDecimal = marginPct / 100;
@@ -330,7 +364,7 @@ export async function generateResourcePlan(
 
   // 8. Build result.
   const result: GeneratePlanResult = {
-    draft: { resourcePlans },
+    draft: { resourcePlans, resourceLists, region },
     warnings,
   };
 

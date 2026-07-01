@@ -8,13 +8,16 @@ import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
 import { ProjectList } from './components/ProjectList';
-import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType, GeneratePlanDraft } from './services/api';
+import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType, GeneratePlanDraft, GeneratePlanResourceList } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
 import * as ExcelJS from 'exceljs';
 import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct, hoursPerPeriod } from './utils/calculations';
 import { PHASE_COLORS } from './utils/phases';
+import { getClientRoleFromRole } from './utils/clientRoleMapping';
+import { resolveLocationLabel } from './utils/regions';
+import { APP_DEFAULTS } from './config/defaults';
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -337,6 +340,49 @@ export default function App() {
         });
         setCurrentProject(updatedProject);
       }
+
+      const locationLabel = resolveLocationLabel(
+        draft.region ?? currentProject.defaultLocation ?? APP_DEFAULTS.defaultLocation,
+      );
+
+      const listEntries: GeneratePlanResourceList[] =
+        draft.resourceLists?.length
+          ? draft.resourceLists
+          : (() => {
+              const seen = new Set<string>();
+              const fallback: GeneratePlanResourceList[] = [];
+              for (const plan of draft.resourcePlans) {
+                if (seen.has(plan.role)) continue;
+                seen.add(plan.role);
+                fallback.push({
+                  role: plan.role,
+                  clientRole: getClientRoleFromRole(plan.role),
+                  name: plan.name,
+                  intRate: plan.intHourlyRate,
+                  location: locationLabel,
+                  description: plan.rationale ?? null,
+                });
+              }
+              return fallback;
+            })();
+
+      for (const entry of [...resourceLists]) {
+        await api.deleteResourceList(entry.id);
+      }
+
+      for (const entry of listEntries) {
+        await api.createResourceList(currentProject.id, {
+          role: entry.role,
+          clientRole: entry.clientRole ?? undefined,
+          name: entry.name ?? undefined,
+          intRate: entry.intRate,
+          location: entry.location || locationLabel,
+          description: entry.description ?? undefined,
+        });
+      }
+
+      const refreshedResourceLists = await api.getResourceLists(currentProject.id);
+      setResourceLists(refreshedResourceLists);
 
       for (const plan of [...resourcePlans]) {
         await api.deleteResourcePlan(plan.id);

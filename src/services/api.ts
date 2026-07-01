@@ -17,8 +17,20 @@ export interface GeneratePlanResourcePlan {
   allocations: Array<{ periodNumber: number; allocation: number }>;
 }
 
+export interface GeneratePlanResourceList {
+  role: string;
+  clientRole: string | null;
+  name: string | null;
+  intRate: number;
+  location: string | null;
+  description?: string | null;
+}
+
 export interface GeneratePlanDraft {
   resourcePlans: GeneratePlanResourcePlan[];
+  resourceLists: GeneratePlanResourceList[];
+  /** Delivery region used for rate lookup (echoed from the generate request). */
+  region?: GeneratePlanRegion;
   phases?: Array<{ name: string; periodCount: number }>;
 }
 
