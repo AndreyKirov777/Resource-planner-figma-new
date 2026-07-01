@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -46,6 +46,75 @@ const ALLOC_HEIGHTS: Record<number, number> = {
   75: 18,
   100: 24,
 };
+
+// Allocation timeline layout (shared by bar renderer and sheet width)
+const ALLOC_BAR_W = 6;
+const ALLOC_BAR_GAP = 2;
+const ALLOC_GROUP_GAP = 6;
+const ALLOC_HEADER_H = 28;
+const ALLOC_BAR_MAX = 24;
+// Floor width per phase so even a 1-week phase can show its "Nw" label / name.
+const ALLOC_MIN_BAND = 18;
+
+// Width of just the bars for a phase (no group gap).
+function phaseBarsWidth(weekCount: number): number {
+  return weekCount > 0
+    ? weekCount * (ALLOC_BAR_W + ALLOC_BAR_GAP) - ALLOC_BAR_GAP
+    : 0;
+}
+
+// Rendered width of a phase band: wide enough for its bars OR its label.
+function phaseBandWidth(weekCount: number): number {
+  return Math.max(phaseBarsWidth(weekCount), ALLOC_MIN_BAND);
+}
+
+function computeAllocTimelineWidth(phases: Phase[]): number {
+  let totalWidth = 0;
+  phases.forEach((ph, idx) => {
+    totalWidth += phaseBandWidth(ph.periodCount ?? 0);
+    if (idx < phases.length - 1) totalWidth += ALLOC_GROUP_GAP;
+  });
+  return totalWidth;
+}
+
+// Proposed-plan sheet width: padding + role + rates + allocation column.
+const RESULT_SHEET_ROLE_COL = 240;
+const RESULT_SHEET_ROLE_MIN = 150; // role col may shrink this far before we scroll
+const RESULT_SHEET_INT_RATE_COL = 72;
+const RESULT_SHEET_CLIENT_RATE_COL = 80;
+const RESULT_SHEET_H_PADDING = 32; // scroll area p-4 (left + right)
+const RESULT_SHEET_SCROLLBAR_GUTTER = 16; // reserved by scrollbarGutter: 'stable'
+const RESULT_SHEET_ALLOC_PADDING = 12; // allocation cell pl-3 (left)
+const RESULT_SHEET_ALLOC_TRAILING = 12; // breathing room right of the timeline
+
+// Allocation column = left padding + timeline width + trailing breathing room.
+function computeAllocColWidth(phases: Phase[]): number {
+  return (
+    RESULT_SHEET_ALLOC_PADDING +
+    computeAllocTimelineWidth(phases) +
+    RESULT_SHEET_ALLOC_TRAILING
+  );
+}
+
+// Natural table width (all four columns, no outer chrome).
+function computeResultTableWidth(phases: Phase[]): number {
+  return (
+    RESULT_SHEET_ROLE_COL +
+    RESULT_SHEET_INT_RATE_COL +
+    RESULT_SHEET_CLIENT_RATE_COL +
+    computeAllocColWidth(phases)
+  );
+}
+
+// Full sheet width = table + horizontal padding + reserved scrollbar gutter, so
+// the whole allocation timeline stays visible without clipping at the edge.
+function computeResultSheetWidth(phases: Phase[]): number {
+  return (
+    computeResultTableWidth(phases) +
+    RESULT_SHEET_H_PADDING +
+    RESULT_SHEET_SCROLLBAR_GUTTER
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,41 +176,23 @@ function AllocTimeline({ plan, phases }: AllocTimelineProps) {
     .filter(Boolean)
     .join('; ');
 
-  const BAR_W = 6;
-  const BAR_GAP = 2;
-  const GROUP_GAP = 6;
-  const HEADER_H = 28; // week-counts row + phase band
-  const BAR_MAX = 24; // max bar height
-
-  // Compute total width needed
-  let totalWidth = 0;
-  phaseBands.forEach((band, idx) => {
-    if (band.weekCount > 0) {
-      totalWidth += band.weekCount * (BAR_W + BAR_GAP) - BAR_GAP;
-    }
-    if (idx < phaseBands.length - 1) totalWidth += GROUP_GAP;
-  });
+  const totalWidth = computeAllocTimelineWidth(phases);
 
   return (
-    <div
-      className="overflow-x-auto"
-      style={{ maxWidth: '200px' }}
-      aria-label={ariaLabel}
-      role="img"
-    >
+    <div aria-label={ariaLabel} role="img" className="inline-block">
       <div style={{ minWidth: `${totalWidth}px` }}>
         {/* Phase header: week-count row then phase-name bands */}
-        <div className="flex items-end mb-0.5" style={{ height: `${HEADER_H}px` }}>
+        <div className="flex items-end mb-0.5" style={{ height: `${ALLOC_HEADER_H}px` }}>
           {phaseBands.map((band, idx) => {
             const bandWidth =
-              band.weekCount * (BAR_W + BAR_GAP) - BAR_GAP + (idx < phaseBands.length - 1 ? GROUP_GAP : 0);
+              phaseBandWidth(band.weekCount) +
+              (idx < phaseBands.length - 1 ? ALLOC_GROUP_GAP : 0);
             return (
               <div
                 key={band.name}
                 style={{
                   width: `${bandWidth}px`,
                   flexShrink: 0,
-                  paddingRight: idx < phaseBands.length - 1 ? `${GROUP_GAP}px` : 0,
                 }}
               >
                 {/* Week count */}
@@ -184,7 +235,7 @@ function AllocTimeline({ plan, phases }: AllocTimelineProps) {
         </div>
 
         {/* Bars */}
-        <div className="flex items-end" style={{ height: `${BAR_MAX + 2}px` }}>
+        <div className="flex items-end" style={{ height: `${ALLOC_BAR_MAX + 2}px` }}>
           {phaseBands.map((band, phaseIdx) => {
             const weekStart =
               phaseBands.slice(0, phaseIdx).reduce((s, b) => s + b.weekCount, 0) + 1;
@@ -194,29 +245,36 @@ function AllocTimeline({ plan, phases }: AllocTimelineProps) {
             );
             return (
               <React.Fragment key={phaseIdx}>
-                {weekNums.map((weekNum, wIdx) => {
-                  const alloc = sortedAllocs.find((a) => a.periodNumber === weekNum);
-                  const pct = alloc ? alloc.allocation : 0;
-                  const snapped = snapAllocation(pct);
-                  const h = barHeightPx(pct);
-                  const isZero = snapped === 0;
-                  return (
-                    <div
-                      key={weekNum}
-                      style={{
-                        width: `${BAR_W}px`,
-                        height: `${h}px`,
-                        background: isZero ? '#d4d4d8' : '#52525b',
-                        borderRadius: '2px',
-                        flexShrink: 0,
-                        marginRight: wIdx < weekNums.length - 1 ? `${BAR_GAP}px` : 0,
-                      }}
-                      title={`Wk ${weekNum}: ${snapped}%`}
-                    />
-                  );
-                })}
+                {/* Band container floors at ALLOC_MIN_BAND; bars left-align inside
+                    so they stay aligned with the wider header band. */}
+                <div
+                  className="flex items-end"
+                  style={{ width: `${phaseBandWidth(band.weekCount)}px`, flexShrink: 0 }}
+                >
+                  {weekNums.map((weekNum, wIdx) => {
+                    const alloc = sortedAllocs.find((a) => a.periodNumber === weekNum);
+                    const pct = alloc ? alloc.allocation : 0;
+                    const snapped = snapAllocation(pct);
+                    const h = barHeightPx(pct);
+                    const isZero = snapped === 0;
+                    return (
+                      <div
+                        key={weekNum}
+                        style={{
+                          width: `${ALLOC_BAR_W}px`,
+                          height: `${h}px`,
+                          background: isZero ? '#d4d4d8' : '#52525b',
+                          borderRadius: '2px',
+                          flexShrink: 0,
+                          marginRight: wIdx < weekNums.length - 1 ? `${ALLOC_BAR_GAP}px` : 0,
+                        }}
+                        title={`Wk ${weekNum}: ${snapped}%`}
+                      />
+                    );
+                  })}
+                </div>
                 {phaseIdx < phaseBands.length - 1 && (
-                  <div style={{ width: `${GROUP_GAP}px`, flexShrink: 0 }} />
+                  <div style={{ width: `${ALLOC_GROUP_GAP}px`, flexShrink: 0 }} />
                 )}
               </React.Fragment>
             );
@@ -355,7 +413,7 @@ export function GeneratePlanSheet({
   // Phase resolution for the allocation timeline
   // -------------------------------------------------------------------------
 
-  function resolvePhases(): Phase[] {
+  const resolvedPhases = useMemo((): Phase[] => {
     if (result?.draft?.phases && result.draft.phases.length > 0) {
       return result.draft.phases.map((p, idx) => ({
         name: p.name,
@@ -373,7 +431,51 @@ export function GeneratePlanSheet({
       ) ?? [];
     const total = allPeriods.length > 0 ? Math.max(...allPeriods) : 8;
     return [{ name: 'Plan', periodCount: total, color: PHASE_COLORS[0] }];
-  }
+  }, [result, propPhases]);
+
+  const resultSheetExactWidth = useMemo(
+    () => (result ? computeResultSheetWidth(resolvedPhases) : undefined),
+    [result, resolvedPhases],
+  );
+
+  const resultSheetWidth = useMemo(() => {
+    if (resultSheetExactWidth == null) return undefined;
+    const viewportCap =
+      typeof window !== 'undefined'
+        ? Math.floor(window.innerWidth * 0.92)
+        : 1200;
+    return Math.min(viewportCap, resultSheetExactWidth);
+  }, [resultSheetExactWidth]);
+
+  const resultTableWidth = useMemo(
+    () => (result ? computeResultTableWidth(resolvedPhases) : undefined),
+    [result, resolvedPhases],
+  );
+
+  const allocColWidth = useMemo(
+    () => computeAllocColWidth(resolvedPhases),
+    [resolvedPhases],
+  );
+
+  // Space the table actually gets inside the (possibly 92vw-capped) sheet.
+  const availableTableWidth = useMemo(
+    () =>
+      resultSheetWidth != null
+        ? resultSheetWidth - RESULT_SHEET_H_PADDING - RESULT_SHEET_SCROLLBAR_GUTTER
+        : undefined,
+    [resultSheetWidth],
+  );
+
+  // Smallest table that still shows the allocation timeline in full — the role
+  // column absorbs any shortfall down to its minimum before we ever scroll.
+  const minTableWidth =
+    RESULT_SHEET_ROLE_MIN +
+    RESULT_SHEET_INT_RATE_COL +
+    RESULT_SHEET_CLIENT_RATE_COL +
+    allocColWidth;
+
+  const tableNeedsHorizontalScroll =
+    availableTableWidth != null && availableTableWidth < minTableWidth;
 
   // -------------------------------------------------------------------------
   // Render
@@ -383,11 +485,18 @@ export function GeneratePlanSheet({
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent
         side="right"
+        fitWidth={result != null}
         className={cn(
           'flex flex-col gap-0 p-0 overflow-hidden',
-          result ? 'sm:max-w-[560px]' : 'sm:max-w-[420px]',
+          !result && 'sm:max-w-[420px]',
         )}
-        style={{ borderLeft: '3px solid #030213', boxShadow: '-8px 0 24px rgba(0,0,0,.08)' }}
+        style={{
+          borderLeft: '3px solid #030213',
+          boxShadow: '-8px 0 24px rgba(0,0,0,.08)',
+          ...(resultSheetWidth != null
+            ? { width: `${resultSheetWidth}px`, maxWidth: '92vw' }
+            : {}),
+        }}
       >
         {/* ------------------------------------------------------------------ */}
         {/* LOADING VIEW                                                        */}
@@ -545,7 +654,10 @@ export function GeneratePlanSheet({
               </SheetTitle>
             </SheetHeader>
 
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+            <div
+              className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3"
+              style={{ scrollbarGutter: 'stable' }}
+            >
               {/* Error banner */}
               {error !== null && (
                 <div
@@ -578,11 +690,11 @@ export function GeneratePlanSheet({
               )}
 
               {/* Proposed timeline */}
-              {resolvePhases().length > 0 && (
+              {resolvedPhases.length > 0 && (
                 <div className="rounded-md border bg-muted/30 px-3 py-2">
                   <p className="text-xs font-medium text-foreground mb-1.5">Proposed timeline</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {resolvePhases().map((phase, idx) => (
+                    {resolvedPhases.map((phase, idx) => (
                       <span
                         key={`${phase.name}-${idx}`}
                         className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
@@ -608,57 +720,63 @@ export function GeneratePlanSheet({
               </p>
 
               {/* Resource plans table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-1.5 pr-3 font-medium text-muted-foreground text-[11.5px] whitespace-nowrap">
-                        Role
-                      </th>
-                      <th className="text-right py-1.5 px-2 font-medium text-muted-foreground text-[11.5px] whitespace-nowrap">
-                        Int. rate
-                      </th>
-                      <th className="text-right py-1.5 px-2 font-medium text-muted-foreground text-[11.5px] whitespace-nowrap">
-                        Client rate
-                      </th>
-                      <th className="text-left py-1.5 pl-3 font-medium text-muted-foreground text-[11.5px] whitespace-nowrap">
-                        Allocation
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.draft.resourcePlans.map((plan, idx) => {
-                      const resolvedPhases = resolvePhases();
-                      return (
-                        <tr key={`${plan.displayOrder}-${idx}`} className="border-b last:border-0">
-                          <td className="py-1.5 pr-3 align-top">
-                            <div className="font-medium">{plan.clientRole ?? plan.role}</div>
-                            {plan.rationale && (
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {plan.rationale}
-                              </div>
-                            )}
-                          </td>
-                          <td
-                            className="py-1.5 px-2 text-right align-top tabular-nums"
-                            style={{ fontVariantNumeric: 'tabular-nums' }}
-                          >
-                            {plan.intHourlyRate.toFixed(2)}
-                          </td>
-                          <td
-                            className="py-1.5 px-2 text-right align-top tabular-nums"
-                            style={{ fontVariantNumeric: 'tabular-nums' }}
-                          >
-                            {plan.clientHourlyRate.toFixed(2)}
-                          </td>
-                          <td className="py-1.5 pl-3 align-middle">
-                            <AllocTimeline plan={plan} phases={resolvedPhases} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className={cn(tableNeedsHorizontalScroll && 'overflow-x-auto')}>
+              <table
+                className="w-full text-sm border-collapse table-fixed"
+                style={tableNeedsHorizontalScroll ? { minWidth: `${resultTableWidth}px` } : undefined}
+              >
+                <colgroup>
+                  <col />
+                  <col style={{ width: `${RESULT_SHEET_INT_RATE_COL}px` }} />
+                  <col style={{ width: `${RESULT_SHEET_CLIENT_RATE_COL}px` }} />
+                  <col style={{ width: `${allocColWidth}px` }} />
+                </colgroup>
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-1.5 pr-3 font-medium text-muted-foreground text-[11.5px]">
+                      Role
+                    </th>
+                    <th className="text-right py-1.5 px-2 font-medium text-muted-foreground text-[11.5px] whitespace-nowrap">
+                      Int. rate
+                    </th>
+                    <th className="text-right py-1.5 px-2 font-medium text-muted-foreground text-[11.5px] whitespace-nowrap">
+                      Client rate
+                    </th>
+                    <th className="text-left py-1.5 pl-3 font-medium text-muted-foreground text-[11.5px] whitespace-nowrap">
+                      Allocation
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.draft.resourcePlans.map((plan, idx) => (
+                      <tr key={`${plan.displayOrder}-${idx}`} className="border-b last:border-0">
+                        <td className="py-1.5 pr-3 align-top">
+                          <div className="font-medium">{plan.clientRole ?? plan.role}</div>
+                          {plan.rationale && (
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {plan.rationale}
+                            </div>
+                          )}
+                        </td>
+                        <td
+                          className="py-1.5 px-2 text-right align-top tabular-nums whitespace-nowrap"
+                          style={{ fontVariantNumeric: 'tabular-nums' }}
+                        >
+                          {plan.intHourlyRate.toFixed(2)}
+                        </td>
+                        <td
+                          className="py-1.5 px-2 text-right align-top tabular-nums whitespace-nowrap"
+                          style={{ fontVariantNumeric: 'tabular-nums' }}
+                        >
+                          {plan.clientHourlyRate.toFixed(2)}
+                        </td>
+                        <td className="py-1.5 pl-3 align-middle overflow-visible">
+                          <AllocTimeline plan={plan} phases={resolvedPhases} />
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
               </div>
             </div>
 
