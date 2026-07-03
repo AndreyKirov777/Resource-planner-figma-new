@@ -493,8 +493,8 @@ export function RateCard({
             console.log('Imported data:', importedData);
             
             // Create arrays with unique values from the imported data
-            const naming_in_pm = [...new Set(importedData.map(item => item.namingInPM).filter(value => value && value.trim()))];
-            const discipline = [...new Set(importedData.map(item => item.discipline).filter(value => value && value.trim()))];
+            const naming_in_pm = [...new Set(importedData.map(item => item.namingInPM).filter((value): value is string => !!value && value.trim() !== ''))];
+            const discipline = [...new Set(importedData.map(item => item.discipline).filter((value): value is string => !!value && value.trim() !== ''))];
             
             // Update state arrays
             setNamingInPMArray(naming_in_pm);

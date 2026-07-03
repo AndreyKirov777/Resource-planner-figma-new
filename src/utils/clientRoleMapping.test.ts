@@ -8,7 +8,7 @@ describe('clientRoleMapping data quality', () => {
       for (const key of fields) {
         const value = entry[key];
         if (typeof value !== 'string') continue;
-        expect(value).toBe(value.trim(), `Entry with Role "${entry.Role}" has whitespace in "${key}": "${value}"`);
+        expect(value, `Entry with Role "${entry.Role}" has whitespace in "${key}": "${value}"`).toBe(value.trim());
       }
     }
   });

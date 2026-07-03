@@ -67,5 +67,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['src/test/setup.ts'],
+    // Never scan git worktrees under .claude/ — they are local copies, absent in CI.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.claude/**'],
   },
 });

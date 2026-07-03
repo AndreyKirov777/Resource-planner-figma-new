@@ -24,6 +24,7 @@ _Generated: 2026-06-30 · Initial scan (deep) · This is the primary entry point
 
 - [Project Overview](./project-overview.md) — purpose, stack, structure at a glance
 - [Architecture](./architecture.md) — system design, layers, data flow, key decisions & gotchas
+- [Architecture Review](./architecture-review.md) — findings & recommendations against current architecture
 - [Source Tree Analysis](./source-tree-analysis.md) — annotated directory map & entry points
 - [Data Models](./data-models.md) — Prisma schema, 6 tables, relationships, period model
 - [API Contracts](./api-contracts.md) — all 28 REST endpoints + Zod request schemas

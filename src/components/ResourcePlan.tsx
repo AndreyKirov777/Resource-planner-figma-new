@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import DataEditor, { GridCellKind, GridColumn, Item, EditableGridCell, HeaderClickedEventArgs, GridSelection } from '@glideapps/glide-data-grid';
+import DataEditor, { GridCell, GridCellKind, GridColumn, Item, EditableGridCell, HeaderClickedEventArgs, GridSelection, CustomRenderer } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -84,7 +84,8 @@ interface RoleCell {
 }
 
 // Custom cell renderer for actions
-const ActionCellRenderer = {
+const ActionCellRenderer: CustomRenderer<ActionCell> = {
+  kind: GridCellKind.Custom,
   isMatch: (cell: any): cell is ActionCell => cell.kind === GridCellKind.Custom && cell.data?.id !== undefined,
   draw: (args: any, cell: ActionCell) => {
     const { ctx, rect } = args;
@@ -403,7 +404,7 @@ export function ResourcePlan({
   }, [phases, isMonthly]);
 
   // Get cell content function for glide-data-grid
-  const getCellContent = useCallback(([col, row]: Item) => {
+  const getCellContent = useCallback(([col, row]: Item): GridCell => {
     const plan = resourcePlans[row];
     if (!plan) {
       return {
@@ -1488,7 +1489,6 @@ export function ResourcePlan({
             onCellsEdited={onCellsEdited}
             onHeaderContextMenu={handleHeaderContextMenu}
             getGroupDetails={getGroupDetails}
-            overlayCss=""
             fillHandle={true}
             onRowMoved={handleRowMoved}
             gridSelection={gridSelection}
@@ -1510,9 +1510,6 @@ export function ResourcePlan({
               search: false,
               first: true,
               last: true,
-            }}
-            experimental={{
-              enableColumnResizing: true,
             }}
             onCellActivated={(cell) => {
               const [col, row] = cell;

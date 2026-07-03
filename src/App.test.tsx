@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import App from './App';
+
+// App uses react-router hooks (useSearchParams); provide a Router context in tests.
+const renderApp = () => render(<App />, { wrapper: MemoryRouter });
 
 // Mock heavy grid components so App renders without canvas/ResizeObserver issues
 vi.mock('./components/ResourcePlan', () => ({
@@ -76,7 +80,7 @@ beforeEach(async () => {
 
 describe('App', () => {
   it('renders four tabs including Project list', async () => {
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /project list/i })).toBeInTheDocument();
     });
@@ -85,19 +89,19 @@ describe('App', () => {
     expect(screen.getByRole('tab', { name: /rate card/i })).toBeInTheDocument();
   });
 
-  it('shows Project list by default', async () => {
-    render(<App />);
+  it('shows Resource Plan by default', async () => {
+    renderApp();
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /project list/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
     });
-    const projectListTab = screen.getByRole('tab', { name: /project list/i });
-    expect(projectListTab).toHaveAttribute('data-state', 'active');
-    expect(screen.getByTestId('project-list')).toBeInTheDocument();
+    const resourcePlanTab = screen.getByRole('tab', { name: /resource plan/i });
+    expect(resourcePlanTab).toHaveAttribute('data-state', 'active');
+    expect(screen.getByTestId('resource-plan')).toBeInTheDocument();
   });
 
   it('switches to Resource List tab when clicked', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /resource list/i })).toBeInTheDocument();
     });
@@ -110,7 +114,7 @@ describe('App', () => {
 
   it('switches to Rate Card tab when clicked', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /rate card/i })).toBeInTheDocument();
     });
@@ -125,7 +129,7 @@ describe('App', () => {
     vi.mocked(api.getProjects).mockResolvedValue([]);
     const newProject = { ...mockProject, id: 2, name: 'Default Project' };
     vi.mocked(api.createProject).mockResolvedValue(newProject);
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(api.createProject).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'Default Project' })
@@ -149,7 +153,7 @@ describe('App', () => {
     const api = await getApi();
     vi.mocked(api.exportProject).mockResolvedValue({ project: mockProject, resourceLists: [], resourcePlans: [] });
 
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
     });
@@ -171,7 +175,7 @@ describe('App', () => {
     const api = await getApi();
     vi.mocked(api.updateProject).mockResolvedValue({ ...mockProject, name: 'Changed' });
 
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
     });

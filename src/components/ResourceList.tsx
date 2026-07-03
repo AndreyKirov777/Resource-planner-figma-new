@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
+import { ColDef } from 'ag-grid-community';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -56,7 +57,7 @@ export function ResourceList({
 
   const columnDefs = useMemo(() => {
     // Actions column - moved to first position
-    const actionsColumn = {
+    const actionsColumn: ColDef<ResourceListType> = {
       headerName: '',
       width: 80,
       cellRenderer: ActionsCellRenderer,
@@ -64,7 +65,7 @@ export function ResourceList({
       filter: false
     };
 
-    const otherColumns = [
+    const otherColumns: ColDef<ResourceListType>[] = [
       {
         headerName: 'Rate card role',
         field: 'role',

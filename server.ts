@@ -657,25 +657,26 @@ app.put('/api/resource-plans/:id', async (req, res) => {
     res.json(resourcePlan);
   } catch (error) {
     console.error('Error updating resource plan:', error);
-    
+
     // Provide more specific error messages
-    if (error.code === 'P2002') {
-      return res.status(400).json({ 
+    const err = error as { code?: string; message?: string };
+    if (err.code === 'P2002') {
+      return res.status(400).json({
         error: 'Resource plan update failed',
         details: 'A resource plan with this role already exists'
       });
     }
-    
-    if (error.code === 'P2025') {
-      return res.status(404).json({ 
+
+    if (err.code === 'P2025') {
+      return res.status(404).json({
         error: 'Resource plan not found',
         details: 'The resource plan you are trying to update does not exist'
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: 'Failed to update resource plan',
-      details: error.message || 'An unexpected error occurred'
+      details: err.message || 'An unexpected error occurred'
     });
   }
 });

@@ -168,6 +168,7 @@ Six SQLite tables (full detail in [data-models.md](./data-models.md)):
 
 ## Related Documents
 
+- [Architecture Review](./architecture-review.md) — findings & recommended changes against this document
 - [Source Tree Analysis](./source-tree-analysis.md) · [Data Models](./data-models.md) ·
   [API Contracts](./api-contracts.md) · [Component Inventory](./component-inventory.md) ·
   [Integration Architecture](./integration-architecture.md) · [Development Guide](./development-guide.md) ·

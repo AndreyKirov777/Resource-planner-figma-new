@@ -51,6 +51,6 @@ EXPOSE 3001
 # Create volume mount point for database
 RUN mkdir -p /app/data
 
-# Sync schema (accept-data-loss allows dropping renamed/removed tables on existing DBs)
-CMD npx prisma db push --accept-data-loss && npm run server
+# Apply committed migrations (no data loss; a full migration history lives in prisma/migrations)
+CMD npx prisma migrate deploy && npm run server
 

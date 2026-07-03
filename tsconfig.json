@@ -18,5 +18,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "server.ts", "server-validation.ts", "server", "ai.config.ts", "vite.config.mts"]
+  "include": ["src", "server.ts", "server-validation.ts", "server", "ai.config.ts"]
 }
