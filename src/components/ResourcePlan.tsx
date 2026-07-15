@@ -602,12 +602,16 @@ export function ResourcePlan({
     // Skip actions column
     colOffset++;
 
-    // Rate card role
+    // Rate card role (free-text fallback; primary path is the role picker dialog)
     if (colIndex === colOffset) {
       if (newValue.kind === GridCellKind.Text) {
         const newRole = newValue.data;
-        const selectedResource = resourceLists.find(r => r.role === newRole);
-        
+        const roleMatches = resourceLists.filter((r) => r.role === newRole);
+        const selectedResource =
+          roleMatches.length === 1
+            ? roleMatches[0]
+            : roleMatches.find((r) => r.intRate === plan.intHourlyRate) ?? roleMatches[0];
+
         if (selectedResource) {
           const defaultMargin = project.defaultMargin || 25.0;
           const marginDecimal = defaultMargin / 100;
@@ -617,7 +621,7 @@ export function ResourcePlan({
             p.id === plan.id
               ? { 
                   ...p, 
-                  role: newRole,
+                  role: selectedResource.role,
                   intHourlyRate: selectedResource.intRate,
                   clientHourlyRate: clientHourlyRate,
                   name: selectedResource.name || '',
@@ -1524,7 +1528,13 @@ export function ResourcePlan({
               if (col === 1) {
                 const plan = resourcePlans[row];
                 if (plan) {
-                  setRoleSelection(plan.role || '');
+                  // Prefer role + rate match so same role in different locations stays distinct
+                  const match =
+                    resourceLists.find(
+                      (r) => r.role === plan.role && r.intRate === plan.intHourlyRate
+                    ) ??
+                    resourceLists.find((r) => r.role === plan.role);
+                  setRoleSelection(match ? String(match.id) : '');
                   setRolePicker({ open: true, row });
                 }
                 return;
@@ -1626,7 +1636,9 @@ export function ResourcePlan({
                 </SelectTrigger>
                 <SelectContent>
                   {resourceLists.map((r) => (
-                    <SelectItem key={r.role} value={r.role}>{r.role}</SelectItem>
+                    <SelectItem key={r.id} value={String(r.id)}>
+                      {r.location ? `${r.role} — ${r.location}` : r.role}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1639,8 +1651,8 @@ export function ResourcePlan({
                   if (row === null) { setRolePicker({ open: false, row: null }); return; }
                   const plan = resourcePlans[row];
                   if (!plan) { setRolePicker({ open: false, row: null }); return; }
-                  const newRole = roleSelection;
-                  const selectedResource = resourceLists.find(r => r.role === newRole);
+                  const selectedId = Number(roleSelection);
+                  const selectedResource = resourceLists.find((r) => r.id === selectedId);
                   if (selectedResource) {
                     const defaultMargin = project.defaultMargin || 25.0;
                     const marginDecimal = defaultMargin / 100;
@@ -1649,18 +1661,13 @@ export function ResourcePlan({
                       p.id === plan.id
                         ? {
                             ...p,
-                            role: newRole,
+                            role: selectedResource.role,
                             intHourlyRate: selectedResource.intRate,
                             clientHourlyRate: clientHourlyRate,
                             name: selectedResource.name || '',
                             clientRole: selectedResource.clientRole || ''
                           }
                         : p
-                    );
-                    onResourcePlansChange(updatedResourcePlans);
-                  } else {
-                    const updatedResourcePlans = resourcePlans.map(p =>
-                      p.id === plan.id ? { ...p, role: newRole } : p
                     );
                     onResourcePlansChange(updatedResourcePlans);
                   }
