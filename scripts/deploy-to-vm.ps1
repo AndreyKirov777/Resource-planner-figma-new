@@ -8,10 +8,12 @@
     .\deploy-to-vm.ps1
     .\deploy-to-vm.ps1 -SetupContext
     .\deploy-to-vm.ps1 -SkipBuild
+    .\deploy-to-vm.ps1 -BaselineDb -SkipBuild
 #>
 param(
     [switch] $SetupContext,
-    [switch] $SkipBuild
+    [switch] $SkipBuild,
+    [switch] $BaselineDb
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +28,9 @@ if (Test-Path $localConfig) {
 }
 
 $sshTarget = if ($REMOTE_USER) { "${REMOTE_USER}@${REMOTE_HOST}" } else { $REMOTE_HOST }
+$HealthUrl = "http://127.0.0.1:3001/api/projects"
+$HealthRetries = 36
+$HealthIntervalSec = 5
 
 function Test-SshConnection {
     Write-Host "Checking SSH connection to $sshTarget..." -ForegroundColor Cyan
@@ -56,6 +61,92 @@ function Setup-DockerContext {
     Write-Host "Docker context '$DOCKER_CONTEXT_NAME' is ready." -ForegroundColor Green
 }
 
+function Invoke-BaselineDb {
+    Write-Host "Baselining existing remote DB (Prisma P3005 recovery)..." -ForegroundColor Cyan
+    Push-Location $ProjectRoot
+    try {
+        docker-compose --context $DOCKER_CONTEXT_NAME stop app 2>$null
+
+        # List migrations from the image so -SkipBuild stays consistent with the running image.
+        $migrationDirs = docker-compose --context $DOCKER_CONTEXT_NAME run --rm --no-deps `
+            --entrypoint sh app -c 'ls -1 prisma/migrations' 2>$null
+        foreach ($m in ($migrationDirs -split "`n")) {
+            $name = "$m".Trim()
+            if (-not $name) { continue }
+            Write-Host "Marking applied: $name"
+            docker-compose --context $DOCKER_CONTEXT_NAME run --rm --no-deps `
+                -e DATABASE_URL=file:/app/data/dev.db `
+                --entrypoint npx app prisma migrate resolve --applied $name
+            # Already-recorded migrations are non-fatal
+        }
+
+        Write-Host "Checking for remaining schema drift..."
+        $diffRaw = docker-compose --context $DOCKER_CONTEXT_NAME run --rm --no-deps `
+            -e DATABASE_URL=file:/app/data/dev.db `
+            --entrypoint npx app prisma migrate diff `
+            --from-url file:/app/data/dev.db `
+            --to-schema-datamodel prisma/schema.prisma `
+            --script 2>$null
+
+        $sqlLines = @()
+        foreach ($line in ($diffRaw -split "`n")) {
+            if ($line -match '^┌') { break }
+            $sqlLines += $line
+        }
+        $sql = ($sqlLines -join "`n").Trim()
+
+        if ($sql -match '(?im)^(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|PRAGMA)\s') {
+            Write-Host "Applying schema drift SQL:"
+            Write-Host $sql
+            $sql | docker-compose --context $DOCKER_CONTEXT_NAME run --rm --no-deps -i `
+                -e DATABASE_URL=file:/app/data/dev.db `
+                --entrypoint npx app prisma db execute --stdin --schema prisma/schema.prisma
+        } else {
+            Write-Host "No schema drift after baseline."
+        }
+
+        docker-compose --context $DOCKER_CONTEXT_NAME run --rm --no-deps `
+            -e DATABASE_URL=file:/app/data/dev.db `
+            --entrypoint npx app prisma migrate deploy
+    } finally {
+        Pop-Location
+    }
+    Write-Host "Baseline done." -ForegroundColor Green
+}
+
+function Wait-ForHealthy {
+    Write-Host "Waiting for app to become healthy ($HealthUrl)..." -ForegroundColor Cyan
+    for ($i = 1; $i -le $HealthRetries; $i++) {
+        $status = ssh -o BatchMode=yes -o ConnectTimeout=10 $sshTarget "curl -sf -o /dev/null -w '%{http_code}' $HealthUrl" 2>$null
+        if ($status -eq "200") {
+            Write-Host "Health check OK (HTTP 200)." -ForegroundColor Green
+            return
+        }
+
+        $containerStatus = ssh -o BatchMode=yes -o ConnectTimeout=10 $sshTarget `
+            "cd `$HOME/resource-planner && docker compose ps --format '{{.Status}}' 2>/dev/null | head -1" 2>$null
+        Write-Host "  attempt $i/$HealthRetries`: HTTP $status (container: $containerStatus)"
+
+        if ("$containerStatus" -match 'Restarting') {
+            break
+        }
+        Start-Sleep -Seconds $HealthIntervalSec
+    }
+
+    Write-Host ""
+    Write-Host "Deployment failed: app did not become healthy." -ForegroundColor Red
+    Write-Host "Recent remote logs:" -ForegroundColor Yellow
+    ssh -o BatchMode=yes $sshTarget "cd `$HOME/resource-planner && docker compose logs --tail=80"
+    $logs = ssh -o BatchMode=yes $sshTarget "cd `$HOME/resource-planner && docker compose logs --tail=120" 2>$null
+    if ("$logs" -match 'P3005') {
+        Write-Host ""
+        Write-Host "Detected Prisma P3005 (existing DB without migration history)." -ForegroundColor Yellow
+        Write-Host "Recover with:" -ForegroundColor Yellow
+        Write-Host "  .\deploy-to-vm.ps1 -BaselineDb -SkipBuild" -ForegroundColor Gray
+    }
+    exit 1
+}
+
 function Deploy-App {
     Push-Location $ProjectRoot
     try {
@@ -71,14 +162,17 @@ function Deploy-App {
             Write-Host "Deploy failed. Check output above." -ForegroundColor Red
             exit 1
         }
+
+        Wait-ForHealthy
+
         Write-Host ""
         Write-Host "Deployment complete." -ForegroundColor Green
-        Write-Host "  Web UI:  http://${REMOTE_HOST}" -ForegroundColor White
-        Write-Host "  API:     http://${REMOTE_HOST}:3001" -ForegroundColor White
+        Write-Host "  App (UI + API):  http://${REMOTE_HOST}:3001" -ForegroundColor White
+        Write-Host "  Alternate port:  http://${REMOTE_HOST}:8080" -ForegroundColor White
         Write-Host ""
         Write-Host "Useful commands:" -ForegroundColor Cyan
         Write-Host "  docker --context $DOCKER_CONTEXT_NAME ps" -ForegroundColor Gray
-        Write-Host "  docker --context $DOCKER_CONTEXT_NAME logs -f resourceplannerfigma-app-1" -ForegroundColor Gray
+        Write-Host "  docker --context $DOCKER_CONTEXT_NAME compose logs -f" -ForegroundColor Gray
     } finally {
         Pop-Location
     }
@@ -103,6 +197,10 @@ if ($ctx -ne $DOCKER_CONTEXT_NAME) {
     }
     Write-Host "Using Docker context: $DOCKER_CONTEXT_NAME" -ForegroundColor Cyan
     docker context use $DOCKER_CONTEXT_NAME
+}
+
+if ($BaselineDb) {
+    Invoke-BaselineDb
 }
 
 Deploy-App

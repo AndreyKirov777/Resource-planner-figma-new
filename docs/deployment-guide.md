@@ -44,11 +44,14 @@ Target VM: `res-pln-dev-vm.ipa.dataart.net` (rsync + SSH, builds image on the VM
 # one-time: create the remote app directory
 ./scripts/deploy-to-vm.sh --setup-only
 
-# deploy (build + restart)
+# deploy (build + restart; waits for health check)
 ./scripts/deploy-to-vm.sh        # or: npm run deploy
 
 # restart containers without rebuilding
 ./scripts/deploy-to-vm.sh --skip-build
+
+# recover from Prisma P3005 on an existing DB volume (no data wipe)
+./scripts/deploy-to-vm.sh --baseline-db --skip-build
 ```
 
 - Requires `rsync` + `ssh`; passwordless SSH keys recommended (`chmod 600 ~/.ssh/id_rsa`).
@@ -56,6 +59,7 @@ Target VM: `res-pln-dev-vm.ipa.dataart.net` (rsync + SSH, builds image on the VM
   `scripts/deploy.config.local.sh` and set `REMOTE_USER` / `REMOTE_APP_PATH`.
 - **Windows:** use [scripts/deploy-to-vm.ps1](../scripts/deploy-to-vm.ps1) (Docker context "prod"):
   `.\deploy-to-vm.ps1 -SetupContext` once, then `.\deploy-to-vm.ps1`.
+  P3005 recovery: `.\deploy-to-vm.ps1 -BaselineDb -SkipBuild`.
 
 ## Environment Variables
 

@@ -39,6 +39,13 @@ To only restart containers without rebuilding:
 ./scripts/deploy-to-vm.sh --skip-build
 ```
 
+The script waits for `http://127.0.0.1:3001/api/projects` on the VM and fails (with logs) if the container crash-loops.
+
+If deploy fails with Prisma **P3005** (existing DB volume without migration history), recover without wiping data:
+```bash
+./scripts/deploy-to-vm.sh --baseline-db --skip-build
+```
+
 Requires `rsync` and `ssh` (both are standard on macOS).
 
 ### Deploy (Windows with PowerShell)
@@ -48,6 +55,7 @@ If you use Windows, use the PowerShell script instead:
 cd scripts
 .\deploy-to-vm.ps1 -SetupContext   # one-time: create Docker context
 .\deploy-to-vm.ps1                 # deploy
+.\deploy-to-vm.ps1 -BaselineDb -SkipBuild   # P3005 recovery
 ```
 Optional override: copy `deploy.config.ps1` to `deploy.config.local.ps1` and set `$REMOTE_USER`.
 
