@@ -76,6 +76,99 @@ function normalizePhaseName(raw: string): string {
     .join(' ');
 }
 
+/** Periods occupied by a phase, tolerating the legacy `weekCount` field. */
+function phaseLength(phase: Phase): number {
+  return phase.periodCount ?? phase.weekCount ?? 0;
+}
+
+/** Number of periods preceding a phase, i.e. its 0-based start offset. */
+export function phaseStartOffset(phases: Phase[], phaseIndex: number): number {
+  return phases.slice(0, phaseIndex).reduce((sum, p) => sum + phaseLength(p), 0);
+}
+
+/**
+ * Move a phase to a new position. Because a phase owns no explicit period range —
+ * its span is derived from array order plus the cumulative period counts — moving one
+ * re-labels every period after it. The returned `periodMap` carries the old -> new
+ * period numbers so callers can carry allocations along with their phase; periods
+ * absent from the map (orphans past the timeline end) should be left untouched.
+ */
+export function reorderPhases(
+  phases: Phase[],
+  from: number,
+  to: number
+): { phases: Phase[]; periodMap: Map<number, number> } {
+  const inRange = (i: number) => i >= 0 && i < phases.length;
+  if (from === to || !inRange(from) || !inRange(to)) {
+    return { phases, periodMap: new Map() };
+  }
+
+  const oldStart = phases.map((_, i) => phaseStartOffset(phases, i));
+
+  const order = phases.map((_, i) => i);
+  const [moved] = order.splice(from, 1);
+  order.splice(to, 0, moved);
+
+  const periodMap = new Map<number, number>();
+  let newStart = 0;
+  for (const oldIndex of order) {
+    for (let k = 0; k < phaseLength(phases[oldIndex]); k++) {
+      periodMap.set(oldStart[oldIndex] + k + 1, newStart + k + 1);
+    }
+    newStart += phaseLength(phases[oldIndex]);
+  }
+
+  return { phases: order.map((i) => phases[i]), periodMap };
+}
+
+/** Apply a `reorderPhases` period map, leaving unmapped periods where they are. */
+export function remapPeriodNumber(periodMap: Map<number, number>, periodNumber: number): number {
+  return periodMap.get(periodNumber) ?? periodNumber;
+}
+
+/**
+ * Phase names are the Glide column-group key, so they must stay unique.
+ * Derives "Discovery 2", "Discovery 3", ... until one is free.
+ */
+export function uniquePhaseName(base: string, existing: string[]): string {
+  const taken = new Set(existing);
+  let suffix = 2;
+  while (taken.has(`${base} ${suffix}`)) suffix++;
+  return `${base} ${suffix}`;
+}
+
+/**
+ * Split a phase in two at a period boundary: the new phase begins immediately after
+ * global period `splitAfterPeriod`. Total timeline length is unchanged, so allocations
+ * keep their period numbers and need no remapping. Returns the input untouched when the
+ * split point would leave either half empty.
+ */
+export function splitPhase(phases: Phase[], phaseIndex: number, splitAfterPeriod: number): Phase[] {
+  const phase = phases[phaseIndex];
+  if (!phase) return phases;
+
+  const total = phaseLength(phase);
+  const firstCount = splitAfterPeriod - phaseStartOffset(phases, phaseIndex);
+  if (firstCount < 1 || firstCount >= total) return phases;
+
+  const usedColors = new Set(phases.map((p) => p.color));
+  const color =
+    PHASE_COLORS.find((c) => !usedColors.has(c)) ?? PHASE_COLORS[phases.length % PHASE_COLORS.length];
+
+  const next = [...phases];
+  next.splice(
+    phaseIndex,
+    1,
+    { ...phase, periodCount: firstCount, weekCount: undefined },
+    {
+      name: uniquePhaseName(phase.name, phases.map((p) => p.name)),
+      periodCount: total - firstCount,
+      color,
+    }
+  );
+  return next;
+}
+
 export function getPhaseForPeriod(
   periodNum: number,
   phases: Phase[]

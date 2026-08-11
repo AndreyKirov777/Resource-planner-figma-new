@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,10 +19,10 @@ import {
 } from './ui/dropdown-menu';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
-import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2 } from 'lucide-react';
+import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2, GripVertical, SplitSquareHorizontal } from 'lucide-react';
 import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft } from '../services/api';
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
-import { PHASE_COLORS, parsePhases, getPhaseForPeriod } from '../utils/phases';
+import { PHASE_COLORS, parsePhases, getPhaseForPeriod, phaseStartOffset, reorderPhases, remapPeriodNumber, splitPhase, uniquePhaseName } from '../utils/phases';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
 import { GeneratePlanSheet } from './GeneratePlanSheet';
 
@@ -216,6 +216,10 @@ export function ResourcePlan({
   const [phaseBreakdownOpen, setPhaseBreakdownOpen] = useState(true);
   const [editingPhaseIndex, setEditingPhaseIndex] = useState<number | null>(null);
   const [editingPhaseName, setEditingPhaseName] = useState('');
+  const [draggingPhaseIndex, setDraggingPhaseIndex] = useState<number | null>(null);
+  const [dragOverPhaseIndex, setDragOverPhaseIndex] = useState<number | null>(null);
+  const [splitPhaseIndex, setSplitPhaseIndex] = useState<number | null>(null);
+  const [splitAfterPeriod, setSplitAfterPeriod] = useState<number | null>(null);
 
   // Sync phases from project when switching project or when project.phases is updated (e.g. after persist)
   useEffect(() => {
@@ -828,7 +832,9 @@ export function ResourcePlan({
   }, [phases, periodNumbers.length, resourcePlans, persistPhases, onResourcePlansChange]);
 
   const addPhase = useCallback(() => {
-    const nextIndex = phases.length + 1;
+    const taken = new Set(phases.map((p) => p.name));
+    let nextIndex = phases.length + 1;
+    while (taken.has(`Phase ${nextIndex}`)) nextIndex++;
     const color = PHASE_COLORS[phases.length % PHASE_COLORS.length];
     persistPhases([...phases, { name: `Phase ${nextIndex}`, periodCount: 4, color }]);
   }, [phases, persistPhases]);
@@ -882,10 +888,15 @@ export function ResourcePlan({
 
   const renamePhase = useCallback(
     (phaseIndex: number, newName: string) => {
-      if (!newName.trim()) return;
-      const newPhases = phases.map((p, i) =>
-        i === phaseIndex ? { ...p, name: newName.trim() } : p
-      );
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      // Phase names key the grid's column groups, so a duplicate would merge two phases
+      // into one band. De-duplicate rather than reject the edit.
+      const takenByOthers = phases.filter((_, i) => i !== phaseIndex).map((p) => p.name);
+      const name = takenByOthers.includes(trimmed)
+        ? uniquePhaseName(trimmed, takenByOthers)
+        : trimmed;
+      const newPhases = phases.map((p, i) => (i === phaseIndex ? { ...p, name } : p));
       persistPhases(newPhases);
       setEditingPhaseIndex(null);
       setEditingPhaseName('');
@@ -902,6 +913,60 @@ export function ResourcePlan({
     },
     [phases, persistPhases]
   );
+
+  // Resequencing a phase moves its periods too, so every allocation travels with the
+  // phase it was entered under rather than staying at its absolute period number.
+  const movePhase = useCallback(
+    (from: number, to: number) => {
+      const { phases: nextPhases, periodMap } = reorderPhases(phases, from, to);
+      if (nextPhases === phases) return;
+      // editingPhaseIndex is positional; it would point at a different phase after the move.
+      setEditingPhaseIndex(null);
+      setEditingPhaseName('');
+      persistPhases(nextPhases);
+
+      const updatedResourcePlans = resourcePlans.map((plan) => ({
+        ...plan,
+        allocations: plan.allocations
+          .map((a) => ({ ...a, periodNumber: remapPeriodNumber(periodMap, a.periodNumber) }))
+          .sort((a, b) => a.periodNumber - b.periodNumber),
+      }));
+      onResourcePlansChange(updatedResourcePlans);
+    },
+    [phases, resourcePlans, persistPhases, onResourcePlansChange]
+  );
+
+  const openSplitDialog = useCallback(
+    (phaseIndex: number) => {
+      const count = phases[phaseIndex]?.periodCount ?? 0;
+      if (count < 2) return;
+      const start = phaseStartOffset(phases, phaseIndex);
+      setSplitPhaseIndex(phaseIndex);
+      setSplitAfterPeriod(start + Math.floor(count / 2));
+    },
+    [phases]
+  );
+
+  const closeSplitDialog = useCallback(() => {
+    setSplitPhaseIndex(null);
+    setSplitAfterPeriod(null);
+  }, []);
+
+  // Splitting preserves total timeline length, so allocations keep their period numbers.
+  const confirmSplitPhase = useCallback(() => {
+    if (splitPhaseIndex === null || splitAfterPeriod === null) return;
+    const nextPhases = splitPhase(phases, splitPhaseIndex, splitAfterPeriod);
+    if (nextPhases !== phases) persistPhases(nextPhases);
+    closeSplitDialog();
+  }, [phases, splitPhaseIndex, splitAfterPeriod, persistPhases, closeSplitDialog]);
+
+  // Valid split points: every period in the phase except its last (both halves need >= 1).
+  const splitCandidatePeriods = useMemo(() => {
+    if (splitPhaseIndex === null) return [];
+    const count = phases[splitPhaseIndex]?.periodCount ?? 0;
+    const start = phaseStartOffset(phases, splitPhaseIndex);
+    return Array.from({ length: Math.max(0, count - 1) }, (_, i) => start + i + 1);
+  }, [phases, splitPhaseIndex]);
 
   const addRole = useCallback(() => {
     // Send only fields allowed by server resourcePlanCreateSchema (strict): role, clientRole, name, intHourlyRate, clientHourlyRate, allocations (each only periodNumber + allocation)
@@ -1356,12 +1421,47 @@ export function ResourcePlan({
         <span className="text-sm font-medium text-muted-foreground">Phases:</span>
         {phases.map((phase, idx) => (
           <div
-            key={idx}
-            className="flex items-center gap-1 rounded-md border px-2 py-1"
+            key={phase.name}
+            draggable={editingPhaseIndex !== idx}
+            onDragStart={(e) => {
+              // Let the rename input and the kebab menu keep their own pointer behaviour.
+              if ((e.target as HTMLElement).closest('[data-no-phase-drag]')) {
+                e.preventDefault();
+                return;
+              }
+              setDraggingPhaseIndex(idx);
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', String(idx));
+            }}
+            onDragOver={(e) => {
+              if (draggingPhaseIndex === null) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              if (draggingPhaseIndex !== idx) setDragOverPhaseIndex(idx);
+            }}
+            onDragLeave={() => setDragOverPhaseIndex((prev) => (prev === idx ? null : prev))}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (draggingPhaseIndex !== null) movePhase(draggingPhaseIndex, idx);
+              setDraggingPhaseIndex(null);
+              setDragOverPhaseIndex(null);
+            }}
+            onDragEnd={() => {
+              setDraggingPhaseIndex(null);
+              setDragOverPhaseIndex(null);
+            }}
+            className={`flex items-center gap-1 rounded-md border px-2 py-1 transition-opacity ${
+              editingPhaseIndex === idx ? '' : 'cursor-grab active:cursor-grabbing'
+            } ${draggingPhaseIndex === idx ? 'opacity-40' : ''} ${
+              dragOverPhaseIndex === idx ? 'ring-2 ring-primary ring-offset-1' : ''
+            }`}
             style={{ backgroundColor: phase.color ?? PHASE_COLORS[idx % PHASE_COLORS.length] }}
+            title={editingPhaseIndex === idx ? undefined : 'Drag to reorder'}
           >
+            <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
             {editingPhaseIndex === idx ? (
               <Input
+                data-no-phase-drag
                 className="h-7 w-32 text-sm"
                 value={editingPhaseName}
                 onChange={(e) => setEditingPhaseName(e.target.value)}
@@ -1386,7 +1486,7 @@ export function ResourcePlan({
             <span className="text-xs text-muted-foreground">{phase.periodCount ?? 0}{periodSuffix}</span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6">
+                <Button data-no-phase-drag variant="ghost" size="icon" className="h-6 w-6">
                   <MoreVertical className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1427,6 +1527,13 @@ export function ResourcePlan({
                   Remove Last {periodLabel}
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  onClick={() => openSplitDialog(idx)}
+                  disabled={(phase.periodCount ?? 0) < 2}
+                >
+                  <SplitSquareHorizontal className="mr-2 h-3.5 w-3.5" />
+                  Split
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   onClick={() => deletePhase(idx)}
                   disabled={phases.length <= 1}
                   className="text-destructive"
@@ -1443,6 +1550,73 @@ export function ResourcePlan({
           Add Phase
         </Button>
       </div>
+      <Dialog open={splitPhaseIndex !== null} onOpenChange={(open) => { if (!open) closeSplitDialog(); }}>
+        <DialogContent className="sm:max-w-md">
+          {splitPhaseIndex !== null && phases[splitPhaseIndex] && (() => {
+            const target = phases[splitPhaseIndex];
+            const start = phaseStartOffset(phases, splitPhaseIndex);
+            const count = target.periodCount ?? 0;
+            const firstCount = splitAfterPeriod !== null ? splitAfterPeriod - start : 0;
+            const validSplit = firstCount >= 1 && firstCount < count;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Split "{target.name}"</DialogTitle>
+                  <DialogDescription>
+                    "{target.name}" covers {periodLabelPlural.toLowerCase()} {start + 1}–{start + count}.
+                    The new phase begins right after the {periodLabel.toLowerCase()} you pick.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>New phase begins after {periodLabel.toLowerCase()}</Label>
+                    <Select
+                      value={splitAfterPeriod !== null ? String(splitAfterPeriod) : ''}
+                      onValueChange={(v) => setSplitAfterPeriod(Number(v))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={`Select ${periodLabel.toLowerCase()}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {splitCandidatePeriods.map((p) => (
+                          <SelectItem key={p} value={String(p)}>
+                            {periodLabel} {p}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {validSplit && (
+                    <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="truncate">{target.name}</span>
+                        <span className="shrink-0 text-muted-foreground">
+                          {start + 1}–{splitAfterPeriod} · {firstCount}{periodSuffix}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="truncate">
+                          {uniquePhaseName(target.name, phases.map((p) => p.name))}
+                        </span>
+                        <span className="shrink-0 text-muted-foreground">
+                          {(splitAfterPeriod ?? 0) + 1}–{start + count} · {count - firstCount}{periodSuffix}
+                        </span>
+                      </div>
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        Allocations keep their {periodLabelPlural.toLowerCase()} — only the phase boundary moves.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={closeSplitDialog}>Cancel</Button>
+                  <Button type="button" onClick={confirmSplitPhase} disabled={!validSplit}>Split</Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
       <div className="space-y-4">
         <div className="flex items-center gap-4">
           <h2>Planning Table</h2>
