@@ -72,3 +72,8 @@ Minor issues surfaced during the Goal 2 step-04 review; not blocking, deferred f
 - **ariaLabel averaged % mismatch** — the aria-label reports the mean of snapped per-week values per phase (e.g., "38%") which may not match any individual bar's visual height. The screen-reader summary is informative but technically imprecise; consider reporting a range or predominant value instead.
 - **`resolvePhases` fallback name diverges from `parsePhases`** — when no phases exist, `resolvePhases()` returns `[{ name: 'Plan', … }]` while `parsePhases` (the rest of the app) returns `[{ name: 'Phase 1', … }]`. Cosmetic divergence; align them if the fallback ever becomes user-visible.
 - **Out-of-range `periodNumber` inflates ariaLabel** — `getPhaseForPeriod` maps any period beyond the last phase's end to the last phase. In the ariaLabel loop, stray out-of-range periods silently count toward the last band's `avgPct`. Not a visual bug (bar rendering uses `band.weekCount` bounds), but aria output is inaccurate for plans whose allocations exceed the declared phase timeline.
+
+## Deferred from spec-client-view-png-export review (2026-08-11)
+
+- **Unbounded Client View PNG canvas** — Period columns grow canvas width with plan length (intentional for Excel fidelity). Very long plans (e.g. 52+ weeks × many roles) can produce huge bitmaps and risk UI jank/OOM. Same class of risk as App’s internal PNG. Consider a max-width warning, pagination, or dropping period columns for oversized plans — product decision, not a silent cap.
+- **PNG export double-click debounce** — Sync canvas draw has no disabled/loading state; rapid double-clicks can spawn multiple downloads on large datasets.

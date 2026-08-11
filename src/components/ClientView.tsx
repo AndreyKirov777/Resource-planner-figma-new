@@ -8,8 +8,9 @@ import { Label } from './ui/label';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ChevronDown } from 'lucide-react';
 import { api, Project, Phase, ResourcePlan as ResourcePlanType } from '../services/api';
-import { totalClientCost, estimatedEffortHours, hoursPerPeriod, grossMarginPct } from '../utils/calculations';
+import { totalClientCost, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases } from '../utils/phases';
+import { buildClientPngExport, downloadClientViewPng } from '../utils/clientViewPng';
 import * as ExcelJS from 'exceljs';
 
 function getAllocationBgColor(percent: number): string {
@@ -224,6 +225,41 @@ export default function ClientView() {
     });
   }, [phases, resourcePlans, hrsPerPeriod]);
 
+  const handleExportToPNG = () => {
+    if (!project || resourcePlans.length === 0) {
+      alert('No planning data to export');
+      return;
+    }
+    try {
+      const result = buildClientPngExport({
+        projectName: project.name || 'project',
+        clientCurrency: project.clientCurrency,
+        planningMode,
+        daysInFTE: project.daysInFTE,
+        resourcePlans: resourcePlans.map((p) => ({
+          clientRole: p.clientRole || '',
+          name: p.name || '',
+          clientHourlyRate: p.clientHourlyRate,
+          allocations: p.allocations.map((a) => ({
+            periodNumber: a.periodNumber,
+            allocation: a.allocation,
+          })),
+        })),
+        phases: phases.map((p) => ({
+          name: p.name,
+          periodCount: p.periodCount ?? 0,
+        })),
+      });
+      if (!result.ok) {
+        alert('No planning data to export');
+        return;
+      }
+      downloadClientViewPng(result.model);
+    } catch {
+      alert('Failed to export to PNG');
+    }
+  };
+
   // Client Excel export
   const handleExportToExcel = async () => {
     if (!project || resourcePlans.length === 0) {
@@ -429,9 +465,14 @@ export default function ClientView() {
           <h1 className="text-2xl font-bold">{project.name}</h1>
           {project.description && <p className="text-muted-foreground mt-1">{project.description}</p>}
         </div>
-        <Button onClick={handleExportToExcel} size="sm" variant="outline">
-          Export to Excel
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleExportToExcel} size="sm" variant="outline">
+            Export to Excel
+          </Button>
+          <Button onClick={handleExportToPNG} size="sm" variant="outline">
+            Export to PNG
+          </Button>
+        </div>
       </div>
 
       {/* Financial Summary */}
