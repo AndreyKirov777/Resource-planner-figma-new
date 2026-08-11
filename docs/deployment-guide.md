@@ -57,9 +57,7 @@ Target VM: `res-pln-dev-vm.ipa.dataart.net` (rsync + SSH, builds image on the VM
 - Requires `rsync` + `ssh`; passwordless SSH keys recommended (`chmod 600 ~/.ssh/id_rsa`).
 - Override VM user/path: copy [scripts/deploy.config.sh](../scripts/deploy.config.sh) to
   `scripts/deploy.config.local.sh` and set `REMOTE_USER` / `REMOTE_APP_PATH`.
-- **Windows:** use [scripts/deploy-to-vm.ps1](../scripts/deploy-to-vm.ps1) (Docker context "prod"):
-  `.\deploy-to-vm.ps1 -SetupContext` once, then `.\deploy-to-vm.ps1`.
-  P3005 recovery: `.\deploy-to-vm.ps1 -BaselineDb -SkipBuild`.
+- **Windows:** use Git Bash / WSL with the same [scripts/deploy-to-vm.sh](../scripts/deploy-to-vm.sh).
 
 ## Environment Variables
 

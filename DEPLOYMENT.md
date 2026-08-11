@@ -48,16 +48,15 @@ If deploy fails with Prisma **P3005** (existing DB volume without migration hist
 
 Requires `rsync` and `ssh` (both are standard on macOS).
 
-### Deploy (Windows with PowerShell)
+### Deploy (Windows)
 
-If you use Windows, use the PowerShell script instead:
-```powershell
-cd scripts
-.\deploy-to-vm.ps1 -SetupContext   # one-time: create Docker context
-.\deploy-to-vm.ps1                 # deploy
-.\deploy-to-vm.ps1 -BaselineDb -SkipBuild   # P3005 recovery
+Use Git Bash / WSL and the same shell script:
+```bash
+./scripts/deploy-to-vm.sh --setup-only   # one-time
+./scripts/deploy-to-vm.sh                # deploy
+./scripts/deploy-to-vm.sh --baseline-db --skip-build   # P3005 recovery
 ```
-Optional override: copy `deploy.config.ps1` to `deploy.config.local.ps1` and set `$REMOTE_USER`.
+Optional override: copy `scripts/deploy.config.sh` to `scripts/deploy.config.local.sh` and set `REMOTE_USER`.
 
 ---
 

@@ -36,8 +36,7 @@ Resource planner figma/
 │
 ├── scripts/                       # ── Deployment ─────────────────────────────────────────────────
 │   ├── deploy-to-vm.sh            # rsync+SSH deploy to VM (npm run deploy); --setup-only / --skip-build
-│   ├── deploy-to-vm.ps1           # Windows/PowerShell equivalent (Docker context)
-│   └── deploy.config.{sh,ps1}     # Editable deploy config (REMOTE_USER, REMOTE_APP_PATH)
+│   └── deploy.config.sh           # Editable deploy config (REMOTE_USER, REMOTE_APP_PATH)
 │
 ├── public/                        # Static assets copied verbatim into the build
 │
