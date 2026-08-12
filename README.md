@@ -166,6 +166,13 @@
   #### AI Planner
   - `POST /projects/generate-plan` - Generate a draft resource plan from a natural-language description (read-only; rate-limited per IP)
 
+  #### WBS
+  - `GET /projects/:projectId/wbs` - Get the flat list of WBS items (with estimates) for a project
+  - `POST /projects/:projectId/wbs-items` - Create a WBS item (optionally with nested estimates)
+  - `PUT /wbs-items/:id` - Update a WBS item's scalar fields (name, parentId, phaseName, displayOrder)
+  - `DELETE /wbs-items/:id` - Delete a WBS item (cascades to its subtree and their estimates)
+  - `PUT /wbs-items/:id/estimates` - Replace all estimates for a WBS item (delete-then-recreate)
+
   ## Development
 
   ### Project Structure

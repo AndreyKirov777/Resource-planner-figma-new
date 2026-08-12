@@ -28,6 +28,7 @@ model Project {
   // Relations
   resourceLists   ResourceList[]
   resourcePlans   ResourcePlan[]
+  wbsItems        WbsItem[]
 }
 
 // Rate card is global: a single shared set common to all projects.
@@ -103,4 +104,41 @@ model Allocation {
   resourcePlan    ResourcePlan    @relation(fields: [resourcePlanId], references: [id], onDelete: Cascade)
 
   @@unique([resourcePlanId, periodNumber])
+}
+
+// Work Breakdown Structure: self-referencing tree of work items per project,
+// each optionally carrying a vector of multi-disciplinary hour estimates.
+model WbsItem {
+  id              Int             @id @default(autoincrement())
+  name            String
+  parentId        Int?
+  displayOrder    Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // phaseName: NULL = Unassigned; matched to Project.phases by name (not a FK).
+  phaseName       String?
+
+  // Relations
+  projectId       Int
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent          WbsItem?        @relation("WbsTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children        WbsItem[]       @relation("WbsTree")
+  estimates       WbsEstimate[]
+}
+
+// Multi-disciplinary hour estimate for a WbsItem: one row per (item, discipline, role).
+model WbsEstimate {
+  id              Int             @id @default(autoincrement())
+  discipline      String
+  role            String          @default("")
+  hours           Float           @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  wbsItemId       Int
+  wbsItem         WbsItem         @relation(fields: [wbsItemId], references: [id], onDelete: Cascade)
+
+  @@unique([wbsItemId, discipline, role])
 }

@@ -22,10 +22,14 @@ import {
   allocationUpdateSchema,
   convertPlanningModeSchema,
   generatePlanRequestSchema,
+  wbsItemCreateSchema,
+  wbsItemUpdateSchema,
+  wbsEstimatesReplaceSchema,
 } from './server-validation';
 import { generateResourcePlan } from './server/planner/generateResourcePlan';
 import { loadAIConfig } from './server/llm/config';
 import { StructuredValidationError } from './server/llm/index';
+import { buildDisciplineEnum } from './server/planner/rateCard';
 import {
   convertWeeklyToMonthly,
   convertMonthlyToWeekly,
@@ -970,6 +974,168 @@ app.post('/api/projects/generate-plan', async (req, res) => {
       return res.status(503).json({ error: 'AI provider not configured', details: msg });
     }
     res.status(502).json({ error: 'AI provider error', details: msg });
+  }
+});
+
+// WBS endpoints (WBS-1: data model & API only — no reorder endpoint, no
+// reconciliation endpoint, no deep cycle detection; see spec-wbs-1).
+
+// Validates a set of disciplines against the live GlobalRateCard-derived enum.
+// Mirrors the empty-rate-card guard used elsewhere in this feature: an empty
+// rate card skips the check (a hard enum check against an empty enum would
+// brick every write).
+async function validWbsDisciplines(disciplines: string[]): Promise<boolean> {
+  if (disciplines.length === 0) return true;
+  const rows = await prisma.globalRateCard.findMany();
+  if (rows.length === 0) return true;
+  const enumValues = new Set(buildDisciplineEnum(rows));
+  return disciplines.every((d) => enumValues.has(d));
+}
+
+// GET /api/projects/:projectId/wbs — flat list (tree assembled client-side), with estimates.
+app.get('/api/projects/:projectId/wbs', async (req, res) => {
+  try {
+    const items = await prisma.wbsItem.findMany({
+      where: { projectId: parseInt(req.params.projectId) },
+      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+      include: { estimates: true },
+    });
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch WBS items' });
+  }
+});
+
+// POST /api/projects/:projectId/wbs-items — create a WBS item, optionally with nested estimates.
+app.post('/api/projects/:projectId/wbs-items', async (req, res) => {
+  try {
+    const parsed = wbsItemCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const projectId = parseInt(req.params.projectId);
+    const { parentId, estimates, ...rest } = parsed.data;
+
+    // Cross-project parent guard: parentId, if provided, must belong to the same project.
+    if (parentId != null) {
+      const parent = await prisma.wbsItem.findUnique({ where: { id: parentId } });
+      if (!parent || parent.projectId !== projectId) {
+        return res.status(400).json({ error: 'parentId must reference a WBS item in the same project' });
+      }
+    }
+
+    if (estimates && estimates.length > 0) {
+      const valid = await validWbsDisciplines(estimates.map((e) => e.discipline));
+      if (!valid) {
+        return res.status(400).json({ error: 'One or more estimates reference a discipline not present in the rate card' });
+      }
+    }
+
+    const item = await prisma.wbsItem.create({
+      data: {
+        name: rest.name,
+        phaseName: rest.phaseName ?? null,
+        displayOrder: rest.displayOrder ?? 0,
+        projectId,
+        parentId: parentId ?? null,
+        estimates: estimates && estimates.length > 0
+          ? { create: estimates.map((e) => ({ discipline: e.discipline, role: e.role, hours: e.hours })) }
+          : undefined,
+      },
+      include: { estimates: true },
+    });
+    res.status(201).json(item);
+  } catch (error) {
+    console.error('Error creating WBS item:', error);
+    res.status(500).json({ error: 'Failed to create WBS item' });
+  }
+});
+
+// PUT /api/wbs-items/:id — update scalar fields only (name, parentId, phaseName, displayOrder).
+// Estimates are replaced via the dedicated PUT .../estimates endpoint below.
+app.put('/api/wbs-items/:id', async (req, res) => {
+  try {
+    const parsed = wbsItemUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const id = parseInt(req.params.id);
+    const existing = await prisma.wbsItem.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: 'WBS item not found' });
+    }
+
+    const { parentId } = parsed.data;
+    if (parentId !== undefined && parentId !== null) {
+      if (parentId === id) {
+        return res.status(400).json({ error: 'A WBS item cannot be its own parent' });
+      }
+      const parent = await prisma.wbsItem.findUnique({ where: { id: parentId } });
+      if (!parent || parent.projectId !== existing.projectId) {
+        return res.status(400).json({ error: 'parentId must reference a WBS item in the same project' });
+      }
+    }
+
+    const item = await prisma.wbsItem.update({
+      where: { id },
+      data: parsed.data,
+      include: { estimates: true },
+    });
+    res.json(item);
+  } catch (error) {
+    console.error('Error updating WBS item:', error);
+    res.status(500).json({ error: 'Failed to update WBS item' });
+  }
+});
+
+// DELETE /api/wbs-items/:id — cascades (DB-level onDelete: Cascade) to the item's
+// subtree and all estimates under the whole subtree.
+app.delete('/api/wbs-items/:id', async (req, res) => {
+  try {
+    await prisma.wbsItem.delete({
+      where: { id: parseInt(req.params.id) },
+    });
+    res.json({ message: 'WBS item deleted' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete WBS item' });
+  }
+});
+
+// PUT /api/wbs-items/:id/estimates — bulk-replace: delete-then-recreate as two
+// sequential calls (matches the existing ResourcePlan/Allocation convention).
+// Duplicate (discipline, role) pairs are rejected by wbsEstimatesReplaceSchema
+// before either call runs, so a bad payload can't delete existing estimates
+// and then fail to recreate them.
+app.put('/api/wbs-items/:id/estimates', async (req, res) => {
+  try {
+    const parsed = wbsEstimatesReplaceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const wbsItemId = parseInt(req.params.id);
+
+    const existing = await prisma.wbsItem.findUnique({ where: { id: wbsItemId } });
+    if (!existing) {
+      return res.status(404).json({ error: 'WBS item not found' });
+    }
+
+    const valid = await validWbsDisciplines(parsed.data.map((e) => e.discipline));
+    if (!valid) {
+      return res.status(400).json({ error: 'One or more estimates reference a discipline not present in the rate card' });
+    }
+
+    await prisma.wbsEstimate.deleteMany({ where: { wbsItemId } });
+    if (parsed.data.length > 0) {
+      await prisma.wbsEstimate.createMany({
+        data: parsed.data.map((e) => ({ discipline: e.discipline, role: e.role, hours: e.hours, wbsItemId })),
+      });
+    }
+
+    const estimates = await prisma.wbsEstimate.findMany({ where: { wbsItemId } });
+    res.json(estimates);
+  } catch (error) {
+    console.error('Error replacing WBS estimates:', error);
+    res.status(500).json({ error: 'Failed to replace WBS estimates' });
   }
 });
 

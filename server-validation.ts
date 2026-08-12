@@ -171,3 +171,61 @@ export const generatePlanRequestSchema = z
   );
 
 export type GeneratePlanRequestInput = z.infer<typeof generatePlanRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// WBS-1 — WbsItem / WbsEstimate request schemas
+// ---------------------------------------------------------------------------
+
+export const wbsEstimateSchema = z.object({
+  discipline: z.string().min(1).max(200),
+  role: z.string().max(500).default(''),
+  hours: z.number().finite().min(0),
+}).strict();
+
+// Rejects duplicate (discipline, role) pairs within one array. Such a payload
+// would otherwise pass per-item validation but violate
+// @@unique([wbsItemId, discipline, role]) at the DB layer — for the bulk-replace
+// endpoint (delete-then-recreate, not $transaction per this feature's convention)
+// that would delete existing estimates and then fail to recreate them, losing
+// data. Reject at the validation layer instead, before any DB call happens.
+function refineNoDuplicateEstimatePairs(
+  estimates: Array<{ discipline: string; role: string }>,
+  ctx: z.RefinementCtx,
+) {
+  const seen = new Set<string>();
+  estimates.forEach((e, i) => {
+    const key = JSON.stringify([e.discipline, e.role]);
+    if (seen.has(key)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Duplicate estimate for discipline "${e.discipline}" / role "${e.role}"`,
+        path: [i],
+      });
+    }
+    seen.add(key);
+  });
+}
+
+export const wbsItemCreateSchema = z.object({
+  name: z.string().min(1).max(500),
+  parentId: z.number().int().positive().optional().nullable(),
+  phaseName: z.string().max(200).optional().nullable(),
+  displayOrder: z.number().int().min(0).optional(),
+  estimates: z.array(wbsEstimateSchema).optional().superRefine((val, ctx) => {
+    if (val) refineNoDuplicateEstimatePairs(val, ctx);
+  }),
+}).strict();
+
+export const wbsItemUpdateSchema = z.object({
+  name: z.string().min(1).max(500).optional(),
+  parentId: z.number().int().positive().optional().nullable(),
+  phaseName: z.string().max(200).optional().nullable(),
+  displayOrder: z.number().int().min(0).optional(),
+}).strict();
+
+// PUT /api/wbs-items/:id/estimates — bulk-replace payload is a raw array (delete-then-recreate).
+export const wbsEstimatesReplaceSchema = z.array(wbsEstimateSchema).superRefine(refineNoDuplicateEstimatePairs);
+
+export type WbsEstimateInput = z.infer<typeof wbsEstimateSchema>;
+export type WbsItemCreateInput = z.infer<typeof wbsItemCreateSchema>;
+export type WbsItemUpdateInput = z.infer<typeof wbsItemUpdateSchema>;

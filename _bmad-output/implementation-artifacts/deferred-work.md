@@ -73,6 +73,53 @@ Minor issues surfaced during the Goal 2 step-04 review; not blocking, deferred f
 - **`resolvePhases` fallback name diverges from `parsePhases`** — when no phases exist, `resolvePhases()` returns `[{ name: 'Plan', … }]` while `parsePhases` (the rest of the app) returns `[{ name: 'Phase 1', … }]`. Cosmetic divergence; align them if the fallback ever becomes user-visible.
 - **Out-of-range `periodNumber` inflates ariaLabel** — `getPhaseForPeriod` maps any period beyond the last phase's end to the last phase. In the ariaLabel loop, stray out-of-range periods silently count toward the last band's `avgPct`. Not a visual bug (bar rendering uses `band.weekCount` bounds), but aria output is inaccurate for plans whose allocations exceed the declared phase timeline.
 
+## Deferred from spec-wbs-1-data-model-api review (2026-08-12)
+
+Findings from three parallel adversarial/edge-case/acceptance reviews of WBS-1; the
+data-loss-risk finding (non-transactional estimates replace + duplicate payload) and three
+other concrete bugs were patched directly (see spec's Spec Change Log). These are the
+remainder — pre-existing patterns or genuinely out-of-scope, not caused by WBS-1.
+
+- **🔴 `api.integration.test.ts`'s "Global rate card" tests destroy the live `prisma/dev.db`
+  rate card with no restore.** `POST /api/rate-cards/bulk` then `DELETE /api/rate-cards`
+  run against the real DB (no isolated test DB exists in this repo), with no `afterAll`
+  restore. A plain `npm test` empties a real, populated `GlobalRateCard` — reproduced twice
+  during WBS-1 review, recovered both times from a manual backup. Pre-existing (confirmed
+  byte-identical to the pre-WBS-1 baseline), but now a live landmine given the rate card is
+  populated (179 rows) and this is the second data-loss incident involving this exact table
+  in one day. Fix: back up/restore the rate card in that test's `beforeAll`/`afterAll`, or
+  move to an isolated test DB (`DATABASE_URL` override for `npm test`).
+- **`errorData.details` renders as `"[object Object]"` in thrown client errors.**
+  `src/services/api.ts`'s error branches do `errorData.details || errorData.error`, but
+  `details` comes from the server's `parsed.error.flatten()` — an object, not a string.
+  `new Error(object)` stringifies to `[object Object]`. Pre-existing pattern (present in
+  `updateResourcePlan` etc. before WBS-1 added more instances of it) — worth a shared
+  fix (e.g. a `formatApiError()` helper) across all entities, not a WBS-specific patch.
+- **No `parseInt` validation on route params anywhere in `server.ts`** (not just the new WBS
+  routes) — a non-numeric ID produces `NaN`, Prisma rejects it, and the generic `catch`
+  reports a 500 instead of a clean 400. Existing codebase-wide convention, not a WBS-1
+  regression; worth a focused pass if/when this becomes a real pain point.
+- **`DELETE` endpoints across the codebase (not just WBS) don't check existence before
+  deleting** — a non-existent id throws Prisma P2025, caught generically as 500 instead of
+  404. Confirmed as an existing pattern shared by `resource-plans`/`allocations`/
+  `resource-lists` DELETE handlers, not introduced by WBS-1.
+- **`POST /api/projects/:projectId/wbs-items` with a non-existent `projectId`** returns a
+  generic 500 (Prisma FK violation) instead of 404. Not in the spec's I/O matrix; low
+  severity; worth checking whether sibling POST endpoints (e.g. `resource-plans`) have the
+  same gap before fixing WBS's in isolation.
+- **`phaseName` is free text with no validation against `Project.phases` and no
+  rename-cascade.** Per the WBS design (approved 2026-08-12), phase linkage is intentionally
+  soft/by-name — but renaming a phase in `Project.phases` will silently orphan any
+  `WbsItem.phaseName` that referenced the old name. The rename-cascade behavior was
+  discussed as a locked decision during design but isn't implemented anywhere yet — likely
+  belongs in WBS-2 (phase UI) or its own slice.
+- **The empty-rate-card discipline-validation bypass has no re-validation pass.** WBS
+  estimates written while `GlobalRateCard` is empty accept any discipline string
+  unchecked (by design — see spec-wbs-1). If a rate card is imported afterward, nothing
+  re-checks previously-written disciplines against it. Worth considering for WBS-3
+  (reconciliation), which will need to handle "discipline doesn't match rate card" as a
+  case regardless.
+
 ## Deferred from spec-wbs-0-close-daysinfte-semantics review (2026-08-12)
 
 Pre-existing issues surfaced while closing the `daysInFTE` SPEC open question; not caused by

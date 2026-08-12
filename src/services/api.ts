@@ -130,6 +130,28 @@ export interface ResourcePlan {
   allocations: Allocation[];
 }
 
+export interface WbsEstimate {
+  id: number;
+  discipline: string;
+  role: string;
+  hours: number;
+  wbsItemId: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WbsItem {
+  id: number;
+  name: string;
+  parentId: number | null;
+  phaseName: string | null; // null = Unassigned
+  displayOrder: number;
+  projectId: number;
+  createdAt: string;
+  updatedAt: string;
+  estimates: WbsEstimate[];
+}
+
 function pickDefined<T extends Record<string, unknown>>(obj: T, keys: (keyof T)[]): Partial<T> {
   return Object.fromEntries(
     keys.filter((key) => obj[key] !== undefined).map((key) => [key, obj[key]])
@@ -423,5 +445,61 @@ export const api = {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete allocation');
+  },
+
+  // WBS endpoints
+  async getWbsItems(projectId: number): Promise<WbsItem[]> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/wbs`);
+    if (!response.ok) throw new Error('Failed to fetch WBS items');
+    return response.json();
+  },
+
+  async createWbsItem(
+    projectId: number,
+    data: Omit<Partial<WbsItem>, 'estimates'> & { estimates?: Partial<WbsEstimate>[] }
+  ): Promise<WbsItem> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/wbs-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to create WBS item');
+    }
+    return response.json();
+  },
+
+  async updateWbsItem(id: number, data: Partial<WbsItem>): Promise<WbsItem> {
+    const response = await fetch(`${API_BASE_URL}/wbs-items/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pickDefined(data, ['name', 'parentId', 'phaseName', 'displayOrder'])),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to update WBS item');
+    }
+    return response.json();
+  },
+
+  async deleteWbsItem(id: number): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/wbs-items/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete WBS item');
+  },
+
+  async replaceWbsEstimates(wbsItemId: number, estimates: Partial<WbsEstimate>[]): Promise<WbsEstimate[]> {
+    const response = await fetch(`${API_BASE_URL}/wbs-items/${wbsItemId}/estimates`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(estimates),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to replace WBS estimates');
+    }
+    return response.json();
   },
 };
