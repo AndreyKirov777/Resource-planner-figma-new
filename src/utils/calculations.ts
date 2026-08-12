@@ -67,6 +67,12 @@ export function marginPct(
  * Hours per planning period based on mode.
  * Weekly: 5 days * 8h = 40h.
  * Monthly: daysInFTE * 8h (e.g. 20 * 8 = 160h).
+ *
+ * daysInFTE is cadence-only here: weekly deliberately ignores it and stays
+ * fixed at 40h; only the monthly branch multiplies by it. Don't confuse this
+ * with modeConversion.ts's getWeeksPerMonth(), which uses daysInFTE
+ * unconditionally (weeksPerMonth = daysInFTE / 5) — a separate formula for a
+ * separate purpose (SPEC.md Constraints, decided 2026-08-12).
  */
 export function hoursPerPeriod(
   mode: 'weekly' | 'monthly',

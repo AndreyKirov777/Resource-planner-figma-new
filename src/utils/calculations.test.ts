@@ -5,6 +5,7 @@ import {
   totalClientCost,
   grossMarginPct,
   marginPct,
+  hoursPerPeriod,
   estimatedEffortHours,
   fteEffort,
 } from './calculations';
@@ -75,6 +76,23 @@ describe('calculations', () => {
     it('returns null when client rate is 0 or invalid', () => {
       expect(marginPct(0, 50, 1)).toBeNull();
       expect(marginPct(-1, 50, 1)).toBeNull();
+    });
+  });
+
+  describe('hoursPerPeriod', () => {
+    it('stays fixed at 40h for weekly regardless of daysInFTE', () => {
+      expect(hoursPerPeriod('weekly', 20)).toBe(40);
+      expect(hoursPerPeriod('weekly', 21)).toBe(40);
+      expect(hoursPerPeriod('weekly', 5)).toBe(40);
+    });
+
+    it('scales with daysInFTE for monthly', () => {
+      expect(hoursPerPeriod('monthly', 20)).toBe(160);
+      expect(hoursPerPeriod('monthly', 21)).toBe(168);
+    });
+
+    it('defaults daysInFTE to 20 for monthly', () => {
+      expect(hoursPerPeriod('monthly')).toBe(160);
     });
   });
 

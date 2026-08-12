@@ -73,6 +73,19 @@ Minor issues surfaced during the Goal 2 step-04 review; not blocking, deferred f
 - **`resolvePhases` fallback name diverges from `parsePhases`** — when no phases exist, `resolvePhases()` returns `[{ name: 'Plan', … }]` while `parsePhases` (the rest of the app) returns `[{ name: 'Phase 1', … }]`. Cosmetic divergence; align them if the fallback ever becomes user-visible.
 - **Out-of-range `periodNumber` inflates ariaLabel** — `getPhaseForPeriod` maps any period beyond the last phase's end to the last phase. In the ariaLabel loop, stray out-of-range periods silently count toward the last band's `avgPct`. Not a visual bug (bar rendering uses `band.weekCount` bounds), but aria output is inaccurate for plans whose allocations exceed the declared phase timeline.
 
+## Deferred from spec-wbs-0-close-daysinfte-semantics review (2026-08-12)
+
+Pre-existing issues surfaced while closing the `daysInFTE` SPEC open question; not caused by
+that change, out of its scope, deferred for focused attention.
+
+- **`issues-tasks.md` M1 is stale and factually wrong.** It claims `daysInFTE` is "never used in
+  cost/effort calculations... completely ignoring `daysInFTE`... everywhere," but `hoursPerPeriod()`
+  already multiplies by it in monthly mode. Needs re-verification against current code and either
+  closing or rewording to the real gap (if any remains).
+- **`daysInFTE` default value drift.** `prisma/schema.prisma` and `src/config/defaults.ts` default
+  to `21`; `hoursPerPeriod()`'s own parameter default and `src/App.tsx`'s new-project fallback use
+  `20`. Pick one canonical default and align all four sites, or document why they intentionally differ.
+
 ## Deferred from spec-client-view-png-export review (2026-08-11)
 
 - **Unbounded Client View PNG canvas** — Period columns grow canvas width with plan length (intentional for Excel fidelity). Very long plans (e.g. 52+ weeks × many roles) can produce huge bitmaps and risk UI jank/OOM. Same class of risk as App’s internal PNG. Consider a max-width warning, pagination, or dropping period columns for oversized plans — product decision, not a silent cap.
