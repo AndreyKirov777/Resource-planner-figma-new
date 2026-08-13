@@ -38,6 +38,9 @@ vi.mock('./components/RateCard', () => ({
 vi.mock('./components/ProjectList', () => ({
   ProjectList: () => <div data-testid="project-list">Project list</div>,
 }));
+vi.mock('./components/Wbs', () => ({
+  Wbs: () => <div data-testid="wbs">WBS</div>,
+}));
 
 const mockProject = {
   id: 1,
@@ -60,6 +63,7 @@ vi.mock('./services/api', () => ({
     getRateCards: vi.fn(),
     getRateCardMeta: vi.fn(),
     getResourcePlans: vi.fn(),
+    getWbsItems: vi.fn(),
     updateProject: vi.fn(),
     deleteProject: vi.fn(),
     exportProject: vi.fn(),
@@ -76,10 +80,11 @@ beforeEach(async () => {
   vi.mocked(api.getRateCards).mockResolvedValue([]);
   vi.mocked(api.getRateCardMeta).mockResolvedValue({ fileName: null, importedAt: null });
   vi.mocked(api.getResourcePlans).mockResolvedValue([]);
+  vi.mocked(api.getWbsItems).mockResolvedValue([]);
 });
 
 describe('App', () => {
-  it('renders four tabs including Project list', async () => {
+  it('renders five tabs including Project list and WBS', async () => {
     renderApp();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /project list/i })).toBeInTheDocument();
@@ -87,6 +92,7 @@ describe('App', () => {
     expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /resource list/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /rate card/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^wbs$/i })).toBeInTheDocument();
   });
 
   it('shows Resource Plan by default', async () => {

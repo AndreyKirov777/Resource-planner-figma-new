@@ -8,7 +8,8 @@ import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
 import { ProjectList } from './components/ProjectList';
-import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType, GeneratePlanDraft, GeneratePlanResourceList } from './services/api';
+import { Wbs } from './components/Wbs';
+import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType, WbsItem, WbsEstimate, GeneratePlanDraft, GeneratePlanResourceList } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
@@ -17,6 +18,7 @@ import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, gr
 import { PHASE_COLORS } from './utils/phases';
 import { getClientRoleFromRole } from './utils/clientRoleMapping';
 import { resolveLocationLabel } from './utils/regions';
+import { descendantIds } from './utils/wbsTree';
 import { APP_DEFAULTS } from './config/defaults';
 
 // Register AG Grid modules
@@ -32,6 +34,7 @@ export default function App() {
   const [rateCards, setRateCards] = useState<RateCardType[]>([]);
   const [rateCardMeta, setRateCardMeta] = useState<RateCardImportMeta | null>(null);
   const [resourcePlans, setResourcePlans] = useState<ResourcePlanType[]>([]);
+  const [wbsItems, setWbsItems] = useState<WbsItem[]>([]);
   const [activeTab, setActiveTab] = useState('resource-plan');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,14 +93,16 @@ export default function App() {
 
       // Load all related (project-scoped) data. Rate cards are global and
       // loaded separately via loadGlobalRateCards().
-      const [resourceListsData, resourcePlansData] = await Promise.all([
+      const [resourceListsData, resourcePlansData, wbsItemsData] = await Promise.all([
         api.getResourceLists(project.id),
-        api.getResourcePlans(project.id)
+        api.getResourcePlans(project.id),
+        api.getWbsItems(project.id)
       ]);
 
       setResourceLists(resourceListsData);
       setResourcePlans(resourcePlansData);
-      
+      setWbsItems(wbsItemsData);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load project data');
       console.error('Error loading project data:', err);
@@ -322,6 +327,66 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clear resource plan');
       console.error('Error clearing resource plan:', err);
+    }
+  };
+
+  // WBS handlers. Deliberately independent of resourceLists/resourcePlans/allocations —
+  // the WBS tab is its own viewpoint; reconciling it with the resource plan is WBS-3.
+  const handleAddWbsItem = async (
+    data: Omit<Partial<WbsItem>, 'estimates'> & { estimates?: Partial<WbsEstimate>[] }
+  ): Promise<WbsItem> => {
+    if (!currentProject) throw new Error('No current project');
+    try {
+      const created = await api.createWbsItem(currentProject.id, data);
+      setWbsItems(prev => [...prev, created]);
+      return created;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add WBS item');
+      console.error('Error adding WBS item:', err);
+      throw err;
+    }
+  };
+
+  const handleUpdateWbsItem = async (id: number, data: Partial<WbsItem>): Promise<void> => {
+    try {
+      const updated = await api.updateWbsItem(id, data);
+      setWbsItems(prev => prev.map(item => (item.id === id ? updated : item)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update WBS item');
+      console.error('Error updating WBS item:', err);
+      throw err;
+    }
+  };
+
+  const handleDeleteWbsItem = async (id: number): Promise<void> => {
+    try {
+      await api.deleteWbsItem(id);
+      // The server cascades the delete through the whole subtree silently;
+      // mirror that in local state so no orphaned rows remain.
+      setWbsItems(prev => {
+        const toRemove = new Set<number>([id, ...descendantIds(prev, id)]);
+        return prev.filter(item => !toRemove.has(item.id));
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete WBS item');
+      console.error('Error deleting WBS item:', err);
+      throw err;
+    }
+  };
+
+  const handleReplaceWbsEstimates = async (
+    wbsItemId: number,
+    estimates: Partial<WbsEstimate>[]
+  ): Promise<void> => {
+    try {
+      const updatedEstimates = await api.replaceWbsEstimates(wbsItemId, estimates);
+      setWbsItems(prev =>
+        prev.map(item => (item.id === wbsItemId ? { ...item, estimates: updatedEstimates } : item))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update WBS estimates');
+      console.error('Error updating WBS estimates:', err);
+      throw err;
     }
   };
 
@@ -1085,11 +1150,12 @@ export default function App() {
   return (
     <div className="p-6">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="project-list">Project list</TabsTrigger>
           <TabsTrigger value="resource-plan">Resource Plan</TabsTrigger>
           <TabsTrigger value="resource-list">Resource List</TabsTrigger>
           <TabsTrigger value="rate-card">Rate Card</TabsTrigger>
+          <TabsTrigger value="wbs">WBS</TabsTrigger>
         </TabsList>
 
         <TabsContent value="project-list" className="mt-6">
@@ -1164,6 +1230,20 @@ export default function App() {
             onDeleteAllRateCards={handleDeleteAllRateCards}
             onAddResourceList={handleAddResourceList}
             defaultLocation={currentProject?.defaultLocation}
+          />
+        </TabsContent>
+
+        <TabsContent value="wbs" className="mt-6">
+          <Wbs
+            key={currentProject?.id || 'default'}
+            project={currentProject}
+            resourcePlans={resourcePlans}
+            rateCards={rateCards}
+            wbsItems={wbsItems}
+            onAddWbsItem={handleAddWbsItem}
+            onUpdateWbsItem={handleUpdateWbsItem}
+            onDeleteWbsItem={handleDeleteWbsItem}
+            onReplaceWbsEstimates={handleReplaceWbsEstimates}
           />
         </TabsContent>
       </Tabs>

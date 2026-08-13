@@ -173,6 +173,46 @@ that change, out of its scope, deferred for focused attention.
   to `21`; `hoursPerPeriod()`'s own parameter default and `src/App.tsx`'s new-project fallback use
   `20`. Pick one canonical default and align all four sites, or document why they intentionally differ.
 
+## Deferred from spec-wbs-2-wbs-page-ui review (2026-08-13)
+
+Findings from three parallel adversarial/edge-case/acceptance reviews of WBS-2. Three
+concrete bugs (lost-update race in the estimate-matrix cell editor, an "+ Add discipline"
+dead end, and missing test coverage for several I/O-matrix rows) were patched directly —
+see the spec's Spec Change Log. These two are lower-severity, genuinely rooted in a data
+shape or risk that predates WBS-2 (established by WBS-1's data model), and not reachable
+through WBS-2's own UI today.
+
+- **"Total hours" rollup can silently include hours invisible in every matrix column.**
+  `rollupHours()` (`src/utils/wbsTree.ts`) sums an item's estimates by discipline only,
+  with no `role` filter — correct per the spec's literal text ("rollup of own + all
+  descendant estimates"). But every matrix cell only reads/writes the `(discipline,
+  role: "")` entry (`src/components/Wbs.tsx`), per WBS-2's explicit "no matrix support for
+  role-specific estimates beyond the default bucket" boundary. If a role-specific estimate
+  ever exists on an item (the data model and API both permit it — WBS-2's own boundary
+  text acknowledges "the model allows it"), its hours are invisible in every column yet
+  still counted in that row's Total, so the displayed total and the sum of visible cells
+  can permanently disagree. Not reachable today: WBS-2 is currently the *only* write path
+  to WBS estimates, and it never writes a non-empty `role`, so this can only manifest via
+  external/future data (e.g. a hand-crafted API call, or a future tool). Two candidate
+  fixes were considered and rejected as premature: filtering `rollupHours` to
+  `role === ''` would make it wrong for WBS-3's reconciliation math (which almost
+  certainly wants all-roles-included discipline totals); showing the combined
+  cross-role total in the cell but only writing the default-role slice on edit would let a
+  user's typed value silently *not* become the new total. Needs a real product decision,
+  likely alongside WBS-3 (reconciliation), which will have to decide how role-level detail
+  factors into the numbers it reports anyway.
+- **No cycle detection in the WBS tree helpers.** `buildWbsTree`/`flattenVisibleTree`/
+  `rollupHours`/`descendantIds` (`src/utils/wbsTree.ts`) all do unbounded recursive walks
+  with no guard against a cyclic `parentId` chain (item A's parent is B, B's parent is A).
+  WBS-2 itself can never create a cycle — it exposes no reparenting UI at all (`parentId`
+  is set once at creation and never changed afterward). WBS-1's own spec explicitly
+  disclaims "deep cycle detection on reparenting" for the API layer, so a cycle could only
+  reach the DB via direct manipulation or a future path that edits `parentId`. If one ever
+  did, every one of these pure functions would recurse infinitely and crash the WBS tab.
+  Worth a defensive guard (track visited ids, treat a revisited id as a root) whenever a
+  reparenting UI or endpoint is eventually built — WBS-1's own "Never: deep cycle
+  detection" note already flagged this as a known gap at the API layer.
+
 ## Deferred from spec-client-view-png-export review (2026-08-11)
 
 - **Unbounded Client View PNG canvas** — Period columns grow canvas width with plan length (intentional for Excel fidelity). Very long plans (e.g. 52+ weeks × many roles) can produce huge bitmaps and risk UI jank/OOM. Same class of risk as App’s internal PNG. Consider a max-width warning, pagination, or dropping period columns for oversized plans — product decision, not a silent cap.
