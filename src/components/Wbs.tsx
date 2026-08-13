@@ -8,6 +8,9 @@ import {
 } from '../services/api';
 import { parsePhases } from '../utils/phases';
 import { buildWbsTree, flattenVisibleTree, rollupHours, descendantIds, WbsTreeNode } from '../utils/wbsTree';
+import { hoursPerPeriod } from '../utils/calculations';
+import { buildReconciliationReport } from '../utils/wbs';
+import { ReconciliationPanel } from './ReconciliationPanel';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import {
@@ -79,6 +82,15 @@ export function Wbs({
   const [newDisciplineValue, setNewDisciplineValue] = useState('');
 
   const phases = useMemo(() => parsePhases(project.phases, resourcePlans), [project.phases, resourcePlans]);
+
+  const hrsPerPeriod = useMemo(
+    () => hoursPerPeriod((project.planningMode || 'weekly') as 'weekly' | 'monthly', project.daysInFTE),
+    [project.planningMode, project.daysInFTE]
+  );
+  const reconciliationReport = useMemo(
+    () => buildReconciliationReport(wbsItems, resourcePlans, rateCards, phases, hrsPerPeriod),
+    [wbsItems, resourcePlans, rateCards, phases, hrsPerPeriod]
+  );
 
   const tree = useMemo(() => buildWbsTree(wbsItems), [wbsItems]);
   const rows = useMemo(() => flattenVisibleTree(tree, collapsedIds), [tree, collapsedIds]);
@@ -424,6 +436,10 @@ export function Wbs({
           </TableBody>
         </Table>
       )}
+
+      <div className="border-t pt-6">
+        <ReconciliationPanel report={reconciliationReport} />
+      </div>
     </div>
   );
 }

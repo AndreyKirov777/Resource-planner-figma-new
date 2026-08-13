@@ -217,3 +217,56 @@ through WBS-2's own UI today.
 
 - **Unbounded Client View PNG canvas** — Period columns grow canvas width with plan length (intentional for Excel fidelity). Very long plans (e.g. 52+ weeks × many roles) can produce huge bitmaps and risk UI jank/OOM. Same class of risk as App’s internal PNG. Consider a max-width warning, pagination, or dropping period columns for oversized plans — product decision, not a silent cap.
 - **PNG export double-click debounce** — Sync canvas draw has no disabled/loading state; rapid double-clicks can spawn multiple downloads on large datasets.
+
+## Deferred from spec-wbs-3-reconciliation-engine review (2026-08-13)
+
+Findings from three parallel adversarial/edge-case/acceptance reviews of WBS-3. The
+acceptance auditor found zero violations of the frozen spec. Several concrete issues
+(unsafe `as string` casts, non-deterministic `localeCompare` sorting, a floating-point
+epsilon gap that could paint a conceptually-zero variance as a colored non-zero figure,
+a `planningMode` cast missing the `|| 'weekly'` fallback every other call site has, a
+React-key collision risk, ambiguous empty-state copy, and a missing test for the
+literal two-sided AC1 scenario) were patched directly — see `wbs.ts`/
+`ReconciliationPanel.tsx`/`Wbs.tsx`/`wbs.test.ts`. These remaining items are pre-existing
+patterns this story reuses (per its own "reuse, don't re-derive" boundary) rather than
+defects introduced by it, or genuinely out-of-scope data-quality gaps.
+
+- **`hoursPerPeriod`/`estimatedEffortHours` have no guard against `daysInFTE <= 0`.**
+  `src/utils/calculations.ts:77-94` will happily propagate `0`/negative `daysInFTE` into
+  `0` or negative hours; nothing catches this before it reaches `estimatedEffortHours`.
+  Confirmed pre-existing: none of `ResourcePlan.tsx:246`, `ClientView.tsx:66`, or
+  `App.tsx:591`/`854` guard against this either — WBS-3's `Wbs.tsx` reuses the same
+  unguarded call shape by design. If it ever fires, the effect is now also visible in the
+  reconciliation report's `projectTotal`/`byDiscipline`/`byPhaseDiscipline` figures
+  (`ReconciliationPanel.tsx`'s `formatHours`/`formatVariance` were hardened to render `—`
+  instead of literal `"NaN"`/`"Infinity"` text, but the underlying zero/garbage totals
+  would still be wrong, just not crash-ugly). Worth a focused pass on `daysInFTE` input
+  validation (UI already has a `min` on the `Input` at `ResourcePlan.tsx:1295-1300`, but
+  nothing stops a value of exactly `0`).
+- **No clamp/validation on `Allocation.allocation` percentage values anywhere in the app.**
+  Negative or >100 values flow unclamped into `estimatedEffortHours` in
+  `ResourcePlan.tsx`, `ClientView.tsx`, `clientViewPng.ts`, and now `wbs.ts`. Pre-existing,
+  app-wide; not introduced by WBS-3.
+- **`getPhaseForPeriod` has no explicit handling for `periodNumber <= 0`.**
+  `src/utils/phases.ts:172-185` will fold a non-positive period number into phase index 0
+  without complaint (not a crash, just an odd attribution) — the same behavior every
+  existing caller (`ResourcePlan.tsx`, `GeneratePlanSheet.tsx`) already relies on
+  implicitly. Low reachability: normal allocation-editing UI only ever creates
+  `periodNumber >= 1`.
+- **A `GlobalRateCard` row with an empty-string `discipline` would resolve as a
+  legitimate (but blank-labeled) discipline bucket instead of landing in Unmapped.**
+  `resolveDiscipline` (`wbs.ts:51-53`) only treats `undefined` as "no match" — an empty
+  string is falsy but not `undefined`, so a plan row matching such a row would produce a
+  blank-labeled row in the "By discipline" table. This is a rate-card data-quality
+  concern (an import that leaves `discipline` blank), not something reconciliation should
+  paper over by guessing; belongs with the rate-card import path (WBS-4 or a dedicated
+  data-quality pass), not this story.
+- **WBS-side estimate `discipline` values are never validated against the live rate
+  card during reconciliation — explicit scope decision, not an oversight.** WBS-1's own
+  deferred-work entry ("The empty-rate-card discipline-validation bypass has no
+  re-validation pass…") flagged this as "worth considering for WBS-3." Decision made now:
+  out of scope for WBS-3, since the frozen spec's Boundaries only require validating the
+  *plan* side's role→discipline resolution (the Unmapped bucket) and say nothing about a
+  parallel "unmapped WBS discipline" bucket. Worth a focused follow-up if the product
+  wants a third gap bucket for WBS estimates whose `discipline` no longer matches any
+  live rate-card row (e.g. after a rate-card import changes the taxonomy).
