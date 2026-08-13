@@ -1,12 +1,16 @@
+import type { Express } from 'express';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import { app, initializeDefaultProject } from './server';
+import { isolateTestDb } from './testDb';
 import {
   wbsEstimateSchema,
   wbsItemCreateSchema,
   wbsItemUpdateSchema,
   wbsEstimatesReplaceSchema,
 } from './server-validation';
+
+let app: Express;
+let initializeDefaultProject: () => Promise<void>;
 
 /**
  * WBS-1 (data model, API, client wrapper) tests.
@@ -18,12 +22,13 @@ import {
  *
  * Deliberately NOT covered here: the "empty rate card" bypass row from the I/O
  * matrix (any discipline accepted unchecked when GlobalRateCard is empty). This
- * repo's tests run against the live `prisma/dev.db` (no isolated test DB), and
- * that table holds real production rate-card rows. Emptying it — even
- * temporarily — is unsafe given this file runs concurrently with other test
- * files against the same SQLite file (see api.integration.test.ts's own
- * rate-card bulk-import/delete tests). The guard itself
- * (`rows.length === 0 → skip the check`) is a one-line conditional in
+ * file runs against its own disposable prisma/test-wbs.db (see testDb.ts),
+ * isolated from every other test file — no cross-file race is possible. The DB
+ * is deliberately pre-seeded with 2 fake disciplines in this describe block's
+ * own `beforeAll` so `validDisciplineA`/`validDisciplineB` below reflect real
+ * validation instead of the empty-card bypass; exercising the bypass itself
+ * would mean wiping this file's own seed mid-run, which isn't done. The guard
+ * itself (`rows.length === 0 → skip the check`) is a one-line conditional in
  * server.ts's `validWbsDisciplines`, identical in shape to the existing
  * empty-rate-card guard already exercised for generatePlanRequestSchema.
  */
@@ -219,6 +224,30 @@ describe('WBS API integration', () => {
   }
 
   beforeAll(async () => {
+    // Own DB (prisma/test-wbs.db), never shared with api.integration.test.ts —
+    // that file's rate-card bulk-import/delete tests would otherwise race the
+    // discipline reads below on a shared file. See testDb.ts.
+    await isolateTestDb('wbs', async (prisma) => {
+      await prisma.globalRateCard.createMany({
+        data: [
+          {
+            role: 'Test Backend Developer',
+            namingInPM: 'Middle',
+            discipline: 'Backend',
+            ukraine: 30, easternEurope: 35, asiaGE: 25, asiaARMKZ: 25,
+            latam: 28, mexico: 32, india: 20, newYork: 80, london: 70,
+          },
+          {
+            role: 'Test QA Engineer',
+            namingInPM: 'Middle',
+            discipline: 'QA',
+            ukraine: 25, easternEurope: 28, asiaGE: 20, asiaARMKZ: 20,
+            latam: 22, mexico: 26, india: 16, newYork: 65, london: 60,
+          },
+        ],
+      });
+    });
+    ({ app, initializeDefaultProject } = await import('./server'));
     await initializeDefaultProject();
     await cleanupTestProjects();
     const projRes = await request(app).post('/api/projects').send({ name: TEST_PROJECT_NAME });
@@ -235,6 +264,10 @@ describe('WBS API integration', () => {
   });
 
   afterAll(async () => {
+    // Guard against beforeAll failing before `app` is assigned (e.g. isolateTestDb
+    // throwing) — otherwise this runs anyway and throws its own confusing
+    // "Cannot read properties of undefined" instead of surfacing the real error.
+    if (!app) return;
     // Deleting the projects cascades (onDelete: Cascade) to their WbsItems and WbsEstimates.
     await cleanupTestProjects();
   });

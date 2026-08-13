@@ -80,15 +80,23 @@ data-loss-risk finding (non-transactional estimates replace + duplicate payload)
 other concrete bugs were patched directly (see spec's Spec Change Log). These are the
 remainder — pre-existing patterns or genuinely out-of-scope, not caused by WBS-1.
 
-- **🔴 `api.integration.test.ts`'s "Global rate card" tests destroy the live `prisma/dev.db`
-  rate card with no restore.** `POST /api/rate-cards/bulk` then `DELETE /api/rate-cards`
-  run against the real DB (no isolated test DB exists in this repo), with no `afterAll`
-  restore. A plain `npm test` empties a real, populated `GlobalRateCard` — reproduced twice
-  during WBS-1 review, recovered both times from a manual backup. Pre-existing (confirmed
-  byte-identical to the pre-WBS-1 baseline), but now a live landmine given the rate card is
-  populated (179 rows) and this is the second data-loss incident involving this exact table
-  in one day. Fix: back up/restore the rate card in that test's `beforeAll`/`afterAll`, or
-  move to an isolated test DB (`DATABASE_URL` override for `npm test`).
+- **✅ FIXED (2026-08-12, see `spec-isolate-test-database.md`):** `api.integration.test.ts`'s
+  "Global rate card" tests used to destroy the live `prisma/dev.db` rate card with no
+  restore. A backup/restore band-aid was tried first and rejected — adversarial review found
+  it had its own silent-data-loss modes (failed backup indistinguishable from "table was
+  empty," no crash protection, lossy `||`-fallback round-tripping, unrestorable
+  `importedAt`). Fixed properly instead: the whole suite now runs against a disposable
+  `prisma/test.db`, recreated fresh every `npm test` via a Vitest `globalSetup`. Verified
+  `prisma/dev.db` is now byte-for-byte identical (MD5) before and after a full `npm test`
+  run.
+- **✅ FIXED (2026-08-12, see `spec-isolate-test-database.md`'s Spec Change Log):** the
+  cross-file race between `api.integration.test.ts` and `wbs.integration.test.ts` over the
+  shared `prisma/test.db`'s fake rate-card rows was initially scoped out as a "lower-stakes
+  accepted residual." Follow-up review (3 independent reviewers) found it was actually
+  deterministic — 13/13 and 2/2 reproductions, including the exact command CI runs — not
+  occasional. Fixed via full per-file DB isolation (`testDb.ts`, `prisma/test-api.db` /
+  `prisma/test-wbs.db`); reverified 8/8 clean `npx vitest run` passes with `prisma/dev.db`'s
+  MD5 unchanged throughout.
 - **`errorData.details` renders as `"[object Object]"` in thrown client errors.**
   `src/services/api.ts`'s error branches do `errorData.details || errorData.error`, but
   `details` comes from the server's `parsed.error.flatten()` — an object, not a string.
@@ -119,6 +127,38 @@ remainder — pre-existing patterns or genuinely out-of-scope, not caused by WBS
   re-checks previously-written disciplines against it. Worth considering for WBS-3
   (reconciliation), which will need to handle "discipline doesn't match rate card" as a
   case regardless.
+
+## Deferred from spec-isolate-test-database per-file-isolation review (2026-08-12)
+
+Findings from two focused reviews of the per-file DB isolation fix (`testDb.ts`). The
+missing-`afterAll`-guard bug (confusing secondary crash when `beforeAll` fails before `app`
+is assigned) was patched directly in both integration files. These two are lower-severity
+and out of scope for this story — both fail loudly (crash, not silent wrong results), never
+touch `prisma/dev.db`, and don't affect this repo's actual CI (`.github/workflows/ci.yml` is
+a single job, no matrix, no shared checkout).
+
+- **Two concurrent `vitest run` invocations against the same checkout race on `db push` for
+  the same test-DB path.** `isolateTestDb()` and `globalSetup.ts` both delete-then-recreate a
+  fixed-path SQLite file with no locking. Deliberately reproduced 4/4 trials: one process
+  crashes with `table "Project" already exists` while the other passes. This isn't new to
+  the per-file mechanism — `globalSetup.ts`'s original single-shared-DB design had the
+  identical vulnerability, just never exercised since nobody ran two `npm test` invocations
+  in the same checkout concurrently before. A future CI change (matrix build, self-hosted
+  runner reusing a checkout) would need per-invocation-unique DB paths (e.g. a PID suffix) to
+  avoid this — not needed for the current single-job CI.
+- **`isolateTestDb`'s `name` uniqueness is convention-only, not enforced.** A third
+  integration test file reusing `'api'` or `'wbs'` would silently reintroduce the exact race
+  this fix eliminated. No runtime registry is possible across files (Vitest gives each test
+  file its own OS process under the default `forks`/`isolate:true` pool, confirmed via
+  distinct PIDs). Documented in `testDb.ts`'s docstring; worth a lint/convention check if a
+  third integration test file is ever added.
+- **Neither integration file calls `prisma.$disconnect()` on the dynamically-imported
+  server's Prisma client in `afterAll`.** `server.ts` doesn't export its internal `prisma`
+  instance, so there's no handle to disconnect from the test file. Only a theoretical concern
+  in `vitest --watch` (never used in CI, which always runs `vitest run` once per invocation)
+  — repeated re-triggers in a long local watch session could accumulate orphaned Prisma
+  client connections. Not reproduced empirically (watch-mode reruns weren't observable in the
+  sandbox used for review); flagged as a plausible risk, not a confirmed bug.
 
 ## Deferred from spec-wbs-0-close-daysinfte-semantics review (2026-08-12)
 

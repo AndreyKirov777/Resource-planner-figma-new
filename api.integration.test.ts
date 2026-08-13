@@ -1,6 +1,10 @@
+import type { Express } from 'express';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import { app, initializeDefaultProject } from './server';
+import { isolateTestDb } from './testDb';
+
+let app: Express;
+let initializeDefaultProject: () => Promise<void>;
 
 const TEST_PROJECT_NAMES = [
   'Integration Test Project',
@@ -42,10 +46,19 @@ async function cleanupTestProjects() {
 
 describe('API integration', () => {
   beforeAll(async () => {
+    // Own DB (prisma/test-api.db), never shared with wbs.integration.test.ts — this
+    // block's bulk-import/delete tests would otherwise race that file's discipline
+    // reads on a shared file. See testDb.ts.
+    await isolateTestDb('api');
+    ({ app, initializeDefaultProject } = await import('./server'));
     await initializeDefaultProject();
   });
 
   afterAll(async () => {
+    // Guard against beforeAll failing before `app` is assigned (e.g. isolateTestDb
+    // throwing) — otherwise this runs anyway and throws its own confusing
+    // "Cannot read properties of undefined" instead of surfacing the real error.
+    if (!app) return;
     await cleanupTestResourcePlans();
     await cleanupTestProjects();
   });
