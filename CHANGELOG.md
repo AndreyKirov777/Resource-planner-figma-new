@@ -10,6 +10,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Added
 
 ### Changed
+- Redesigned the WBS page as a flat five-column grid (WBS · Task Description · Phase · Roles · Hours), replacing the dynamically-widening discipline × hours matrix. Phase now inherits down the tree, and roles/hours are edited as role×hours pairs with the discipline derived from the rate card.
 
 ### Fixed
 
