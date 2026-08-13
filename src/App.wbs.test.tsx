@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from './App';
@@ -10,26 +10,87 @@ import type { WbsItem } from './services/api';
 // fast and focused. This file exists specifically to exercise App.tsx's real
 // WBS handler wiring (handleAddWbsItem/handleUpdateWbsItem/
 // handleDeleteWbsItem/handleReplaceWbsEstimates), which requires the real
-// `Wbs` component so its buttons/inputs can actually invoke those handlers.
-// The other four tabs stay mocked, same as App.test.tsx, since they're not
-// what's under test here.
+// `Wbs` component so its toolbar and cell edits can actually invoke those
+// handlers. The other four tabs stay mocked, same as App.test.tsx.
 
 const renderApp = () => render(<App />, { wrapper: MemoryRouter });
 
-// Radix Select (used by the real Wbs component's Phase picker) relies on
-// pointer-capture / scrollIntoView APIs jsdom doesn't implement.
-if (!Element.prototype.hasPointerCapture) {
-  Element.prototype.hasPointerCapture = () => false;
-}
-if (!Element.prototype.setPointerCapture) {
-  Element.prototype.setPointerCapture = () => {};
-}
-if (!Element.prototype.releasePointerCapture) {
-  Element.prototype.releasePointerCapture = () => {};
-}
-if (!Element.prototype.scrollIntoView) {
-  Element.prototype.scrollIntoView = () => {};
-}
+/**
+ * The same harness `Wbs.test.tsx` uses: Glide's canvas cells are unreachable
+ * from Testing Library, so the grid is replaced by a component that routes
+ * through the real `getCellContent` / `onCellEdited` / `onGridSelectionChange`
+ * and exposes them as DOM. `Wbs.tsx` itself stays unmocked.
+ */
+vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
+  const actual = (await importOriginal()) as typeof import('@glideapps/glide-data-grid');
+  const React = await import('react');
+
+  const cellText = (cell: any): string =>
+    cell.kind === actual.GridCellKind.Custom ? cell.copyData : (cell.displayData ?? '');
+
+  const Harness = (props: any) => {
+    const { rows, columns, getCellContent, onCellEdited, onGridSelectionChange } = props;
+    const [draft, setDraft] = React.useState('');
+
+    return (
+      <div data-testid="glide-grid">
+        <input aria-label="harness edit value" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        {Array.from({ length: rows }, (_unused, r) => {
+          const cells = columns.map((_c: unknown, ci: number) => getCellContent([ci, r]));
+          return (
+            <div key={r} data-testid={`row-${r}`}>
+              {cells.map((cell: any, ci: number) => (
+                <span key={ci} data-testid={`cell-${ci}-${r}`}>
+                  {cellText(cell)}
+                </span>
+              ))}
+              <button
+                onClick={() =>
+                  onGridSelectionChange({
+                    current: {
+                      cell: [0, r],
+                      range: { x: 0, y: r, width: 1, height: 1 },
+                      rangeStack: [],
+                    },
+                    columns: actual.CompactSelection.empty(),
+                    rows: actual.CompactSelection.empty(),
+                  })
+                }
+              >
+                {`select row ${r}`}
+              </button>
+              <button
+                onClick={() =>
+                  onCellEdited([1, r], {
+                    ...cells[1],
+                    copyData: draft,
+                    data: { ...cells[1].data, name: draft },
+                  })
+                }
+              >
+                {`rename row ${r}`}
+              </button>
+              <button
+                onClick={() =>
+                  // The Roles cell persists through the committer it is handed,
+                  // not through onCellEdited — drive it the same way the
+                  // overlay editor does.
+                  cells[3].data.committer.commit(cells[3].data.itemId, [
+                    { role: 'BA', discipline: 'Analysis', hours: Number(draft) },
+                  ])
+                }
+              >
+                {`set roles row ${r}`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return { ...actual, default: Harness };
+});
 
 vi.mock('./components/ResourcePlan', () => ({
   ResourcePlan: () => <div data-testid="resource-plan">Resource Plan</div>,
@@ -94,7 +155,7 @@ vi.mock('./services/api', () => ({
   },
 }));
 
-const getApi = () => import('./services/api').then(m => m.api);
+const getApi = () => import('./services/api').then((m) => m.api);
 
 beforeEach(async () => {
   const api = await getApi();
@@ -130,28 +191,18 @@ describe('App WBS handler wiring', () => {
 
     const user = await openWbsTab();
 
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('Root')).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Root'));
 
-    const rootRow = screen.getByDisplayValue('Root').closest('tr')!;
-    const deleteButton = within(rootRow).getByRole('button', { name: /delete/i });
-    await user.click(deleteButton);
+    await user.click(screen.getByRole('button', { name: 'select row 0' }));
+    await user.click(screen.getByRole('button', { name: /delete/i }));
 
-    // Confirm names the descendant count (3), matching the component-level contract.
+    // Confirm names the descendant count (3), matching the component contract.
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('3'));
-    await waitFor(() => {
-      expect(api.deleteWbsItem).toHaveBeenCalledWith(1);
-    });
+    await waitFor(() => expect(api.deleteWbsItem).toHaveBeenCalledWith(1));
 
     // Root + all descendants (2, 3, 4) must be gone from wbsItems state —
     // the cascade this test exists to cover.
-    await waitFor(() => {
-      expect(screen.queryByDisplayValue('Root')).not.toBeInTheDocument();
-    });
-    expect(screen.queryByDisplayValue('Child A')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('Child B')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('Grandchild')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/no wbs items yet/i)).toBeInTheDocument());
 
     vi.unstubAllGlobals();
   });
@@ -161,7 +212,7 @@ describe('App WBS handler wiring', () => {
     const items = [
       wbsItem({ id: 1, name: 'Root A' }),
       wbsItem({ id: 2, name: 'Root A Child', parentId: 1 }),
-      wbsItem({ id: 3, name: 'Root B' }),
+      wbsItem({ id: 3, name: 'Root B', displayOrder: 1 }),
     ];
     vi.mocked(api.getWbsItems).mockResolvedValue(items);
     vi.mocked(api.deleteWbsItem).mockResolvedValue(undefined);
@@ -169,50 +220,38 @@ describe('App WBS handler wiring', () => {
 
     const user = await openWbsTab();
 
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('Root A')).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Root A'));
 
-    const rootARow = screen.getByDisplayValue('Root A').closest('tr')!;
-    await user.click(within(rootARow).getByRole('button', { name: /delete/i }));
+    await user.click(screen.getByRole('button', { name: 'select row 0' }));
+    await user.click(screen.getByRole('button', { name: /delete/i }));
 
-    await waitFor(() => {
-      expect(api.deleteWbsItem).toHaveBeenCalledWith(1);
-    });
-    await waitFor(() => {
-      expect(screen.queryByDisplayValue('Root A')).not.toBeInTheDocument();
-    });
-    expect(screen.queryByDisplayValue('Root A Child')).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue('Root B')).toBeInTheDocument();
+    await waitFor(() => expect(api.deleteWbsItem).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Root B'));
+    expect(screen.queryByTestId('row-1')).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
 
-  it('handleAddWbsItem calls api.createWbsItem and adds the created item to the table', async () => {
+  it('handleAddWbsItem calls api.createWbsItem and adds the created item to the grid', async () => {
     const api = await getApi();
     vi.mocked(api.getWbsItems).mockResolvedValue([]);
-    const created = wbsItem({ id: 42, name: 'New item' });
-    vi.mocked(api.createWbsItem).mockResolvedValue(created);
+    vi.mocked(api.createWbsItem).mockResolvedValue(wbsItem({ id: 42, name: 'New item' }));
 
     const user = await openWbsTab();
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /add root item/i })).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByRole('button', { name: /add root item/i })).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: /add root item/i }));
 
-    await waitFor(() => {
+    await waitFor(() =>
       expect(api.createWbsItem).toHaveBeenCalledWith(
         1,
         expect.objectContaining({ name: 'New item', parentId: null })
-      );
-    });
-    await waitFor(() => {
-      expect(screen.getByLabelText('Name for item 42')).toBeInTheDocument();
-    });
+      )
+    );
+    await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('New item'));
   });
 
-  it('handleUpdateWbsItem calls api.updateWbsItem and reflects the rename in the table', async () => {
+  it('handleUpdateWbsItem calls api.updateWbsItem and reflects the rename in the grid', async () => {
     const api = await getApi();
     const items = [wbsItem({ id: 1, name: 'Root' })];
     vi.mocked(api.getWbsItems).mockResolvedValue(items);
@@ -220,58 +259,42 @@ describe('App WBS handler wiring', () => {
 
     const user = await openWbsTab();
 
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('Root')).toBeInTheDocument();
-    });
-    const nameInput = screen.getByLabelText('Name for item 1');
-    await user.clear(nameInput);
-    await user.type(nameInput, 'Renamed');
-    await user.tab();
+    await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Root'));
+    await user.type(screen.getByLabelText('harness edit value'), 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'rename row 0' }));
 
-    await waitFor(() => {
-      expect(api.updateWbsItem).toHaveBeenCalledWith(1, { name: 'Renamed' });
-    });
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('Renamed')).toBeInTheDocument();
-    });
+    await waitFor(() => expect(api.updateWbsItem).toHaveBeenCalledWith(1, { name: 'Renamed' }));
+    await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Renamed'));
   });
 
-  it('handleReplaceWbsEstimates calls api.replaceWbsEstimates and reflects the new hours in the table', async () => {
+  it('handleReplaceWbsEstimates calls api.replaceWbsEstimates and reflects the new hours in the grid', async () => {
     const api = await getApi();
     const items = [
       wbsItem({
         id: 1,
         name: 'Root',
         estimates: [
-          { id: 1, discipline: 'Engineering', role: '', hours: 5, wbsItemId: 1, createdAt: '', updatedAt: '' },
+          { id: 1, discipline: 'Analysis', role: 'BA', hours: 5, wbsItemId: 1, createdAt: '', updatedAt: '' },
         ],
       }),
     ];
     vi.mocked(api.getWbsItems).mockResolvedValue(items);
     vi.mocked(api.replaceWbsEstimates).mockResolvedValue([
-      { id: 1, discipline: 'Engineering', role: '', hours: 12, wbsItemId: 1, createdAt: '', updatedAt: '' },
+      { id: 2, discipline: 'Analysis', role: 'BA', hours: 12, wbsItemId: 1, createdAt: '', updatedAt: '' },
     ]);
 
     const user = await openWbsTab();
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Engineering hours for item 1')).toBeInTheDocument();
-    });
-    const hoursInput = screen.getByLabelText('Engineering hours for item 1');
-    await user.clear(hoursInput);
-    await user.type(hoursInput, '12');
-    await user.tab();
+    await waitFor(() => expect(screen.getByTestId('cell-3-0')).toHaveTextContent('BA ×5'));
+    await user.type(screen.getByLabelText('harness edit value'), '12');
+    await user.click(screen.getByRole('button', { name: 'set roles row 0' }));
 
-    await waitFor(() => {
-      expect(api.replaceWbsEstimates).toHaveBeenCalledWith(
-        1,
-        expect.arrayContaining([expect.objectContaining({ discipline: 'Engineering', hours: 12 })])
-      );
-    });
-    // "Total hours" cell reflects the server's confirmed value after the state update.
-    await waitFor(() => {
-      const row = screen.getByLabelText('Engineering hours for item 1').closest('tr')!;
-      expect(within(row).getByText('12')).toBeInTheDocument();
-    });
+    await waitFor(() =>
+      expect(api.replaceWbsEstimates).toHaveBeenCalledWith(1, [
+        { discipline: 'Analysis', role: 'BA', hours: 12 },
+      ])
+    );
+    // The Hours rollup reflects the server confirmed value after the state update.
+    await waitFor(() => expect(screen.getByTestId('cell-4-0')).toHaveTextContent('12'));
   });
 });

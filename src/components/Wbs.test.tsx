@@ -1,24 +1,164 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Wbs } from './Wbs';
 import type { Project, RateCard, WbsItem } from '../services/api';
 
-// Radix Select relies on pointer-capture / scrollIntoView APIs jsdom doesn't
-// implement; polyfill them so tests can open the "+ Add discipline" Select
-// and the Phase Select via ordinary userEvent clicks.
-if (!Element.prototype.hasPointerCapture) {
-  Element.prototype.hasPointerCapture = () => false;
-}
-if (!Element.prototype.setPointerCapture) {
-  Element.prototype.setPointerCapture = () => {};
-}
-if (!Element.prototype.releasePointerCapture) {
-  Element.prototype.releasePointerCapture = () => {};
-}
-if (!Element.prototype.scrollIntoView) {
-  Element.prototype.scrollIntoView = () => {};
-}
+/**
+ * Glide draws into a canvas, so its cells are unreachable from Testing
+ * Library. Rather than stub the grid away (which would let the component be
+ * gutted with every test still green), this harness renders through the
+ * component's REAL `getCellContent`, `onCellEdited`, `onGridSelectionChange`,
+ * `getRowThemeOverride` and chevron callback — the whole adapter surface —
+ * exposing each as ordinary DOM.
+ */
+vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
+  const actual = (await importOriginal()) as typeof import('@glideapps/glide-data-grid');
+  const React = await import('react');
+
+  const cellText = (cell: any): string =>
+    cell.kind === actual.GridCellKind.Custom ? cell.copyData : (cell.displayData ?? '');
+
+  const Harness = (props: any) => {
+    const { rows, columns, getCellContent, onCellEdited, onGridSelectionChange, getRowThemeOverride } = props;
+    const [draft, setDraft] = React.useState('');
+    const [outsideClick, setOutsideClick] = React.useState('');
+    // Cells captured when an "overlay" opened, so a commit can be replayed
+    // after the visible row set has shifted underneath it.
+    const captured = React.useRef<{ col: number; row: number; cell: any } | null>(null);
+
+    // Evaluate the real `isOutsideClick` guard against a target of the given
+    // shape. `missing` proves the prop was never handed to DataEditor at all.
+    const probeOutsideClick = (className: string) => {
+      if (typeof props.isOutsideClick !== 'function') {
+        setOutsideClick('missing');
+        return;
+      }
+      const target = document.createElement('div');
+      target.className = className;
+      document.body.appendChild(target);
+      setOutsideClick(String(props.isOutsideClick({ target } as unknown as MouseEvent)));
+      target.remove();
+    };
+
+    return (
+      <div data-testid="glide-grid">
+        <input
+          aria-label="harness edit value"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <span data-testid="grid-columns">
+          {columns.map((c: { title: string }) => c.title).join('|')}
+        </span>
+        <span data-testid="is-outside-click">{outsideClick}</span>
+        <button onClick={() => probeOutsideClick('click-outside-ignore')}>
+          probe portaled menu click
+        </button>
+        <button onClick={() => probeOutsideClick('somewhere-else')}>probe plain click</button>
+        <button
+          onClick={() => {
+            if (captured.current === null) return;
+            const { col, row, cell } = captured.current;
+            onCellEdited(
+              [col, row],
+              col === 1
+                ? { ...cell, copyData: draft, data: { ...cell.data, name: draft } }
+                : { ...cell, data: { ...cell.data, ownPhaseName: draft === '' ? null : draft } }
+            );
+          }}
+        >
+          commit captured edit
+        </button>
+        {Array.from({ length: rows }, (_unused, r) => {
+          const cells = columns.map((_c: unknown, ci: number) => getCellContent([ci, r]));
+          const taskData = cells[1].data;
+          const phaseData = cells[2].data;
+          return (
+            <div
+              key={r}
+              data-testid={`row-${r}`}
+              data-section={String(getRowThemeOverride?.(r) !== undefined)}
+              data-depth={String(taskData.depth)}
+              data-phase-inherited={String(phaseData.inherited)}
+            >
+              {cells.map((cell: any, ci: number) => (
+                <span key={ci} data-testid={`cell-${ci}-${r}`}>
+                  {cellText(cell)}
+                </span>
+              ))}
+              <button
+                onClick={() =>
+                  onGridSelectionChange({
+                    current: {
+                      cell: [0, r],
+                      range: { x: 0, y: r, width: 1, height: 1 },
+                      rangeStack: [],
+                    },
+                    columns: actual.CompactSelection.empty(),
+                    rows: actual.CompactSelection.empty(),
+                  })
+                }
+              >
+                {`select row ${r}`}
+              </button>
+              <button onClick={() => taskData.onToggle(taskData.itemId)}>{`toggle row ${r}`}</button>
+              <button
+                onClick={() => {
+                  captured.current = { col: 1, row: r, cell: cells[1] };
+                }}
+              >{`capture name row ${r}`}</button>
+              <button
+                onClick={() => {
+                  captured.current = { col: 2, row: r, cell: cells[2] };
+                }}
+              >{`capture phase row ${r}`}</button>
+              <button
+                onClick={() =>
+                  onCellEdited([1, r], {
+                    ...cells[1],
+                    copyData: draft,
+                    data: { ...taskData, name: draft },
+                  })
+                }
+              >
+                {`rename row ${r}`}
+              </button>
+              {/* One user action delivering the same edit twice: Glide's own
+                  outside-click commit plus the input's native blur, in the same
+                  turn of the event loop. */}
+              <button
+                onClick={() => {
+                  const edited = {
+                    ...cells[1],
+                    copyData: draft,
+                    data: { ...taskData, name: draft },
+                  };
+                  onCellEdited([1, r], edited);
+                  onCellEdited([1, r], edited);
+                }}
+              >
+                {`double-rename row ${r}`}
+              </button>
+              <button
+                onClick={() =>
+                  onCellEdited([2, r], {
+                    ...cells[2],
+                    data: { ...phaseData, ownPhaseName: draft === '' ? null : draft },
+                  })
+                }
+              >
+                {`set phase row ${r}`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return { ...actual, default: Harness };
+});
 
 function wbsItem(overrides: Partial<WbsItem>): WbsItem {
   return {
@@ -65,7 +205,10 @@ const mockProject: Project = {
   exchangeRate: 1,
   defaultMargin: 25,
   planningMode: 'weekly',
-  phases: JSON.stringify([{ name: 'Phase 1', periodCount: 4, color: '#E3F2FD' }]),
+  phases: JSON.stringify([
+    { name: 'Phase 1', periodCount: 4, color: '#E3F2FD' },
+    { name: 'Phase 2', periodCount: 4, color: '#E8F5E9' },
+  ]),
   createdAt: '',
   updatedAt: '',
 };
@@ -74,7 +217,7 @@ function defaultProps(wbsItems: WbsItem[]) {
   return {
     project: mockProject,
     resourcePlans: [],
-    rateCards: [],
+    rateCards: [] as RateCard[],
     wbsItems,
     onAddWbsItem: vi.fn().mockResolvedValue(wbsItem({ id: 999 })),
     onUpdateWbsItem: vi.fn().mockResolvedValue(undefined),
@@ -83,299 +226,489 @@ function defaultProps(wbsItems: WbsItem[]) {
   };
 }
 
-describe('Wbs', () => {
+const threeLevelTree: WbsItem[] = [
+  wbsItem({ id: 1, name: 'Discovery', parentId: null, phaseName: 'Phase 1' }),
+  wbsItem({
+    id: 2,
+    name: 'Interviews',
+    parentId: 1,
+    phaseName: null,
+    estimates: [
+      { id: 1, discipline: 'Analysis', role: 'BA', hours: 16, wbsItemId: 2, createdAt: '', updatedAt: '' },
+    ],
+  }),
+  wbsItem({
+    id: 3,
+    name: 'Notes',
+    parentId: 2,
+    phaseName: null,
+    estimates: [
+      { id: 2, discipline: 'Design', role: 'UX', hours: 8, wbsItemId: 3, createdAt: '', updatedAt: '' },
+    ],
+  }),
+  wbsItem({ id: 4, name: 'Build', parentId: null, phaseName: 'Phase 2', displayOrder: 1 }),
+];
+
+describe('Wbs — rendering', () => {
   it('renders an empty state with an Add root item button when there are no items', () => {
     render(<Wbs {...defaultProps([])} />);
     expect(screen.getByText(/no wbs items yet/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /add root item/i })).toBeInTheDocument();
   });
 
-  it('indents a 2-level tree by depth', () => {
-    const items = [
-      wbsItem({ id: 1, name: 'Root', parentId: null }),
-      wbsItem({ id: 2, name: 'Child', parentId: 1 }),
-    ];
-    render(<Wbs {...defaultProps(items)} />);
+  it('gives every row its outline number, name, effective phase, role chips and rolled-up hours', () => {
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
 
-    const rootInput = screen.getByDisplayValue('Root') as HTMLInputElement;
-    const childInput = screen.getByDisplayValue('Child') as HTMLInputElement;
+    // WBS column: outline numbers derived from tree position.
+    expect(screen.getByTestId('cell-0-0')).toHaveTextContent('1');
+    expect(screen.getByTestId('cell-0-1')).toHaveTextContent('1.1');
+    expect(screen.getByTestId('cell-0-2')).toHaveTextContent('1.1.1');
+    expect(screen.getByTestId('cell-0-3')).toHaveTextContent('2');
 
-    expect(rootInput.parentElement).toHaveStyle({ paddingLeft: '0px' });
-    expect(childInput.parentElement).toHaveStyle({ paddingLeft: '20px' });
+    // Task Description, with depth driving the indent.
+    expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Interviews');
+    expect(screen.getByTestId('row-0')).toHaveAttribute('data-depth', '0');
+    expect(screen.getByTestId('row-1')).toHaveAttribute('data-depth', '1');
+    expect(screen.getByTestId('row-2')).toHaveAttribute('data-depth', '2');
+
+    // Roles: composite role x hours chips, no per-discipline columns anywhere.
+    expect(screen.getByTestId('cell-3-1')).toHaveTextContent('BA ×16');
+    expect(screen.getByTestId('cell-3-2')).toHaveTextContent('UX ×8');
+
+    // Hours: own + all descendants.
+    expect(screen.getByTestId('cell-4-0')).toHaveTextContent('24');
+    expect(screen.getByTestId('cell-4-1')).toHaveTextContent('24');
+    expect(screen.getByTestId('cell-4-2')).toHaveTextContent('8');
   });
 
-  it('calls onAddWbsItem with a root-level payload when Add root item is clicked', async () => {
+  it('renders exactly five columns, none of them a discipline', () => {
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    // Asserted on the real column titles, not on how many spans the harness
+    // happened to render: counting alone passes for any five columns at all.
+    expect(screen.getByTestId('grid-columns')).toHaveTextContent(
+      'WBS|Task Description|Phase|Roles|Hours'
+    );
+    expect(screen.queryByTestId('cell-5-0')).not.toBeInTheDocument();
+  });
+
+  it('inherits a phase down the tree and marks the inherited ones', () => {
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    expect(screen.getByTestId('cell-2-0')).toHaveTextContent('Phase 1');
+    expect(screen.getByTestId('row-0')).toHaveAttribute('data-phase-inherited', 'false');
+    expect(screen.getByTestId('cell-2-1')).toHaveTextContent('Phase 1');
+    expect(screen.getByTestId('row-1')).toHaveAttribute('data-phase-inherited', 'true');
+    // A sibling with its own phase overrides its own subtree.
+    expect(screen.getByTestId('cell-2-3')).toHaveTextContent('Phase 2');
+    expect(screen.getByTestId('row-3')).toHaveAttribute('data-phase-inherited', 'false');
+  });
+
+  it('renders a stale phase name as Unassigned rather than verbatim', () => {
+    const items = [wbsItem({ id: 1, name: 'Root', phaseName: 'Deleted phase' })];
+    render(<Wbs {...defaultProps(items)} />);
+
+    expect(screen.getByTestId('cell-2-0')).toHaveTextContent('Unassigned');
+  });
+
+  it('applies the section row theme to depth-0 rows only', () => {
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    expect(screen.getByTestId('row-0')).toHaveAttribute('data-section', 'true');
+    expect(screen.getByTestId('row-1')).toHaveAttribute('data-section', 'false');
+    expect(screen.getByTestId('row-3')).toHaveAttribute('data-section', 'true');
+  });
+
+  it('clamps the container height instead of growing without bound', () => {
+    const many = Array.from({ length: 500 }, (_unused, i) =>
+      wbsItem({ id: i + 1, name: `Item ${i}`, parentId: null, displayOrder: i })
+    );
+    render(<Wbs {...defaultProps(many)} />);
+
+    // Targeted by test id: `[style*="height"]` grabs the first element with any
+    // inline height at all, so it would pass just as happily on `height: 0`.
+    const height = gridHeight();
+    expect(height).toBeLessThanOrEqual(640);
+    expect(height).toBeGreaterThan(0);
+  });
+});
+
+/** The grid container's computed pixel height. */
+function gridHeight(): number {
+  return parseInt(screen.getByTestId('wbs-grid-container').style.height, 10);
+}
+
+describe('Wbs — collapse', () => {
+  it('hides descendants when a row is collapsed, leaving numbers and siblings alone', async () => {
     const user = userEvent.setup();
-    const props = defaultProps([]);
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+
+    // Descendants gone; the sibling root stays and keeps its outline number.
+    expect(screen.queryByTestId('row-2')).not.toBeInTheDocument();
+    expect(screen.getByTestId('cell-0-1')).toHaveTextContent('2');
+    expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Build');
+  });
+
+  it('shrinks the container height to match the visible row count', async () => {
+    const user = userEvent.setup();
+    const wide: WbsItem[] = [
+      wbsItem({ id: 1, name: 'Root', parentId: null }),
+      ...Array.from({ length: 10 }, (_unused, i) =>
+        wbsItem({ id: i + 2, name: `Child ${i}`, parentId: 1, displayOrder: i })
+      ),
+    ];
+    render(<Wbs {...defaultProps(wide)} />);
+    const before = gridHeight();
+
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+
+    expect(gridHeight()).toBeLessThan(before);
+  });
+
+  it('re-expands on a second toggle', async () => {
+    const user = userEvent.setup();
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+    expect(screen.queryByTestId('row-3')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+    expect(screen.getByTestId('cell-1-3')).toHaveTextContent('Build');
+  });
+});
+
+describe('Wbs — toolbar actions on the grid selection', () => {
+  it('disables + Child and Delete while nothing is selected', () => {
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    expect(screen.getByRole('button', { name: /\+ child/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /delete/i })).toBeDisabled();
+  });
+
+  it('adds a root item with a client-computed displayOrder', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
     await user.click(screen.getByRole('button', { name: /add root item/i }));
 
     expect(props.onAddWbsItem).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'New item', parentId: null, displayOrder: 0 })
+      expect.objectContaining({ name: 'New item', parentId: null, displayOrder: 2 })
     );
   });
 
-  it('editing a discipline cell calls onReplaceWbsEstimates with the merged full estimate set', async () => {
+  it('adds a child under the selected row', async () => {
     const user = userEvent.setup();
-    const items = [
-      wbsItem({
-        id: 10,
-        name: 'Task',
-        parentId: null,
-        estimates: [
-          { id: 1, discipline: 'Engineering', role: '', hours: 5, wbsItemId: 10, createdAt: '', updatedAt: '' },
-          { id: 2, discipline: 'Design', role: 'lead', hours: 3, wbsItemId: 10, createdAt: '', updatedAt: '' },
-        ],
-      }),
-    ];
-    const props = defaultProps(items);
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    const hoursInput = screen.getByLabelText('Engineering hours for item 10');
-    await user.clear(hoursInput);
-    await user.type(hoursInput, '8');
-    await user.tab();
+    await user.click(screen.getByRole('button', { name: 'select row 1' }));
+    await user.click(screen.getByRole('button', { name: /\+ child/i }));
 
-    expect(props.onReplaceWbsEstimates).toHaveBeenCalledTimes(1);
-    const [calledId, calledEstimates] = props.onReplaceWbsEstimates.mock.calls[0];
-    expect(calledId).toBe(10);
-    expect(calledEstimates).toHaveLength(2);
-    expect(calledEstimates).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ discipline: 'Design', role: 'lead', hours: 3 }),
-        expect.objectContaining({ discipline: 'Engineering', role: '', hours: 8 }),
-      ])
-    );
+    expect(props.onAddWbsItem).toHaveBeenCalledWith(expect.objectContaining({ parentId: 2 }));
   });
 
-  it('two rapid edits on different discipline cells of the same row both survive (no lost update)', async () => {
+  it('expands a collapsed parent when adding a child to it, so the new row is visible', async () => {
     const user = userEvent.setup();
-    const items = [
-      wbsItem({
-        id: 10,
-        name: 'Task',
-        parentId: null,
-        estimates: [
-          { id: 1, discipline: 'Engineering', role: '', hours: 5, wbsItemId: 10, createdAt: '', updatedAt: '' },
-        ],
-      }),
-    ];
-
-    // Controllable/delayed mock: the first replaceWbsEstimates call only
-    // resolves once we explicitly release it, after the second edit has
-    // already been triggered — reproducing the race.
-    let releaseFirstCall: (() => void) | undefined;
-    let callCount = 0;
-    const onReplaceWbsEstimates = vi.fn().mockImplementation(() => {
-      callCount += 1;
-      if (callCount === 1) {
-        return new Promise<void>((resolve) => {
-          releaseFirstCall = resolve;
-        });
-      }
-      return Promise.resolve();
-    });
-
-    const props = { ...defaultProps(items), onReplaceWbsEstimates };
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    // Edit discipline A (Engineering) and blur — commitHours #1 fires and
-    // hangs (its onReplaceWbsEstimates promise is not yet resolved).
-    const engineeringInput = screen.getByLabelText('Engineering hours for item 10');
-    await user.clear(engineeringInput);
-    await user.type(engineeringInput, '8');
-    await user.tab();
-    expect(onReplaceWbsEstimates).toHaveBeenCalledTimes(1);
+    // Collapse row 0, then re-select it (collapsing invalidates the selection).
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+    expect(screen.queryByTestId('row-2')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'select row 0' }));
+    await user.click(screen.getByRole('button', { name: /\+ child/i }));
 
-    // Without awaiting the first edit's resolution, add a second discipline
-    // column and edit it on the same row.
-    await user.click(screen.getByRole('button', { name: /\+ add discipline/i }));
-    await user.type(screen.getByLabelText('New discipline name'), 'Design');
-    await user.click(screen.getByRole('button', { name: 'Add' }));
-
-    const designInput = screen.getByLabelText('Design hours for item 10');
-    await user.clear(designInput);
-    await user.type(designInput, '3');
-    await user.tab();
-
-    // The second commit is chained after the first and hasn't fired yet.
-    expect(onReplaceWbsEstimates).toHaveBeenCalledTimes(1);
-
-    // Now let the first call resolve; the second (queued) call should then fire.
-    releaseFirstCall?.();
-    await waitFor(() => expect(onReplaceWbsEstimates).toHaveBeenCalledTimes(2));
-
-    const [, secondCallEstimates] = onReplaceWbsEstimates.mock.calls[1];
-    expect(secondCallEstimates).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ discipline: 'Engineering', role: '', hours: 8 }),
-        expect.objectContaining({ discipline: 'Design', role: '', hours: 3 }),
-      ])
-    );
+    expect(props.onAddWbsItem).toHaveBeenCalledWith(expect.objectContaining({ parentId: 1 }));
+    // The subtree is open again, so the new child will land somewhere visible.
+    expect(screen.getByTestId('cell-1-2')).toHaveTextContent('Notes');
   });
 
-  it('deleting an item with descendants confirms naming the descendant count, then deletes on confirm', async () => {
+  it('confirms a delete naming the descendant count, then deletes', async () => {
     const user = userEvent.setup();
     vi.stubGlobal('confirm', vi.fn(() => true));
-    const items = [
-      wbsItem({ id: 1, name: 'Root', parentId: null }),
-      wbsItem({ id: 2, name: 'Child A', parentId: 1 }),
-      wbsItem({ id: 3, name: 'Child B', parentId: 1 }),
-      wbsItem({ id: 4, name: 'Grandchild', parentId: 2 }),
-    ];
-    const props = defaultProps(items);
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    const rootInput = screen.getByDisplayValue('Root');
-    const rootRow = rootInput.closest('tr')!;
-    const deleteButton = within(rootRow).getByRole('button', { name: /delete/i });
+    await user.click(screen.getByRole('button', { name: 'select row 0' }));
+    await user.click(screen.getByRole('button', { name: /delete/i }));
 
-    await user.click(deleteButton);
-
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('3'));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2 descendant items'));
     expect(props.onDeleteWbsItem).toHaveBeenCalledWith(1);
 
     vi.unstubAllGlobals();
   });
 
-  it('does not call onDeleteWbsItem when the user cancels the confirm', async () => {
+  it('makes no call when the delete confirm is cancelled', async () => {
     const user = userEvent.setup();
     vi.stubGlobal('confirm', vi.fn(() => false));
-    const items = [wbsItem({ id: 1, name: 'Root', parentId: null })];
-    const props = defaultProps(items);
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    const deleteButton = screen.getByRole('button', { name: /delete/i });
-    await user.click(deleteButton);
+    await user.click(screen.getByRole('button', { name: 'select row 0' }));
+    await user.click(screen.getByRole('button', { name: /delete/i }));
 
     expect(props.onDeleteWbsItem).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
   });
 
-  it('clicking a row\'s + Child button calls onAddWbsItem with that row\'s id as parentId', async () => {
+  it('invalidates the selection when the visible row set changes', async () => {
     const user = userEvent.setup();
-    const items = [wbsItem({ id: 7, name: 'Root', parentId: null })];
-    const props = defaultProps(items);
+    const props = defaultProps(threeLevelTree);
+    vi.stubGlobal('confirm', vi.fn(() => true));
     render(<Wbs {...props} />);
 
-    const rootInput = screen.getByDisplayValue('Root');
-    const rootRow = rootInput.closest('tr')!;
-    const addChildButton = within(rootRow).getByRole('button', { name: /\+ child/i });
+    // Row index 1 is "Interviews" (id 2)...
+    await user.click(screen.getByRole('button', { name: 'select row 1' }));
+    expect(screen.getByRole('button', { name: /delete/i })).toBeEnabled();
 
-    await user.click(addChildButton);
+    // ...but collapsing row 0 makes index 1 point at "Build" (id 4) instead.
+    // A stale index would silently delete the wrong item, so it must drop.
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+    expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Build');
+    expect(screen.getByRole('button', { name: /delete/i })).toBeDisabled();
+    expect(props.onDeleteWbsItem).not.toHaveBeenCalled();
 
-    expect(props.onAddWbsItem).toHaveBeenCalledWith(
-      expect.objectContaining({ parentId: 7 })
-    );
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('Wbs — cell edits', () => {
+  it('renames an item through the real onCellEdited path', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.type(screen.getByLabelText('harness edit value'), 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'rename row 1' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(2, { name: 'Renamed' });
   });
 
-  it('selecting Unassigned in the Phase select calls onUpdateWbsItem with phaseName: null', async () => {
+  it('reverts a blank name without calling the API', async () => {
     const user = userEvent.setup();
-    const items = [wbsItem({ id: 1, name: 'Root', parentId: null, phaseName: 'Phase 1' })];
-    const props = defaultProps(items);
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    await user.click(screen.getByLabelText('Phase for item 1'));
-    await user.click(screen.getByRole('option', { name: 'Unassigned' }));
+    await user.click(screen.getByRole('button', { name: 'rename row 1' }));
+
+    expect(props.onUpdateWbsItem).not.toHaveBeenCalled();
+  });
+
+  it('sets a phase through the real onCellEdited path', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.type(screen.getByLabelText('harness edit value'), 'Phase 2');
+    await user.click(screen.getByRole('button', { name: 'set phase row 1' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(2, { phaseName: 'Phase 2' });
+  });
+
+  it('clears a phase to Unassigned', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    // Empty harness draft means "Unassigned" on row 0, which sets Phase 1.
+    await user.click(screen.getByRole('button', { name: 'set phase row 0' }));
 
     expect(props.onUpdateWbsItem).toHaveBeenCalledWith(1, { phaseName: null });
   });
 
-  it('clearing the Name input to blank and blurring reverts locally without calling onUpdateWbsItem', async () => {
+  it('makes no call when the phase did not change', async () => {
     const user = userEvent.setup();
-    const items = [wbsItem({ id: 1, name: 'Root', parentId: null })];
-    const props = defaultProps(items);
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    const nameInput = screen.getByLabelText('Name for item 1');
-    await user.clear(nameInput);
-    await user.tab();
+    await user.type(screen.getByLabelText('harness edit value'), 'Phase 1');
+    await user.click(screen.getByRole('button', { name: 'set phase row 0' }));
 
     expect(props.onUpdateWbsItem).not.toHaveBeenCalled();
-    // Reverts to the last-known name rather than staying blank.
-    expect(screen.getByDisplayValue('Root')).toBeInTheDocument();
   });
 
-  it('with rate-card entries present, selecting a discipline and clicking Add adds a column with that header', async () => {
+  // A stale stored phase renders as Unassigned and reports `ownPhaseName: null`,
+  // so comparing the pick against it made "Unassigned" a no-op on exactly the
+  // rows that needed clearing — the dead name would live in the DB forever.
+  it('actually clears a stale phase name when Unassigned is picked', async () => {
     const user = userEvent.setup();
-    const items = [wbsItem({ id: 1, name: 'Root', parentId: null })];
-    const props = {
-      ...defaultProps(items),
-      rateCards: [rateCard({ discipline: 'Design' }), rateCard({ discipline: 'QA' })],
-    };
+    const props = defaultProps([wbsItem({ id: 1, name: 'Root', phaseName: 'Deleted phase' })]);
     render(<Wbs {...props} />);
 
-    await user.click(screen.getByRole('button', { name: /\+ add discipline/i }));
-    await user.click(screen.getByRole('combobox', { name: 'New discipline' }));
-    await user.click(screen.getByRole('option', { name: 'QA' }));
-    await user.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByTestId('cell-2-0')).toHaveTextContent('Unassigned');
+    // Empty harness draft means Unassigned.
+    await user.click(screen.getByRole('button', { name: 'set phase row 0' }));
 
-    expect(screen.getByRole('columnheader', { name: 'QA' })).toBeInTheDocument();
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(1, { phaseName: null });
   });
 
-  it('with no rate cards, typing a free-text discipline name and clicking Add adds a column with that name', async () => {
+  // Glide's own outside-click commit and the editor input's native blur can
+  // both deliver the same edit for one user action.
+  it('issues one write when the same edit arrives twice', async () => {
     const user = userEvent.setup();
-    const items = [wbsItem({ id: 1, name: 'Root', parentId: null })];
-    const props = { ...defaultProps(items), rateCards: [] };
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    await user.click(screen.getByRole('button', { name: /\+ add discipline/i }));
-    await user.type(screen.getByLabelText('New discipline name'), 'Marketing');
-    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.type(screen.getByLabelText('harness edit value'), 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'double-rename row 1' }));
 
-    expect(screen.getByRole('columnheader', { name: 'Marketing' })).toBeInTheDocument();
+    expect(props.onUpdateWbsItem).toHaveBeenCalledTimes(1);
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(2, { name: 'Renamed' });
   });
 
-  it('the discipline picker only offers rate-card disciplines not already shown as a column', async () => {
+  it('does not swallow a genuine repeat once the first write has landed', async () => {
     const user = userEvent.setup();
-    const items = [
-      wbsItem({
-        id: 1,
-        name: 'Root',
-        parentId: null,
-        estimates: [
-          { id: 1, discipline: 'Design', role: '', hours: 2, wbsItemId: 1, createdAt: '', updatedAt: '' },
-        ],
-      }),
-    ];
-    const props = {
-      ...defaultProps(items),
-      rateCards: [rateCard({ discipline: 'Design' }), rateCard({ discipline: 'QA' })],
-    };
+    const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    // "Design" is already a column (it has an estimate); only "QA" should be offered.
-    await user.click(screen.getByRole('button', { name: /\+ add discipline/i }));
-    await user.click(screen.getByRole('combobox', { name: 'New discipline' }));
+    await user.type(screen.getByLabelText('harness edit value'), 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'rename row 1' }));
+    await user.click(screen.getByRole('button', { name: 'rename row 1' }));
 
-    expect(screen.getByRole('option', { name: 'QA' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'Design' })).not.toBeInTheDocument();
+    expect(props.onUpdateWbsItem).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Wbs — an edit lands on the item its overlay opened on', () => {
+  // `rows[row]` is only valid while the row set holds still. A `+ Child` or
+  // delete round-trip resolving while an overlay is open re-points that index
+  // at a different item, and the edit lands on the wrong row.
+  const shifted: WbsItem[] = [
+    wbsItem({ id: 9, name: 'Inserted', parentId: null, displayOrder: -1 }),
+    ...threeLevelTree,
+  ];
+
+  it('renames the captured item, not whatever now sits at that row index', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    const { rerender } = render(<Wbs {...props} />);
+
+    // The overlay opens on row 1 — "Interviews", id 2.
+    expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Interviews');
+    await user.click(screen.getByRole('button', { name: 'capture name row 1' }));
+
+    // A new root item lands while the overlay is open: row 1 is now "Discovery".
+    rerender(<Wbs {...props} wbsItems={shifted} />);
+    expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Discovery');
+
+    await user.type(screen.getByLabelText('harness edit value'), 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'commit captured edit' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(2, { name: 'Renamed' });
+    expect(props.onUpdateWbsItem).not.toHaveBeenCalledWith(1, expect.anything());
   });
 
-  it('falls back to the free-text Input when every rate-card discipline is already a column', async () => {
+  it('sets the phase on the captured item, not on whatever now sits at that row index', async () => {
     const user = userEvent.setup();
-    const items = [
-      wbsItem({
-        id: 1,
-        name: 'Root',
-        parentId: null,
-        estimates: [
-          { id: 1, discipline: 'Design', role: '', hours: 2, wbsItemId: 1, createdAt: '', updatedAt: '' },
-        ],
-      }),
-    ];
-    const props = {
-      ...defaultProps(items),
-      // The only rate-card discipline is already shown as a column.
-      rateCards: [rateCard({ discipline: 'Design' })],
-    };
-    render(<Wbs {...props} />);
+    const props = defaultProps(threeLevelTree);
+    const { rerender } = render(<Wbs {...props} />);
 
-    await user.click(screen.getByRole('button', { name: /\+ add discipline/i }));
+    await user.click(screen.getByRole('button', { name: 'capture phase row 1' }));
+    rerender(<Wbs {...props} wbsItems={shifted} />);
 
-    expect(screen.getByLabelText('New discipline name')).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'New discipline' })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('harness edit value'), 'Phase 2');
+    await user.click(screen.getByRole('button', { name: 'commit captured edit' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(2, { phaseName: 'Phase 2' });
+    expect(props.onUpdateWbsItem).not.toHaveBeenCalledWith(1, expect.anything());
+  });
+
+  it('writes nothing at all when the captured item has been deleted', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    const { rerender } = render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'capture name row 1' }));
+    // "Interviews" (id 2) and its subtree are gone; row 1 is "Build" now.
+    rerender(<Wbs {...props} wbsItems={threeLevelTree.filter((i) => ![2, 3].includes(i.id))} />);
+
+    await user.type(screen.getByLabelText('harness edit value'), 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'commit captured edit' }));
+
+    expect(props.onUpdateWbsItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('Wbs — overlay dismissal guard', () => {
+  // A probe deleting `isOutsideClick={isOutsideClick}` from DataEditor passed
+  // the suite: without it, Glide's capture-phase mousedown tears the overlay
+  // down before a portaled menu can turn a click into `onValueChange`.
+  it('hands DataEditor an isOutsideClick guard that spares a portaled menu', async () => {
+    const user = userEvent.setup();
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    await user.click(screen.getByRole('button', { name: 'probe portaled menu click' }));
+
+    expect(screen.getByTestId('is-outside-click')).toHaveTextContent('false');
+  });
+
+  it('still treats a click anywhere else as a genuine outside click', async () => {
+    const user = userEvent.setup();
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    await user.click(screen.getByRole('button', { name: 'probe plain click' }));
+
+    expect(screen.getByTestId('is-outside-click')).toHaveTextContent('true');
+  });
+});
+
+describe('Wbs — collapsed ids are pruned with their items', () => {
+  it('does not start a recycled id collapsed', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    const { rerender } = render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+    expect(screen.queryByTestId('row-2')).not.toBeInTheDocument();
+
+    // Id 1's subtree is deleted, then the database hands id 1 to a new item.
+    rerender(<Wbs {...props} wbsItems={[wbsItem({ id: 4, name: 'Build', displayOrder: 1 })]} />);
+    rerender(
+      <Wbs
+        {...props}
+        wbsItems={[
+          wbsItem({ id: 1, name: 'Recycled', parentId: null }),
+          wbsItem({ id: 5, name: 'Its child', parentId: 1 }),
+          wbsItem({ id: 4, name: 'Build', displayOrder: 1 }),
+        ]}
+      />
+    );
+
+    // The new row's child is visible: the stale collapsed id did not carry over.
+    expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Recycled');
+    expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Its child');
+  });
+});
+
+describe('Wbs — reconciliation strip', () => {
+  it('starts collapsed with a WBS/plan/variance summary on the trigger', () => {
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    expect(screen.getByRole('button', { name: /WBS 24 h .* Plan 0 h .* \+24/ })).toBeInTheDocument();
+    expect(screen.queryByText('By discipline')).not.toBeInTheDocument();
+  });
+
+  it('expands to the full panel on click', async () => {
+    const user = userEvent.setup();
+    render(<Wbs {...defaultProps(threeLevelTree)} />);
+
+    await user.click(screen.getByRole('button', { name: /WBS 24 h/ }));
+
+    await waitFor(() => expect(screen.getByText('By discipline')).toBeInTheDocument());
+  });
+
+  it('attributes an inheriting child hours to its ancestor phase, not to Unassigned', async () => {
+    const user = userEvent.setup();
+    // Only "Interviews" (id 2, inherits Phase 1) and "Notes" (id 3) carry hours.
+    render(<Wbs {...defaultProps(threeLevelTree)} rateCards={[rateCard({ role: 'BA' })]} />);
+
+    await user.click(screen.getByRole('button', { name: /WBS 24 h/ }));
+
+    await waitFor(() => expect(screen.getByText('Unassigned (WBS)')).toBeInTheDocument());
+    expect(screen.getByText(/No unassigned WBS hours/i)).toBeInTheDocument();
   });
 });

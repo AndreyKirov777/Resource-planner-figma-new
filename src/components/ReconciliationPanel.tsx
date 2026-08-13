@@ -1,4 +1,5 @@
 import { ReconciliationReport } from '../utils/wbs';
+import { formatHours } from '../utils/wbsGrid';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -12,11 +13,6 @@ interface ReconciliationPanelProps {
 // zero so summation noise (e.g. 4.5e-13) can't render as a colored non-zero variance.
 const VARIANCE_EPSILON = 1e-6;
 
-function formatHours(hours: number): string {
-  if (!Number.isFinite(hours)) return '—';
-  return hours.toLocaleString(undefined, { maximumFractionDigits: 1 });
-}
-
 function varianceClass(hours: number): string {
   if (!Number.isFinite(hours) || Math.abs(hours) < VARIANCE_EPSILON) return 'text-muted-foreground';
   return hours > 0 ? 'text-amber-600' : 'text-red-600';
@@ -26,6 +22,17 @@ function formatVariance(hours: number): string {
   if (!Number.isFinite(hours)) return '—';
   const normalized = Math.abs(hours) < VARIANCE_EPSILON ? 0 : hours;
   return `${normalized > 0 ? '+' : ''}${formatHours(normalized)}`;
+}
+
+/**
+ * One-line summary of a report — `WBS 128 h · Plan 96 h · +32` — for the
+ * collapsed panel's trigger, so the headline numbers stay visible without
+ * expanding it. Reuses the panel's own formatting so the strip and the tables
+ * can never disagree.
+ */
+export function reconciliationSummary(report: ReconciliationReport): string {
+  const { wbsHours, planHours, varianceHours } = report.projectTotal;
+  return `WBS ${formatHours(wbsHours)} h · Plan ${formatHours(planHours)} h · ${formatVariance(varianceHours)}`;
 }
 
 /**

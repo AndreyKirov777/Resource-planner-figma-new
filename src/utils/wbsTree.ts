@@ -92,6 +92,91 @@ export function rollupHours(node: WbsTreeNode): Map<string, number> {
 }
 
 /**
+ * Outline ("WBS") numbers for every node in a forest: `1`, `1.1`, `1.2.2.1`,
+ * depth-first, 1-based, dot-joined, derived purely from tree position and
+ * sibling order. Never persisted — a node's number changes the moment its
+ * position does, so storing it would immediately go stale.
+ *
+ * Numbers are assigned over the WHOLE tree, not the visible rows: collapsing a
+ * subtree hides rows but must not renumber the ones that remain.
+ */
+export function outlineNumbers(tree: WbsTreeNode[]): Map<number, string> {
+  const numbers = new Map<number, string>();
+  const walk = (nodes: WbsTreeNode[], prefix: string) => {
+    nodes.forEach((node, index) => {
+      const outline = prefix === '' ? String(index + 1) : `${prefix}.${index + 1}`;
+      numbers.set(node.id, outline);
+      walk(node.children, outline);
+    });
+  };
+  walk(tree, '');
+  return numbers;
+}
+
+/** A node's resolved phase: the name actually in force, and whether it came from an ancestor. */
+export interface EffectivePhase {
+  /** The phase in force for this node, or `null` for Unassigned. */
+  phaseName: string | null;
+  /** True when `phaseName` came from an ancestor rather than this node's own `phaseName`. */
+  inherited: boolean;
+}
+
+/**
+ * Resolve phase inheritance over a forest: a node with no phase of its own
+ * takes the nearest ancestor's, and only a node with no ancestor value at all
+ * is Unassigned.
+ *
+ * `validPhaseNames` are the project's current phase names. A `phaseName` that
+ * matches none of them is *stale* (the phase was renamed or deleted) and is
+ * treated exactly as if it were `null` — it resolves to Unassigned rather than
+ * being rendered verbatim, and it never propagates down the subtree. Rendering
+ * a stale name would both contradict the reconciliation engine (which already
+ * folds unknown names into its Unassigned bucket) and leave the phase picker
+ * displaying a value that isn't among its own options.
+ *
+ * Omitting `validPhaseNames` disables the staleness check and honours every
+ * non-null name — useful for tests of pure inheritance.
+ */
+export function effectivePhases(
+  tree: WbsTreeNode[],
+  validPhaseNames?: Iterable<string>
+): Map<number, EffectivePhase> {
+  const valid = validPhaseNames === undefined ? undefined : new Set(validPhaseNames);
+  const isLive = (name: string | null): name is string =>
+    name != null && (valid === undefined || valid.has(name));
+
+  const resolved = new Map<number, EffectivePhase>();
+  const walk = (nodes: WbsTreeNode[], inheritedName: string | null) => {
+    for (const node of nodes) {
+      const own = isLive(node.phaseName) ? node.phaseName : null;
+      const phaseName = own ?? inheritedName;
+      resolved.set(node.id, { phaseName, inherited: own === null && phaseName !== null });
+      walk(node.children, phaseName);
+    }
+  };
+  walk(tree, null);
+  return resolved;
+}
+
+/**
+ * The same flat `WbsItem[]` with each item's `phaseName` replaced by its
+ * *effective* (inherited, staleness-resolved) phase.
+ *
+ * `buildReconciliationReport` attributes an item's hours to its own
+ * `phaseName` only — it deliberately knows nothing about the tree. This is the
+ * one-line adapter that resolves inheritance first, so a child with no phase
+ * of its own is attributed to its parent's phase instead of falling into
+ * Unassigned, without teaching `wbs.ts` to walk the tree.
+ */
+export function withEffectivePhases(items: WbsItem[], validPhaseNames?: Iterable<string>): WbsItem[] {
+  const resolved = effectivePhases(buildWbsTree(items), validPhaseNames);
+  return items.map((item) => {
+    const effective = resolved.get(item.id);
+    return effective === undefined ? item : { ...item, phaseName: effective.phaseName };
+  });
+}
+
+/**
  * Ids of every descendant (not including `id` itself) of the item identified
  * by `id`, in the tree assembled from `items`. Used both to size the
  * confirmation prompt before a delete and to cascade the removal through

@@ -270,3 +270,153 @@ defects introduced by it, or genuinely out-of-scope data-quality gaps.
   parallel "unmapped WBS discipline" bucket. Worth a focused follow-up if the product
   wants a third gap bucket for WBS estimates whose `discipline` no longer matches any
   live rate-card row (e.g. after a rate-card import changes the taxonomy).
+
+## Split out of spec-wbs-2r-wbs-table-redesign (2026-08-13)
+
+The WBS page redesign was scoped down to a single goal at the multi-goal check (user chose
+**[S] Split** on 2026-08-13): the new table itself (outline numbering, phase inheritance,
+role×hours cells, `notes`, removal of the discipline matrix, reconciliation accordion). The
+interaction layer below was deferred as its own slice — it ships independently on top of
+the redesigned table, and the existing "Add root item" / "+ Child" / "Delete" controls keep
+structure editing working until it lands.
+
+- **Keyboard outliner for WBS rows (Enter / Tab / Shift+Tab).** Enter creates a sibling row,
+  Tab indents (reparent to previous sibling), Shift+Tab outdents (reparent to grandparent),
+  replacing the current per-row "+ Child" / "Delete" buttons with hover-revealed actions.
+  Deferred because it is the first UI path to **reparenting** anywhere in the app —
+  WBS-2's own Boundaries state "no reparenting UI — items are created as a root or as a
+  fixed parent's child and can't be moved afterward (`parentId` update exists in the API but
+  is unused here)". That makes it a distinct risk profile and the only part of the redesign
+  that would touch `server.ts`.
+- **Cycle guards, required by the above.** `buildWbsTree` / `flattenVisibleTree` /
+  `rollupHours` / `descendantIds` (`src/utils/wbsTree.ts`) all do unbounded recursive walks
+  with no guard against a cyclic `parentId` chain — already logged under "Deferred from
+  spec-wbs-2-wbs-page-ui review (2026-08-13)", where it was judged unreachable precisely
+  *because* no reparenting UI existed. The keyboard outliner makes it reachable, so the
+  guard becomes a hard prerequisite rather than a defensive nicety: client-side in the tree
+  helpers, and server-side in `PUT /api/wbs-items/:id` (WBS-1 explicitly disclaimed "deep
+  cycle detection on reparenting" at the API layer).
+- **Note on Glide:** the table now renders through `@glideapps/glide-data-grid` (decided
+  2026-08-13), so this slice's keyboard handling must go through the grid's own key
+  handling (`onKeyDown` / selection API) rather than DOM row focus.
+
+### Deferred from spec-wbs-2r review round 1 (2026-08-13)
+
+Surfaced by four independent reviewers during WBS-2R's first review round. These are
+pre-existing or out-of-scope; the defects actually caused by that slice triggered a
+`bad_spec` loopback instead and are recorded in its Spec Change Log.
+
+- **CORRECTION to an earlier entry — cyclic `parentId` has TWO distinct failure modes, and
+  the WBS-2 entry above describes neither accurately.** That entry claims the tree helpers
+  would "recurse infinitely and crash the WBS tab" for any cycle. Two review rounds traced
+  the code and the truth is split:
+  - **A closed cycle with no external entry point** (A→B, B→A): `buildWbsTree`
+    (`src/utils/wbsTree.ts:31-39`) finds a parent for every member, so none is pushed into
+    `roots`. Recursion walks from roots only and therefore never reaches them — **no crash**.
+    Instead the entire cycle and everything beneath it **silently disappears** from the grid
+    and from `descendantIds`, so a delete confirmation under-reports its own cascade. This
+    violates `buildWbsTree`'s documented promise that "no item is ever silently hidden".
+  - **A cycle hanging off a reachable root** (A→B, B→C, C→B): the walk *does* reach it and
+    `flattenVisibleTree` / `rollupHours` / `outlineNumbers` / `effectivePhases` — none of
+    which carries a visited set — recurse until `RangeError: Maximum call stack size
+    exceeded`, white-screening the whole tab including the reconciliation strip.
+  So the fix needs **both**: a visited set in the walkers (crash), and surfacing unreachable
+  cycle members as roots (silent hiding). Still reachable only by direct API manipulation —
+  no shipped UI writes `parentId` after creation, and `PUT /api/wbs-items/:id` accepts an
+  arbitrary `parentId` with no cycle check (`server.ts:983` says so in a comment). Remains
+  deferred alongside the reparenting slice, which is what would make it reachable.
+- **`api.integration.test.ts` is still flaky in a full-suite run, despite the per-file DB
+  isolation that was supposed to close this.** Observed 2026-08-13 while verifying WBS-2R:
+  `Global rate card > DELETE /api/rate-cards clears all rate cards and metadata` failed in
+  1 of 3 consecutive `npx vitest run` invocations, and iteration 1 of the same slice saw
+  `PUT /api/projects/:id` in the same file fail 1 in 6. So it is the *file* that is
+  unstable, not one test. Evidence it is not caused by WBS-2R: `git diff` vs baseline
+  `2cde1e7` is **empty** for `api.integration.test.ts`, `testDb.ts` and `globalSetup.ts`,
+  and the file passes **4/4 in isolation** (`npx vitest run api.integration.test.ts`) while
+  failing intermittently only when the whole suite runs. That is the signature of
+  cross-file interference during a parallel run, which is exactly what the earlier
+  `testDb.ts` per-file isolation (`prisma/test-api.db` / `prisma/test-wbs.db`) was
+  introduced to eliminate — so that fix is incomplete, or a different shared resource is
+  involved. The earlier entry above already flags that `isolateTestDb` and `globalSetup.ts`
+  both delete-then-recreate fixed-path SQLite files with no locking; that is the first place
+  to look. Worth a focused pass, because an intermittently-red suite trains everyone to
+  re-run instead of read the failure.
+- **A write that never settles wedges an item's commit queue permanently.**
+  `createEstimateCommitter` (`src/utils/wbsGrid.ts`) chains per-item writes so they cannot
+  clobber one another, and clears the chain from the settled handler. Rejection is handled;
+  a request that simply *hangs* is not, because there is no timeout anywhere in the client.
+  Every later commit for that item then queues behind a promise that never resolves, while
+  the UI keeps showing the optimistic value, so the user believes it saved. Not specific to
+  WBS — `src/services/api.ts` has no timeout on any call — so the right fix is a shared
+  request timeout at the api.ts layer rather than a WBS-local workaround.
+- **Changing a role on an existing estimate is remove-then-re-add, as two separate writes.**
+  The Roles editor can change a pair's hours atomically (the whole set is replaced in one
+  call), but there is no path to change the *role* itself: the user removes the pair and adds
+  a new one, each persisting independently. If the second write fails, the original pair is
+  already gone from the server, leaving the item short one estimate with only a transient
+  in-overlay message. Low frequency and it fails visibly rather than silently, so it is not
+  blocking — but a proper in-place role edit would remove the window entirely.
+- **`nextDisplayOrder` propagates `NaN`.** `Math.max(max, NaN)` is `NaN`, so a single sibling
+  with a corrupt `displayOrder` makes every subsequent value `NaN`, which serializes to
+  `null` and is rejected by `wbsItemCreateSchema` — the Add action then fails permanently for
+  that parent. Reachable only via direct API/DB manipulation, since the write schema requires
+  an integer ≥ 0.
+- **`phaseName: ''` is treated as an explicitly-set phase.** `wbsItemCreateSchema.phaseName`
+  is `z.string().max(200)` with no `.min(1)` (`server-validation.ts:212`), so the API accepts
+  an empty string. Any phase-inheritance resolution that tests `!= null` will treat `''` as
+  "this row owns a phase", propagate it to the whole subtree, and give reconciliation a
+  bucket labelled with the empty string. Not reachable through the UI (the phase editor only
+  ever writes a real name or `null`). Cleanest fix is at the schema: make `phaseName` either
+  `null` or a non-empty string, which is a server change and therefore outside WBS-2R's
+  front-end-only boundary.
+- **Renaming a phase still orphans `WbsItem.phaseName`.** Already logged under WBS-1, and
+  re-confirmed here: `renamePhase` (`ResourcePlan.tsx:890-906`) rewrites `Project.phases`
+  but never the WBS rows referencing the old name, and there is no FK
+  (`prisma/schema.prisma:119-120`). WBS-2R makes the consequence more visible (the grid must
+  now render such a row as `Unassigned`), but the underlying rename-cascade gap is untouched.
+- **Accessibility regression from the canvas grid.** Moving the WBS table from a DOM
+  `<table>` of labelled inputs to a `<canvas>` removes it from the accessibility tree
+  entirely — no roles, no labels, no keyboard traversal outside Glide's own handling. This
+  is an inherent consequence of the Glide decision (made deliberately on 2026-08-13), not a
+  defect in the implementation, and it applies equally to the pre-existing `ResourcePlan`
+  and `ClientView` grids. Worth a deliberate product decision if the tool ever needs to meet
+  an accessibility bar.
+- **`api.ts` error messages still stringify objects.** Re-confirmed: the `errorData.details
+  || errorData.error` pattern renders `[object Object]` when the server returns Zod's
+  `flatten()` output. Already logged under WBS-1; unchanged and still worth a shared
+  `formatApiError()` helper.
+
+### `WbsItem.notes` — free-text notes column (split out 2026-08-13)
+
+Carved out of `spec-wbs-2r-wbs-table-redesign` at the token-count check (spec came in at
+~2× the 1600-token ceiling; user chose **[S] Split**). `notes` was the *only* reason that
+slice touched the database and server at all — removing it makes the table redesign purely
+front-end, with no schema migration and a much smaller review surface. The `Notes` column
+stays in the target design; it just arrives in its own slice.
+
+No logic, just one nullable field threaded through every layer. The full trace, already
+verified against the code on 2026-08-13:
+
+- `prisma/schema.prisma` — `notes String?` on `WbsItem`. **No migration file**: this repo has
+  used `db push` since before `WbsItem` existed (`prisma/migrations/` contains no WBS tables
+  at all). Run `npx prisma generate` (output is non-default: `src/generated/prisma`) then
+  `npx prisma db push`.
+- `server-validation.ts` — add to **both** `wbsItemCreateSchema` and `wbsItemUpdateSchema`,
+  following the `phaseName` precedent (`z.string().max(N).optional().nullable()`). The
+  schemas are `.strict()`, so an undeclared field makes the whole request fail.
+- `server.ts` — **asymmetry worth knowing**: the `PUT /api/wbs-items/:id` handler writes
+  `data: parsed.data` wholesale, so the field flows through with no edit; the `POST
+  .../wbs-items` handler enumerates fields explicitly and needs `notes` added by hand.
+- `src/services/api.ts` — `notes: string | null` on the `WbsItem` interface (line ~143),
+  **and** add `'notes'` to the `pickDefined(data, ['name','parentId','phaseName',
+  'displayOrder'])` allowlist at line 477. Miss the second one and every notes edit is
+  silently discarded client-side with no error anywhere.
+- `wbs.integration.test.ts` — cover `notes` on create and update. Existing strict-rejection
+  probes use `projectId`/`id`/`estimates`, so none collide.
+- `README.md:172` — prose lists the PUT's scalar fields; not drift-guarded (`readme.test.ts`
+  compares method+path sets only), but should be corrected by hand.
+- **Export/import: nothing to do.** WBS items are not in the project export payload at all
+  today, so `notes` has zero effect there. Once WBS-4 adds the WBS arm, `notes` rides along
+  automatically on export (Prisma returns all scalars) but must be added explicitly to the
+  import handler, which reconstructs each field by hand. Land `notes` before or with WBS-4's
+  `schemaVersion` 2→3 bump rather than forcing a separate version.

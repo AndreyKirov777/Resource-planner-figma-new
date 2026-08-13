@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import DataEditor, { GridCell, GridCellKind, GridColumn, Item, EditableGridCell, HeaderClickedEventArgs, GridSelection, CustomRenderer } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
+import { GRID_THEME } from './gridTheme';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -1722,33 +1723,7 @@ export function ResourcePlan({
             smoothScrollY={true}
             overscrollX={0}
             overscrollY={0}
-            theme={{
-              accentColor: "#8f4f8f",
-              accentFg: "#ffffff",
-              accentLight: "rgba(62, 116, 253, 0.1)",
-              textDark: "#313131",
-              textMedium: "#737373",
-              textLight: "#b1b1b1",
-              textBubble: "#313131",
-              bgIconHeader: "#b1b1b1",
-              fgIconHeader: "#717171",
-              textHeader: "#4a4a4a",
-              textHeaderSelected: "#000000",
-              bgCell: "#ffffff",
-              bgCellMedium: "#fafafa",
-              bgHeader: "#f6f6f6",
-              bgHeaderHasFocus: "#e1e1e1",
-              bgHeaderHovered: "#eeeeee",
-              bgBubble: "#ffffff",
-              bgBubbleSelected: "#ffffff",
-              bgSearchResult: "#fff9e3",
-              borderColor: "rgba(115, 115, 115, 0.16)",
-              drilldownBorder: "rgba(115, 115, 115, 0.2)",
-              linkColor: "#4F46E5",
-              headerFontStyle: "600 14px",
-              baseFontStyle: "14px",
-              fontFamily: "Inter, Roboto, -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica neue, helvetica, Ubuntu, noto, arial, sans-serif"
-            }}
+            theme={GRID_THEME}
           />
           
           {/* Context Menu for Week Deletion */}
