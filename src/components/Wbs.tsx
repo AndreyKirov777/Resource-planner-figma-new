@@ -3,6 +3,7 @@ import DataEditor, {
   CompactSelection,
   CustomCell,
   CustomRenderer,
+  DataEditorRef,
   EditableGridCell,
   GridCell,
   GridCellKind,
@@ -46,6 +47,7 @@ import {
   kebabLeft,
   KEBAB_SIZE,
   layoutChips,
+  firstUnseenId,
   nameEditFor,
   newWbsItemFields,
   nextDisplayOrder,
@@ -54,6 +56,7 @@ import {
   phaseEditFor,
   phaseLabel,
   pruneCollapsedIds,
+  selectionAfterDelete,
   siblingBelowPlacement,
   structureActionFromKey,
   structureHintText,
@@ -417,6 +420,25 @@ const EMPTY_SELECTION: GridSelection = {
   rows: CompactSelection.empty(),
 };
 
+/** Task Description — the cell a newly created row should land on. */
+const NAME_COL = 1;
+
+function selectionForCell(col: number, rowIndex: number): GridSelection {
+  return {
+    columns: CompactSelection.empty(),
+    rows: CompactSelection.empty(),
+    current: {
+      cell: [col, rowIndex],
+      range: { x: col, y: rowIndex, width: 1, height: 1 },
+      rangeStack: [],
+    },
+  };
+}
+
+function parseIdKey(key: string): number[] {
+  return key.length === 0 ? [] : key.split(',').map(Number);
+}
+
 export function Wbs({
   project,
   resourcePlans,
@@ -433,6 +455,12 @@ export function Wbs({
   const [reconciliationOpen, setReconciliationOpen] = useState(false);
   const [rowMenu, setRowMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const isMac = useMemo(() => isMacPlatform(), []);
+  const gridRef = useRef<DataEditorRef | null>(null);
+  const selectedItemIdRef = useRef<number | null>(null);
+  const selectedColRef = useRef(NAME_COL);
+  const selectCreatedRef = useRef(false);
+  const shouldFocusRef = useRef(false);
+  const knownItemIdsRef = useRef<Set<number> | null>(null);
 
   const phases = useMemo(
     () => parsePhases(project.phases, resourcePlans),
@@ -506,14 +534,57 @@ export function Wbs({
     setRowMenu({ id, x, y });
   }, []);
 
-  // `gridSelection` is a row INDEX, so any change to the visible row set
-  // (collapse/expand, add, delete) silently re-points it at a different item.
-  // Drop it whenever that set changes.
+  // `gridSelection` is a row INDEX. Rematch it to the selected item id when
+  // the visible set changes, so collapse/add/delete cannot silently point at
+  // a different row. After an add, land on the created item; after a delete,
+  // land on the row above (or the next survivor if that was the first row).
   const visibleRowKey = rows.map((row) => row.id).join(',');
+  const itemIdsKey = wbsItems.map((item) => item.id).join(',');
   useEffect(() => {
-    setGridSelection(EMPTY_SELECTION);
+    const visibleIds = parseIdKey(visibleRowKey);
+    const itemIds = parseIdKey(itemIdsKey);
+    const known = knownItemIdsRef.current ?? new Set<number>();
+
+    let justCreated = false;
+    if (selectCreatedRef.current) {
+      const createdId = firstUnseenId(known, itemIds);
+      if (createdId !== undefined) {
+        selectCreatedRef.current = false;
+        selectedItemIdRef.current = createdId;
+        selectedColRef.current = NAME_COL;
+        justCreated = true;
+      }
+    }
+    knownItemIdsRef.current = new Set(itemIds);
+
+    const selectedId = selectedItemIdRef.current;
+    if (selectedId === null) {
+      setGridSelection(EMPTY_SELECTION);
+      setRowMenu(null);
+      shouldFocusRef.current = false;
+      return;
+    }
+    const rowIndex = visibleIds.indexOf(selectedId);
+    if (rowIndex < 0) {
+      setGridSelection(EMPTY_SELECTION);
+      setRowMenu(null);
+      if (!itemIds.includes(selectedId)) {
+        selectedItemIdRef.current = null;
+      }
+      shouldFocusRef.current = false;
+      return;
+    }
+    const col = selectedColRef.current;
+    setGridSelection(selectionForCell(col, rowIndex));
     setRowMenu(null);
-  }, [visibleRowKey]);
+    if (justCreated || shouldFocusRef.current) {
+      shouldFocusRef.current = false;
+      requestAnimationFrame(() => {
+        gridRef.current?.scrollTo(col, rowIndex);
+        gridRef.current?.focus();
+      });
+    }
+  }, [visibleRowKey, itemIdsKey]);
 
   // Ids are recycled by the database, so a collapsed id left behind by a
   // deleted item would silently start an unrelated new row collapsed.
@@ -525,6 +596,20 @@ export function Wbs({
 
   const selectedIndex = gridSelection.current?.cell[1];
   const selectedRow = selectedIndex === undefined ? undefined : rows[selectedIndex];
+
+  const onGridSelectionChange = useCallback(
+    (sel: GridSelection) => {
+      setGridSelection(sel);
+      const cell = sel.current?.cell;
+      if (cell === undefined) {
+        selectedItemIdRef.current = null;
+        return;
+      }
+      selectedColRef.current = cell[0];
+      selectedItemIdRef.current = rows[cell[1]]?.id ?? null;
+    },
+    [rows]
+  );
 
   const columns = useMemo(
     (): GridColumn[] => [
@@ -692,22 +777,33 @@ export function Wbs({
     );
   }
 
+  function markSelectCreated() {
+    selectCreatedRef.current = true;
+  }
+
   function handleAddRootItem() {
+    markSelectCreated();
     onAddWbsItem(newWbsItemFields(null, nextDisplayOrder(wbsItems, null))).catch(() => {
-      // Failure surfaces via the shared app-level error banner.
+      selectCreatedRef.current = false;
     });
   }
 
   function handleAddChild(itemId: number) {
     expandItem(itemId);
-    return onAddWbsItem(newWbsItemFields(itemId, nextDisplayOrder(wbsItems, itemId))).catch(() => {});
+    markSelectCreated();
+    return onAddWbsItem(newWbsItemFields(itemId, nextDisplayOrder(wbsItems, itemId))).catch(() => {
+      selectCreatedRef.current = false;
+    });
   }
 
   async function handleAddSibling(itemId: number) {
     const placement = siblingBelowPlacement(wbsItems, itemId);
     if (placement === null) return;
     await applyShifts(placement.shifts);
-    await onAddWbsItem(newWbsItemFields(placement.parentId, placement.displayOrder)).catch(() => {});
+    markSelectCreated();
+    await onAddWbsItem(newWbsItemFields(placement.parentId, placement.displayOrder)).catch(() => {
+      selectCreatedRef.current = false;
+    });
   }
 
   function handleIndent(itemId: number) {
@@ -732,7 +828,18 @@ export function Wbs({
     const target = wbsItems.find((item) => item.id === itemId);
     if (target === undefined) return;
     if (!window.confirm(deleteConfirmMessage(wbsItems, itemId, target.name))) return;
-    return onDeleteWbsItem(itemId).catch(() => {});
+    const previousSelectedId = selectedItemIdRef.current;
+    selectedItemIdRef.current =
+      selectionAfterDelete(
+        rows.map((row) => row.id),
+        wbsItems,
+        itemId
+      ) ?? null;
+    shouldFocusRef.current = true;
+    return onDeleteWbsItem(itemId).catch(() => {
+      selectedItemIdRef.current = previousSelectedId;
+      shouldFocusRef.current = false;
+    });
   }
 
   function runStructureAction(action: StructureAction, itemId: number) {
@@ -807,6 +914,7 @@ export function Wbs({
           className="rounded-lg overflow-hidden border border-gray-200"
         >
           <DataEditor
+            ref={gridRef}
             columns={columns}
             rows={rows.length}
             getCellContent={getCellContent}
@@ -814,7 +922,7 @@ export function Wbs({
             customRenderers={CUSTOM_RENDERERS}
             getRowThemeOverride={getRowThemeOverride}
             gridSelection={gridSelection}
-            onGridSelectionChange={setGridSelection}
+            onGridSelectionChange={onGridSelectionChange}
             onKeyDown={onGridKeyDown}
             isOutsideClick={isOutsideClick}
             rowHeight={ROW_HEIGHT}

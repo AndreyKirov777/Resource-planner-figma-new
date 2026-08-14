@@ -32,10 +32,16 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
     });
   };
 
-  const Harness = (props: any) => {
-    const { rows, columns, getCellContent, onCellEdited, onGridSelectionChange, getRowThemeOverride } = props;
+  const Harness = React.forwardRef((props: any, _ref: React.Ref<unknown>) => {
+    const { rows, columns, getCellContent, onCellEdited, onGridSelectionChange, getRowThemeOverride, gridSelection } =
+      props;
     const [draft, setDraft] = React.useState('');
     const [outsideClick, setOutsideClick] = React.useState('');
+    const selectedRow = gridSelection?.current?.cell[1];
+    const selectedCell =
+      gridSelection?.current === undefined
+        ? 'none'
+        : `${gridSelection.current.cell[0]},${gridSelection.current.cell[1]}`;
     // Cells captured when an "overlay" opened, so a commit can be replayed
     // after the visible row set has shifted underneath it.
     const captured = React.useRef<{ col: number; row: number; cell: any } | null>(null);
@@ -64,6 +70,7 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
         <span data-testid="grid-columns">
           {columns.map((c: { title: string }) => c.title).join('|')}
         </span>
+        <span data-testid="grid-selection">{selectedCell}</span>
         <span data-testid="is-outside-click">{outsideClick}</span>
         <button onClick={() => probeOutsideClick('click-outside-ignore')}>
           probe portaled menu click
@@ -97,6 +104,7 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
             <div
               key={r}
               data-testid={`row-${r}`}
+              data-selected={String(r === selectedRow)}
               data-section={String(getRowThemeOverride?.(r) !== undefined)}
               data-depth={String(taskData.depth)}
               data-phase-inherited={String(phaseData.inherited)}
@@ -175,7 +183,8 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
         })}
       </div>
     );
-  };
+  });
+  Harness.displayName = 'GlideHarness';
 
   return { ...actual, default: Harness };
 });
@@ -456,6 +465,42 @@ describe('Wbs — structure editing from the table', () => {
     expect(props.onAddWbsItem).toHaveBeenCalledWith(expect.objectContaining({ parentId: 2 }));
   });
 
+  it('selects the created item so the next shortcut targets it', async () => {
+    const user = userEvent.setup();
+    const created = wbsItem({ id: 999, name: 'New item', parentId: 1, displayOrder: 1 });
+    const props = defaultProps(threeLevelTree);
+    props.onAddWbsItem.mockResolvedValue(created);
+    const { rerender } = render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'select row 0' }));
+    await user.click(screen.getByRole('button', { name: 'key Cmd+Enter' }));
+
+    rerender(<Wbs {...props} wbsItems={[...threeLevelTree, created]} />);
+
+    const newRow = screen.getByText('New item').closest('[data-testid^="row-"]');
+    expect(newRow).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByTestId('grid-selection').textContent).toMatch(/^1,/);
+
+    await user.click(screen.getByRole('button', { name: 'key Enter' }));
+    expect(props.onAddWbsItem).toHaveBeenLastCalledWith(
+      expect.objectContaining({ parentId: 1, displayOrder: 2 })
+    );
+  });
+
+  it('selects the first root item after adding it to an empty WBS', async () => {
+    const user = userEvent.setup();
+    const created = wbsItem({ id: 999, name: 'New item', parentId: null, displayOrder: 0 });
+    const props = defaultProps([]);
+    props.onAddWbsItem.mockResolvedValue(created);
+    const { rerender } = render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: /add root item/i }));
+    rerender(<Wbs {...props} wbsItems={[created]} />);
+
+    expect(screen.getByTestId('row-0')).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByTestId('grid-selection')).toHaveTextContent('1,0');
+  });
+
   it('indents and outdents from Tab / Shift+Tab', async () => {
     const user = userEvent.setup();
     const props = defaultProps(threeLevelTree);
@@ -484,6 +529,41 @@ describe('Wbs — structure editing from the table', () => {
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2 descendant items'));
     expect(props.onDeleteWbsItem).toHaveBeenCalledWith(1);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('selects the item above after delete', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const props = defaultProps(threeLevelTree);
+    const { rerender } = render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'select row 2' }));
+    expect(screen.getByTestId('cell-1-2')).toHaveTextContent('Notes');
+    await user.click(screen.getByRole('button', { name: 'key Delete' }));
+
+    rerender(<Wbs {...props} wbsItems={threeLevelTree.filter((item) => item.id !== 3)} />);
+
+    expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Interviews');
+    expect(screen.getByTestId('row-1')).toHaveAttribute('data-selected', 'true');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('selects the next surviving row when the first item is deleted', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const props = defaultProps(threeLevelTree);
+    const { rerender } = render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'select row 0' }));
+    await user.click(screen.getByRole('button', { name: 'key Delete' }));
+
+    rerender(<Wbs {...props} wbsItems={threeLevelTree.filter((item) => item.id === 4)} />);
+
+    expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Build');
+    expect(screen.getByTestId('row-0')).toHaveAttribute('data-selected', 'true');
 
     vi.unstubAllGlobals();
   });

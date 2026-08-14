@@ -396,6 +396,32 @@ export function newWbsItemFields(
   return { name: 'New item', parentId, phaseName: null, displayOrder };
 }
 
+/** First id in `current` that was not in `seen`. Used to select a just-created row. */
+export function firstUnseenId(seen: ReadonlySet<number>, current: readonly number[]): number | undefined {
+  return current.find((id) => !seen.has(id));
+}
+
+/**
+ * After deleting `deletedId` (cascade includes descendants), the visible row
+ * that should keep keyboard focus: nearest survivor above, else nearest below.
+ */
+export function selectionAfterDelete(
+  visibleIds: readonly number[],
+  items: WbsItem[],
+  deletedId: number
+): number | undefined {
+  const gone = new Set([deletedId, ...descendantIds(items, deletedId)]);
+  const index = visibleIds.indexOf(deletedId);
+  if (index < 0) return undefined;
+  for (let i = index - 1; i >= 0; i--) {
+    if (!gone.has(visibleIds[i])) return visibleIds[i];
+  }
+  for (let i = index + 1; i < visibleIds.length; i++) {
+    if (!gone.has(visibleIds[i])) return visibleIds[i];
+  }
+  return undefined;
+}
+
 /** Place a new sibling immediately below `afterId` (same parent). */
 export function siblingBelowPlacement(items: WbsItem[], afterId: number): InsertAfterPlacement | null {
   const after = items.find((item) => item.id === afterId);

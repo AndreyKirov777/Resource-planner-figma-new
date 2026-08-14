@@ -25,6 +25,8 @@ import {
   nameEditFor,
   nextDisplayOrder,
   newWbsItemFields,
+  firstUnseenId,
+  selectionAfterDelete,
   outdentPlacement,
   siblingBelowPlacement,
   structureActionFromKey,
@@ -587,6 +589,28 @@ describe('sibling / indent / outdent placement', () => {
       phaseName: null,
       displayOrder: 1,
     });
+  });
+
+  it('picks the first id that was not in the previous set', () => {
+    expect(firstUnseenId(new Set([1, 2]), [1, 2, 9])).toBe(9);
+    expect(firstUnseenId(new Set([1, 2]), [1, 2])).toBeUndefined();
+    expect(firstUnseenId(new Set(), [4])).toBe(4);
+  });
+
+  it('selects the visible row above a deleted item, else the next survivor', () => {
+    const items = [
+      item({ id: 1, parentId: null }),
+      item({ id: 2, parentId: 1 }),
+      item({ id: 3, parentId: 1, displayOrder: 1 }),
+      item({ id: 4, parentId: null, displayOrder: 1 }),
+    ];
+    const visible = [1, 2, 3, 4];
+    expect(selectionAfterDelete(visible, items, 3)).toBe(2);
+    expect(selectionAfterDelete(visible, items, 2)).toBe(1);
+    expect(selectionAfterDelete(visible, items, 4)).toBe(3);
+    expect(selectionAfterDelete(visible, items, 1)).toBe(4);
+    expect(selectionAfterDelete([1], [item({ id: 1 })], 1)).toBeUndefined();
+    expect(selectionAfterDelete(visible, items, 99)).toBeUndefined();
   });
 });
 
