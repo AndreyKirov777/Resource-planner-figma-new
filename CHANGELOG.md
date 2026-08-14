@@ -15,6 +15,15 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Removed
 
+## [0.3.1] - 2026-08-14
+
+### Added
+- WBS structure editing from the table: a per-row menu and matching keyboard shortcuts (Enter sibling, ⌘/Ctrl+Enter child, Tab indent, Shift+Tab outdent, Delete/Backspace). Indent and outdent reparent items; the API rejects a `parentId` that would create a cycle.
+
+### Changed
+- Once a WBS has rows, Add child / Delete / Add root item leave the header toolbar. Structure edits go through the row menu and shortcuts; **Add root item** remains only for an empty WBS. A one-line hint by the heading lists the keys.
+- WBS Roles picker now offers distinct roles from the project's Resource List (discipline still comes from the rate card).
+
 ## [0.3.0] - 2026-08-13
 
 ### Changed
