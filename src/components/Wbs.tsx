@@ -15,6 +15,7 @@ import DataEditor, {
   measureTextCached,
   roundedRect,
 } from '@glideapps/glide-data-grid';
+import type { GridMouseEventArgs, Highlight } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
 import { ChevronDown } from 'lucide-react';
 import {
@@ -62,6 +63,9 @@ import {
   structureHintText,
   isMacPlatform,
   StructureAction,
+  DropZone,
+  dropPlacement,
+  dropZone,
 } from '../utils/wbsGrid';
 import { wouldCreateCycle } from '../utils/wbsTree';
 import { GRID_THEME } from './gridTheme';
@@ -70,6 +74,7 @@ import { NameEditor, PhaseEditor, RolesEditor, isInsidePortaledMenu } from './Ro
 import { WbsRowMenu } from './WbsRowMenu';
 import { Button } from './ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { cn } from './ui/utils';
 
 /** Mounted overlay editors increment this so structure keys can no-op. */
 let overlayMounts = 0;
@@ -422,6 +427,23 @@ const EMPTY_SELECTION: GridSelection = {
 
 /** Task Description — the cell a newly created row should land on. */
 const NAME_COL = 1;
+const OUTLINE_COL = 0;
+const COLUMN_COUNT = 5;
+const DRAG_THRESHOLD_PX = 4;
+const NEST_HIGHLIGHT: string = 'rgba(143, 79, 143, 0.22)';
+
+interface HoverHit {
+  rowIndex: number;
+  col: number;
+  yInRow: number;
+}
+
+interface DropPreview {
+  targetId: number;
+  rowIndex: number;
+  zone: DropZone;
+  lineTop: number | null;
+}
 
 function selectionForCell(col: number, rowIndex: number): GridSelection {
   return {
@@ -456,11 +478,13 @@ export function Wbs({
   const [rowMenu, setRowMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const isMac = useMemo(() => isMacPlatform(), []);
   const gridRef = useRef<DataEditorRef | null>(null);
+  const gridContainerRef = useRef<HTMLDivElement | null>(null);
   const selectedItemIdRef = useRef<number | null>(null);
   const selectedColRef = useRef(NAME_COL);
   const selectCreatedRef = useRef(false);
   const shouldFocusRef = useRef(false);
   const knownItemIdsRef = useRef<Set<number> | null>(null);
+  const hoverRef = useRef<HoverHit | null>(null);
 
   const phases = useMemo(
     () => parsePhases(project.phases, resourcePlans),
@@ -541,6 +565,7 @@ export function Wbs({
   const visibleRowKey = rows.map((row) => row.id).join(',');
   const itemIdsKey = wbsItems.map((item) => item.id).join(',');
   useEffect(() => {
+    hoverRef.current = null;
     const visibleIds = parseIdKey(visibleRowKey);
     const itemIds = parseIdKey(itemIdsKey);
     const known = knownItemIdsRef.current ?? new Set<number>();
@@ -637,6 +662,7 @@ export function Wbs({
             displayData: gridRow.outline,
             allowOverlay: false,
             readonly: true,
+            cursor: 'grab',
           };
         case 1: {
           const cell: TaskCell = {
@@ -824,6 +850,176 @@ export function Wbs({
     );
   }
 
+  function handleDrop(draggedId: number, targetId: number, zone: DropZone) {
+    if (isWbsOverlayOpen() || structureBusyRef.current) return;
+    const placement = dropPlacement(wbsItems, draggedId, targetId, zone);
+    if (placement === null) return;
+    structureBusyRef.current = true;
+    if (zone === 'child' || zone === 'first-child') {
+      expandItem(targetId);
+    }
+    const work = applyShifts(placement.shifts).then(() =>
+      onUpdateWbsItem(draggedId, {
+        parentId: placement.parentId,
+        displayOrder: placement.displayOrder,
+      }).catch(() => {})
+    );
+    void Promise.resolve(work).finally(() => {
+      structureBusyRef.current = false;
+    });
+  }
+
+  const dragRef = useRef<{
+    draggedId: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+    previousBodyCursor: string;
+  } | null>(null);
+  const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
+  const [outlineDragging, setOutlineDragging] = useState(false);
+  const dropPreviewRef = useRef<DropPreview | null>(null);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const handleDropRef = useRef(handleDrop);
+  handleDropRef.current = handleDrop;
+
+  function publishPreview(preview: DropPreview | null) {
+    dropPreviewRef.current = preview;
+    setDropPreview(preview);
+  }
+
+  function abortDrag() {
+    const previous = dragRef.current?.previousBodyCursor ?? '';
+    dragRef.current = null;
+    setOutlineDragging(false);
+    publishPreview(null);
+    document.body.style.cursor = previous;
+  }
+
+  function lineTopFor(rowIndex: number, zone: DropZone): number | null {
+    const bounds = gridRef.current?.getBounds(OUTLINE_COL, rowIndex);
+    const container = gridContainerRef.current?.getBoundingClientRect();
+    if (bounds === undefined || container === undefined) return null;
+    const y = zone === 'before' ? bounds.y : bounds.y + bounds.height;
+    return y - container.top;
+  }
+
+  function previewForHit(hit: HoverHit): DropPreview | null {
+    const target = rowsRef.current[hit.rowIndex];
+    if (target === undefined) return null;
+    const zone = dropZone(hit.yInRow, ROW_HEIGHT, target.hasChildren && !target.collapsed);
+    return {
+      targetId: target.id,
+      rowIndex: hit.rowIndex,
+      zone,
+      lineTop: zone === 'child' ? null : lineTopFor(hit.rowIndex, zone),
+    };
+  }
+
+  function hitTest(clientX: number, clientY: number): HoverHit | null {
+    const api = gridRef.current;
+    const currentRows = rowsRef.current;
+    if (api?.getBounds === undefined) return hoverRef.current;
+    for (let r = 0; r < currentRows.length; r++) {
+      const outline = api.getBounds(OUTLINE_COL, r);
+      if (outline === undefined) continue;
+      if (clientY < outline.y || clientY >= outline.y + outline.height) continue;
+      const yInRow = clientY - outline.y;
+      for (let c = 0; c < COLUMN_COUNT; c++) {
+        const cell = c === OUTLINE_COL ? outline : api.getBounds(c, r);
+        if (cell !== undefined && clientX >= cell.x && clientX < cell.x + cell.width) {
+          return { rowIndex: r, col: c, yInRow };
+        }
+      }
+      return { rowIndex: r, col: -1, yInRow };
+    }
+    return null;
+  }
+
+  function rememberHover(args: GridMouseEventArgs) {
+    if (args.kind !== 'cell') return;
+    hoverRef.current = {
+      rowIndex: args.location[1],
+      col: args.location[0],
+      yInRow: args.localEventY,
+    };
+    if (dragRef.current?.active === true) {
+      publishPreview(previewForHit(hoverRef.current));
+    }
+  }
+
+  function onGridPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if (dragRef.current !== null) return;
+    if (isWbsOverlayOpen() || structureBusyRef.current) return;
+    const hit = hitTest(event.clientX, event.clientY);
+    if (hit === null || hit.col !== OUTLINE_COL) return;
+    const row = rows[hit.rowIndex];
+    if (row === undefined) return;
+    dragRef.current = {
+      draggedId: row.id,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      previousBodyCursor: document.body.style.cursor,
+    };
+  }
+
+  useEffect(() => {
+    function onPointerMove(event: PointerEvent) {
+      const drag = dragRef.current;
+      if (drag === null) return;
+      if (event.buttons === 0) {
+        abortDrag();
+        return;
+      }
+      if (!drag.active) {
+        const dx = event.clientX - drag.startX;
+        const dy = event.clientY - drag.startY;
+        if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
+        drag.active = true;
+        setOutlineDragging(true);
+        document.body.style.cursor = 'grabbing';
+      }
+      const hit = hitTest(event.clientX, event.clientY);
+      publishPreview(hit === null ? null : previewForHit(hit));
+    }
+
+    function onPointerUp(event: PointerEvent) {
+      if (event.button !== 0) return;
+      const drag = dragRef.current;
+      const preview = dropPreviewRef.current;
+      abortDrag();
+      if (drag?.active !== true || preview === null) return;
+      handleDropRef.current(drag.draggedId, preview.targetId, preview.zone);
+    }
+
+    function onPointerCancel() {
+      abortDrag();
+    }
+
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('pointercancel', onPointerCancel);
+    return () => {
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('pointercancel', onPointerCancel);
+      document.body.style.cursor = dragRef.current?.previousBodyCursor ?? '';
+    };
+  }, []);
+
+  const nestHighlight = useMemo((): readonly Highlight[] | undefined => {
+    if (dropPreview === null || dropPreview.zone !== 'child') return undefined;
+    return [
+      {
+        color: NEST_HIGHLIGHT,
+        range: { x: 0, y: dropPreview.rowIndex, width: COLUMN_COUNT, height: 1 },
+      },
+    ];
+  }, [dropPreview]);
+
   function handleDelete(itemId: number) {
     const target = wbsItems.find((item) => item.id === itemId);
     if (target === undefined) return;
@@ -909,9 +1105,14 @@ export function Wbs({
         </div>
       ) : (
         <div
+          ref={gridContainerRef}
           data-testid="wbs-grid-container"
           style={{ height: `${gridHeight}px`, width: '100%', position: 'relative' }}
-          className="rounded-lg overflow-hidden border border-gray-200"
+          className={cn(
+            'rounded-lg overflow-hidden border border-gray-200',
+            outlineDragging && 'cursor-grabbing'
+          )}
+          onPointerDown={onGridPointerDown}
         >
           <DataEditor
             ref={gridRef}
@@ -924,6 +1125,9 @@ export function Wbs({
             gridSelection={gridSelection}
             onGridSelectionChange={onGridSelectionChange}
             onKeyDown={onGridKeyDown}
+            onItemHovered={rememberHover}
+            onMouseMove={rememberHover}
+            highlightRegions={nestHighlight}
             isOutsideClick={isOutsideClick}
             rowHeight={ROW_HEIGHT}
             headerHeight={HEADER_HEIGHT}
@@ -933,7 +1137,24 @@ export function Wbs({
             overscrollX={0}
             overscrollY={0}
             theme={GRID_THEME}
+            {...{ onWbsDrop: handleDrop }}
           />
+          {dropPreview !== null && dropPreview.zone !== 'child' && dropPreview.lineTop !== null && (
+            <div
+              data-testid="wbs-drop-line"
+              aria-hidden
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: dropPreview.lineTop,
+                height: 2,
+                background: GRID_THEME.accentColor,
+                pointerEvents: 'none',
+                zIndex: 2,
+              }}
+            />
+          )}
         </div>
       )}
 

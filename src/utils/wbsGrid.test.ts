@@ -13,6 +13,8 @@ import {
   createEstimateCommitter,
   deleteConfirmMessage,
   deriveDiscipline,
+  dropPlacement,
+  dropZone,
   formatHours,
   formatHoursInput,
   hitsChevron,
@@ -641,12 +643,124 @@ describe('structure shortcuts', () => {
     expect(structureShortcutLabel('addChild', false)).toBe('Ctrl+Enter');
     expect(structureHintText(true)).toContain('⌘Enter child');
     expect(structureHintText(false)).toContain('Ctrl+Enter child');
+    expect(structureHintText(true)).toContain('drag to move');
+    expect(structureHintText(false)).toContain('drag to move');
   });
 
   it('keeps the kebab hit box on the right edge of the cell', () => {
     expect(kebabLeft(200)).toBe(200 - 8 - KEBAB_SIZE);
     expect(hitsKebab(200, 34, 200 - 8 - 2, 17)).toBe(true);
     expect(hitsKebab(200, 34, 10, 17)).toBe(false);
+  });
+});
+
+describe('dropZone', () => {
+  const height = 30;
+
+  it('maps the top third to before, the middle to child, and the bottom to after on a leaf', () => {
+    expect(dropZone(0, height, false)).toBe('before');
+    expect(dropZone(height / 3 - 0.01, height, false)).toBe('before');
+    expect(dropZone(height / 3, height, false)).toBe('child');
+    expect(dropZone(height / 2, height, false)).toBe('child');
+    expect(dropZone((2 * height) / 3 - 0.01, height, false)).toBe('child');
+    expect(dropZone((2 * height) / 3, height, false)).toBe('after');
+    expect(dropZone(height - 1, height, false)).toBe('after');
+  });
+
+  it('maps the bottom third to first-child when the target has visible children', () => {
+    expect(dropZone((2 * height) / 3, height, true)).toBe('first-child');
+    expect(dropZone(height - 1, height, true)).toBe('first-child');
+    expect(dropZone(height / 2, height, true)).toBe('child');
+    expect(dropZone(0, height, true)).toBe('before');
+  });
+});
+
+describe('dropPlacement', () => {
+  const items = [
+    item({ id: 1, name: 'A', parentId: null, displayOrder: 0 }),
+    item({ id: 2, name: 'B', parentId: null, displayOrder: 1 }),
+    item({ id: 3, name: 'C', parentId: null, displayOrder: 2 }),
+    item({ id: 4, name: 'B.1', parentId: 2, displayOrder: 0 }),
+    item({ id: 5, name: 'B.2', parentId: 2, displayOrder: 1 }),
+  ];
+
+  it('places a sibling immediately after and bumps later siblings', () => {
+    expect(dropPlacement(items, 1, 2, 'after')).toEqual({
+      parentId: null,
+      displayOrder: 2,
+      shifts: [{ id: 3, displayOrder: 3 }],
+    });
+  });
+
+  it('places a sibling immediately before and bumps the target and later siblings', () => {
+    expect(dropPlacement(items, 3, 2, 'before')).toEqual({
+      parentId: null,
+      displayOrder: 1,
+      shifts: [{ id: 2, displayOrder: 2 }],
+    });
+  });
+
+  it('nests as the last child of the target', () => {
+    expect(dropPlacement(items, 1, 2, 'child')).toEqual({
+      parentId: 2,
+      displayOrder: 2,
+      shifts: [],
+    });
+  });
+
+  it('inserts as the first child of an expanded target', () => {
+    expect(dropPlacement(items, 1, 2, 'first-child')).toEqual({
+      parentId: 2,
+      displayOrder: 0,
+      shifts: [
+        { id: 4, displayOrder: 1 },
+        { id: 5, displayOrder: 2 },
+      ],
+    });
+  });
+
+  it('reparents across branches without compacting the source side', () => {
+    expect(dropPlacement(items, 4, 3, 'after')).toEqual({
+      parentId: null,
+      displayOrder: 3,
+      shifts: [],
+    });
+    expect(dropPlacement(items, 4, 3, 'child')).toEqual({
+      parentId: 3,
+      displayOrder: 0,
+      shifts: [],
+    });
+  });
+
+  it('rewrites only the dragged node when a parent with children is moved', () => {
+    const placed = dropPlacement(items, 2, 3, 'after');
+    expect(placed).toEqual({ parentId: null, displayOrder: 3, shifts: [] });
+    const mentioned = [2, ...(placed?.shifts.map((shift) => shift.id) ?? [])];
+    expect(mentioned).not.toContain(4);
+    expect(mentioned).not.toContain(5);
+  });
+
+  it('returns null when dropping on a descendant', () => {
+    expect(dropPlacement(items, 2, 4, 'before')).toBeNull();
+    expect(dropPlacement(items, 2, 5, 'child')).toBeNull();
+  });
+
+  it('returns null when dropping on self', () => {
+    expect(dropPlacement(items, 1, 1, 'after')).toBeNull();
+    expect(dropPlacement(items, 2, 2, 'child')).toBeNull();
+  });
+
+  it('returns null when the item is already at that parent and order', () => {
+    expect(dropPlacement(items, 2, 1, 'after')).toBeNull();
+    expect(dropPlacement(items, 3, 2, 'after')).toBeNull();
+    expect(dropPlacement(items, 4, 2, 'first-child')).toBeNull();
+    expect(dropPlacement(items, 1, 2, 'before')).toBeNull();
+    expect(dropPlacement(items, 5, 2, 'child')).toBeNull();
+  });
+
+  it('returns null when the dragged or target item is missing', () => {
+    expect(dropPlacement(items, 99, 1, 'after')).toBeNull();
+    expect(dropPlacement(items, 1, 99, 'after')).toBeNull();
   });
 });
 

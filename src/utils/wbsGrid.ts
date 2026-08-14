@@ -8,7 +8,15 @@
  * the component would be permanently untestable, so all of it lives here.
  */
 import { WbsItem, WbsEstimate, RateCard as RateCardType, ResourceList as ResourceListType } from '../services/api';
-import { buildWbsTree, flattenVisibleTree, rollupHours, descendantIds, outlineNumbers, effectivePhases } from './wbsTree';
+import {
+  buildWbsTree,
+  flattenVisibleTree,
+  rollupHours,
+  descendantIds,
+  outlineNumbers,
+  effectivePhases,
+  wouldCreateCycle,
+} from './wbsTree';
 import { resolveDiscipline } from './wbs';
 
 /** One role x hours pair on a WBS item — the unit the composite Roles cell edits. */
@@ -388,6 +396,105 @@ function insertAfter(items: WbsItem[], after: WbsItem): InsertAfterPlacement {
   };
 }
 
+function insertBefore(items: WbsItem[], target: WbsItem): InsertAfterPlacement {
+  const siblings = siblingsOf(items, target.parentId);
+  const targetIndex = siblings.findIndex((sibling) => sibling.id === target.id);
+  const later = targetIndex === -1 ? [] : siblings.slice(targetIndex);
+  return {
+    parentId: target.parentId,
+    displayOrder: target.displayOrder,
+    shifts: later.map((sibling) => ({ id: sibling.id, displayOrder: sibling.displayOrder + 1 })),
+  };
+}
+
+export type DropZone = 'before' | 'after' | 'child' | 'first-child';
+
+/**
+ * Pointer Y inside a hovered row → drop zone. Top/middle thirds are always
+ * sibling-before / nest-as-last-child. The bottom third is sibling-after on a
+ * leaf or collapsed row, otherwise the gap before the first visible child.
+ */
+export function dropZone(
+  yInRow: number,
+  rowHeight: number,
+  targetHasVisibleChildren: boolean
+): DropZone {
+  const height = rowHeight <= 0 ? 1 : rowHeight;
+  const t = yInRow / height;
+  if (t < 1 / 3) return 'before';
+  if (t < 2 / 3) return 'child';
+  return targetHasVisibleChildren ? 'first-child' : 'after';
+}
+
+function withoutDragged(shifts: DisplayOrderShift[], draggedId: number): DisplayOrderShift[] {
+  return shifts.filter((shift) => shift.id !== draggedId);
+}
+
+/**
+ * Tree-aware placement for a drag. Only the dragged node is rewritten;
+ * destination later siblings are bumped. Source siblings are left with gaps.
+ */
+function isAlreadyThere(items: WbsItem[], dragged: WbsItem, target: WbsItem, zone: DropZone): boolean {
+  const destParentId = zone === 'child' || zone === 'first-child' ? target.id : target.parentId;
+  const destSiblings = siblingsOf(items, destParentId);
+  const draggedIndex = destSiblings.findIndex((sibling) => sibling.id === dragged.id);
+  const targetIndex = destSiblings.findIndex((sibling) => sibling.id === target.id);
+  if (draggedIndex < 0) return false;
+  switch (zone) {
+    case 'before':
+      return dragged.parentId === target.parentId && draggedIndex === targetIndex - 1;
+    case 'after':
+      return dragged.parentId === target.parentId && draggedIndex === targetIndex + 1;
+    case 'child':
+      return dragged.parentId === target.id && draggedIndex === destSiblings.length - 1;
+    case 'first-child':
+      return dragged.parentId === target.id && draggedIndex === 0;
+  }
+}
+
+export function dropPlacement(
+  items: WbsItem[],
+  draggedId: number,
+  targetId: number,
+  zone: DropZone
+): InsertAfterPlacement | null {
+  if (draggedId === targetId) return null;
+  const dragged = items.find((item) => item.id === draggedId);
+  const target = items.find((item) => item.id === targetId);
+  if (dragged === undefined || target === undefined) return null;
+  if (descendantIds(items, draggedId).includes(targetId)) return null;
+  if (isAlreadyThere(items, dragged, target, zone)) return null;
+
+  let placed: InsertAfterPlacement;
+  switch (zone) {
+    case 'before':
+      placed = insertBefore(items, target);
+      break;
+    case 'after':
+      placed = insertAfter(items, target);
+      break;
+    case 'child':
+      placed = {
+        parentId: target.id,
+        displayOrder: nextDisplayOrder(items, target.id),
+        shifts: [],
+      };
+      break;
+    case 'first-child': {
+      const firstChild = siblingsOf(items, target.id)[0];
+      placed =
+        firstChild === undefined
+          ? { parentId: target.id, displayOrder: nextDisplayOrder(items, target.id), shifts: [] }
+          : insertBefore(items, firstChild);
+      break;
+    }
+  }
+
+  if (wouldCreateCycle(items, draggedId, placed.parentId)) return null;
+  if (dragged.parentId === placed.parentId && dragged.displayOrder === placed.displayOrder) return null;
+  return { ...placed, shifts: withoutDragged(placed.shifts, draggedId) };
+}
+
 /** Create-payload fields shared by add-root / add-child / add-sibling. */
 export function newWbsItemFields(
   parentId: number | null,
@@ -489,7 +596,7 @@ export function structureShortcutLabel(action: StructureAction, isMac: boolean):
 
 export function structureHintText(isMac: boolean): string {
   const child = isMac ? '\u2318Enter' : 'Ctrl+Enter';
-  return `Enter sibling \u00b7 ${child} child \u00b7 Tab indent \u00b7 \u21e7Tab outdent \u00b7 \u232b delete`;
+  return `Enter sibling \u00b7 ${child} child \u00b7 Tab indent \u00b7 \u21e7Tab outdent \u00b7 \u232b delete \u00b7 drag to move`;
 }
 
 /** Side of the ⋮ hit box on the Task Description cell. */

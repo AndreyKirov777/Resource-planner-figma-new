@@ -33,8 +33,16 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
   };
 
   const Harness = React.forwardRef((props: any, _ref: React.Ref<unknown>) => {
-    const { rows, columns, getCellContent, onCellEdited, onGridSelectionChange, getRowThemeOverride, gridSelection } =
-      props;
+    const {
+      rows,
+      columns,
+      getCellContent,
+      onCellEdited,
+      onGridSelectionChange,
+      getRowThemeOverride,
+      gridSelection,
+      onWbsDrop,
+    } = props;
     const [draft, setDraft] = React.useState('');
     const [outsideClick, setOutsideClick] = React.useState('');
     const selectedRow = gridSelection?.current?.cell[1];
@@ -181,6 +189,22 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
             </div>
           );
         })}
+        {rows > 0 &&
+          rows <= 16 &&
+          Array.from({ length: rows }, (_unused, source) => {
+            const draggedId = getCellContent([1, source]).data.itemId as number;
+            return Array.from({ length: rows }, (_inner, dest) => {
+              const targetId = getCellContent([1, dest]).data.itemId as number;
+              return (['before', 'after', 'child', 'first-child'] as const).map((zone) => (
+                <button
+                  key={`${draggedId}-${targetId}-${zone}`}
+                  onClick={() => onWbsDrop?.(draggedId, targetId, zone)}
+                >
+                  {`drop ${draggedId} onto ${targetId} ${zone}`}
+                </button>
+              ));
+            });
+          })}
       </div>
     );
   });
@@ -419,7 +443,7 @@ describe('Wbs — structure editing from the table', () => {
     expect(screen.queryByRole('button', { name: /add root item/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /\+ child/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
-    expect(screen.getByTestId('wbs-structure-hint')).toBeInTheDocument();
+    expect(screen.getByTestId('wbs-structure-hint')).toHaveTextContent(/drag to move/);
   });
 
   it('adds a child from the row menu and expands a collapsed parent', async () => {
@@ -617,6 +641,97 @@ describe('Wbs — structure editing from the table', () => {
     expect(props.onDeleteWbsItem).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe('Wbs — drag-and-drop from the outline column', () => {
+  it('moves a sibling after another leaf via the same handler the grid uses', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'drop 1 onto 4 after' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(1, { parentId: null, displayOrder: 2 });
+  });
+
+  it('moves a sibling before another and bumps the target', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'drop 4 onto 1 before' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenNthCalledWith(1, 1, { displayOrder: 1 });
+    expect(props.onUpdateWbsItem).toHaveBeenNthCalledWith(2, 4, { parentId: null, displayOrder: 0 });
+  });
+
+  it('nests as the last child and expands a collapsed parent', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+    expect(screen.queryByTestId('row-2')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'drop 4 onto 1 child' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(4, { parentId: 1, displayOrder: 1 });
+    expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Interviews');
+    expect(screen.getByTestId('cell-1-2')).toHaveTextContent('Notes');
+  });
+
+  it('inserts as the first child of an expanded parent', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'drop 4 onto 1 first-child' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenNthCalledWith(1, 2, { displayOrder: 1 });
+    expect(props.onUpdateWbsItem).toHaveBeenNthCalledWith(2, 4, { parentId: 1, displayOrder: 0 });
+  });
+
+  it('reparents across branches without rewriting the dragged subtree', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'drop 1 onto 4 after' }));
+
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(1, { parentId: null, displayOrder: 2 });
+    expect(props.onUpdateWbsItem).not.toHaveBeenCalledWith(2, expect.anything());
+    expect(props.onUpdateWbsItem).not.toHaveBeenCalledWith(3, expect.anything());
+  });
+
+  it('does not mutate when dropping on a descendant or on self', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'drop 1 onto 2 child' }));
+    await user.click(screen.getByRole('button', { name: 'drop 1 onto 1 after' }));
+
+    expect(props.onUpdateWbsItem).not.toHaveBeenCalled();
+  });
+
+  it('does not mutate when a name overlay is open', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    const portal = document.createElement('div');
+    portal.id = 'portal';
+    const clip = document.createElement('div');
+    clip.className = 'gdg-clip-region';
+    portal.appendChild(clip);
+    document.body.appendChild(portal);
+
+    await user.click(screen.getByRole('button', { name: 'drop 4 onto 1 child' }));
+
+    expect(props.onUpdateWbsItem).not.toHaveBeenCalled();
+
+    portal.remove();
   });
 });
 
