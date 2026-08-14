@@ -432,3 +432,22 @@ D6 (plan-side rate-card picker) is therefore a no-op and is not deferred.
   planned v1 slice from `sprint-change-proposal-2026-08-12.md`. Land `notes` before or with this
   bump (see notes entry above) so the version only moves once.
 - **`WbsItem.notes`.** Already split out of WBS-2R (entry above). Unchanged.
+
+## Deferred from spec-wbs-structure-edit review (2026-08-14)
+
+The WBS-2R split (keyboard outliner + cycle guards) is implemented by
+`spec-wbs-structure-edit.md`. These leftovers are pre-existing or corrupt-data
+paths, not contract breaks.
+
+- **`PUT /api/wbs-items/:id` cycle check is not transactional.** Two concurrent
+  reparents (A under B and B under A) can both pass `wouldCreateCycle` and still
+  persist a cycle. Same non-transactional PUT pattern as the rest of `server.ts`.
+- **Closed cycle with an extra descendant.** Promoting unreachable cycle members
+  to roots unlinks only those members. A child hanging off the cycle can appear
+  as a false root, and `descendantIds` / delete-confirm can under-count the DB
+  cascade. Reachable only via direct API/DB `parentId` cycles.
+- **Tied or corrupt `displayOrder` among siblings.** Insert-below bumps
+  `displayOrder + 1` and does not resequence ties. Related to the existing
+  `nextDisplayOrder` / `NaN` note under WBS-2R review.
+- **Canvas WBS has no focusable ⋮.** Inherent Glide `<canvas>` a11y gap, already
+  logged under WBS-2R. Keyboard structure actions still work via `onKeyDown`.

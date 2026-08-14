@@ -40,20 +40,50 @@ import {
   deleteConfirmMessage,
   formatHours,
   hitsChevron,
+  hitsKebab,
   indentFor,
+  indentPlacement,
+  kebabLeft,
+  KEBAB_SIZE,
   layoutChips,
   nameEditFor,
+  newWbsItemFields,
   nextDisplayOrder,
+  outdentPlacement,
   pairsSummary,
   phaseEditFor,
   phaseLabel,
   pruneCollapsedIds,
+  siblingBelowPlacement,
+  structureActionFromKey,
+  structureHintText,
+  isMacPlatform,
+  StructureAction,
 } from '../utils/wbsGrid';
+import { wouldCreateCycle } from '../utils/wbsTree';
 import { GRID_THEME } from './gridTheme';
 import { ReconciliationPanel, reconciliationSummary } from './ReconciliationPanel';
 import { NameEditor, PhaseEditor, RolesEditor, isInsidePortaledMenu } from './RolesEditor';
+import { WbsRowMenu } from './WbsRowMenu';
 import { Button } from './ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+
+/** Mounted overlay editors increment this so structure keys can no-op. */
+let overlayMounts = 0;
+
+function OverlayTracker({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    overlayMounts += 1;
+    return () => {
+      overlayMounts -= 1;
+    };
+  }, []);
+  return <>{children}</>;
+}
+
+function isWbsOverlayOpen(): boolean {
+  return overlayMounts > 0 || Boolean(document.querySelector('#portal .gdg-clip-region'));
+}
 
 type WbsCreatePayload = Omit<Partial<WbsItem>, 'estimates'> & { estimates?: Partial<WbsEstimate>[] };
 
@@ -103,6 +133,7 @@ interface TaskCellData {
   readonly collapsed: boolean;
   readonly isSection: boolean;
   readonly onToggle: (itemId: number) => void;
+  readonly onOpenMenu: (itemId: number, x: number, y: number) => void;
 }
 
 interface PhaseCellData {
@@ -193,24 +224,39 @@ const TaskCellRenderer: CustomRenderer<TaskCell> = {
       }
       textX += CHEVRON_SIZE + 4;
 
+      const kebabX = x + kebabLeft(width);
       ctx.fillStyle = theme.textDark;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText(name, textX, midY);
+      ctx.fillText(name, textX, midY, Math.max(0, kebabX - textX - 4));
+
+      const kebabY = y + height / 2;
+      ctx.fillStyle = theme.textMedium;
+      for (const dy of [-4, 0, 4]) {
+        ctx.beginPath();
+        ctx.arc(kebabX + KEBAB_SIZE / 2, kebabY + dy, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
     });
     return true;
   },
   // Renderer-level onClick: posX/posY are already cell-local, so the chevron
   // hit test needs no bounds math of its own — but it must use BOTH axes.
   // Testing posX alone gives the chevron the full row height, so clicking
-  // anywhere down a parent row's left edge toggles instead of selecting, and
-  // selection is what enables the toolbar.
+  // anywhere down a parent row's left edge toggles instead of selecting.
   onClick: (args) => {
     const { cell, posX, posY, bounds, preventDefault } = args;
-    if (!cell.data.hasChildren) return undefined;
-    if (hitsChevron(cell.data.depth, bounds.width, bounds.height, posX, posY)) {
+    if (
+      cell.data.hasChildren &&
+      hitsChevron(cell.data.depth, bounds.width, bounds.height, posX, posY)
+    ) {
       preventDefault();
       cell.data.onToggle(cell.data.itemId);
+      return undefined;
+    }
+    if (hitsKebab(bounds.width, bounds.height, posX, posY)) {
+      preventDefault();
+      cell.data.onOpenMenu(cell.data.itemId, bounds.x + bounds.width, bounds.y);
     }
     return undefined;
   },
@@ -224,14 +270,16 @@ const TaskCellRenderer: CustomRenderer<TaskCell> = {
         data: { ...cell.data, name },
       });
       return (
-        <NameEditor
-          value={cell.data.name}
-          onDraftChange={(name) => p.onChange(withName(name))}
-          onCommit={(name, movement) => p.onFinishedEditing(withName(name), movement)}
-          // Escape is an explicit cancel: hand Glide `undefined` so no cell
-          // edit is emitted at all and the row keeps its stored name.
-          onCancel={() => p.onFinishedEditing(undefined, [0, 0])}
-        />
+        <OverlayTracker>
+          <NameEditor
+            value={cell.data.name}
+            onDraftChange={(name) => p.onChange(withName(name))}
+            onCommit={(name, movement) => p.onFinishedEditing(withName(name), movement)}
+            // Escape is an explicit cancel: hand Glide `undefined` so no cell
+            // edit is emitted at all and the row keeps its stored name.
+            onCancel={() => p.onFinishedEditing(undefined, [0, 0])}
+          />
+        </OverlayTracker>
       );
     },
   }),
@@ -259,14 +307,16 @@ const PhaseCellRenderer: CustomRenderer<PhaseCell> = {
     editor: (p) => {
       const cell = p.value;
       return (
-        <PhaseEditor
-          value={cell.data.ownPhaseName}
-          phaseOptions={cell.data.phaseOptions}
-          onCommit={(ownPhaseName) =>
-            p.onFinishedEditing({ ...cell, data: { ...cell.data, ownPhaseName } }, [0, 0])
-          }
-          onClose={() => p.onFinishedEditing(undefined, [0, 0])}
-        />
+        <OverlayTracker>
+          <PhaseEditor
+            value={cell.data.ownPhaseName}
+            phaseOptions={cell.data.phaseOptions}
+            onCommit={(ownPhaseName) =>
+              p.onFinishedEditing({ ...cell, data: { ...cell.data, ownPhaseName } }, [0, 0])
+            }
+            onClose={() => p.onFinishedEditing(undefined, [0, 0])}
+          />
+        </OverlayTracker>
       );
     },
   }),
@@ -328,16 +378,18 @@ const RolesCellRenderer: CustomRenderer<RolesCell> = {
     editor: (p) => {
       const cell = p.value;
       return (
-        <RolesEditor
-          itemId={cell.data.itemId}
-          pairs={cell.data.pairs}
-          resourceLists={cell.data.resourceLists}
-          rateCards={cell.data.rateCards}
-          committer={cell.data.committer}
-          // The editor persists through the committer, not through a cell
-          // edit, so it closes without handing Glide a new value.
-          onClose={() => p.onFinishedEditing(undefined, [0, 0])}
-        />
+        <OverlayTracker>
+          <RolesEditor
+            itemId={cell.data.itemId}
+            pairs={cell.data.pairs}
+            resourceLists={cell.data.resourceLists}
+            rateCards={cell.data.rateCards}
+            committer={cell.data.committer}
+            // The editor persists through the committer, not through a cell
+            // edit, so it closes without handing Glide a new value.
+            onClose={() => p.onFinishedEditing(undefined, [0, 0])}
+          />
+        </OverlayTracker>
       );
     },
   }),
@@ -379,6 +431,8 @@ export function Wbs({
   const [collapsedIds, setCollapsedIds] = useState<Set<number>>(new Set());
   const [gridSelection, setGridSelection] = useState<GridSelection>(EMPTY_SELECTION);
   const [reconciliationOpen, setReconciliationOpen] = useState(false);
+  const [rowMenu, setRowMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  const isMac = useMemo(() => isMacPlatform(), []);
 
   const phases = useMemo(
     () => parsePhases(project.phases, resourcePlans),
@@ -436,12 +490,29 @@ export function Wbs({
     });
   }, []);
 
+  const expandItem = useCallback((id: number) => {
+    setCollapsedIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const structureBusyRef = useRef(false);
+
+  const openRowMenu = useCallback((id: number, x: number, y: number) => {
+    if (isWbsOverlayOpen()) return;
+    setRowMenu({ id, x, y });
+  }, []);
+
   // `gridSelection` is a row INDEX, so any change to the visible row set
   // (collapse/expand, add, delete) silently re-points it at a different item.
   // Drop it whenever that set changes.
   const visibleRowKey = rows.map((row) => row.id).join(',');
   useEffect(() => {
     setGridSelection(EMPTY_SELECTION);
+    setRowMenu(null);
   }, [visibleRowKey]);
 
   // Ids are recycled by the database, so a collapsed id left behind by a
@@ -496,6 +567,7 @@ export function Wbs({
               collapsed: gridRow.collapsed,
               isSection: gridRow.isSection,
               onToggle: toggleCollapse,
+              onOpenMenu: openRowMenu,
             },
           };
           return cell;
@@ -545,7 +617,7 @@ export function Wbs({
         }
       }
     },
-    [rows, phaseNames, resourceLists, rateCards, committer, toggleCollapse]
+    [rows, phaseNames, resourceLists, rateCards, committer, toggleCollapse, openRowMenu]
   );
 
   /**
@@ -614,40 +686,95 @@ export function Wbs({
     []
   );
 
+  function applyShifts(shifts: { id: number; displayOrder: number }[]) {
+    return Promise.all(
+      shifts.map((shift) => onUpdateWbsItem(shift.id, { displayOrder: shift.displayOrder }).catch(() => {}))
+    );
+  }
+
   function handleAddRootItem() {
-    onAddWbsItem({
-      name: 'New item',
-      parentId: null,
-      phaseName: null,
-      displayOrder: nextDisplayOrder(wbsItems, null),
-    }).catch(() => {
+    onAddWbsItem(newWbsItemFields(null, nextDisplayOrder(wbsItems, null))).catch(() => {
       // Failure surfaces via the shared app-level error banner.
     });
   }
 
-  function handleAddChild() {
-    if (selectedRow === undefined) return;
-    const parentId = selectedRow.id;
-    // Expand the parent first, or the new row lands inside a collapsed subtree
-    // and is invisible — at which point the user just adds it again.
-    setCollapsedIds((prev) => {
-      if (!prev.has(parentId)) return prev;
-      const next = new Set(prev);
-      next.delete(parentId);
-      return next;
-    });
-    onAddWbsItem({
-      name: 'New item',
-      parentId,
-      phaseName: null,
-      displayOrder: nextDisplayOrder(wbsItems, parentId),
-    }).catch(() => {});
+  function handleAddChild(itemId: number) {
+    expandItem(itemId);
+    return onAddWbsItem(newWbsItemFields(itemId, nextDisplayOrder(wbsItems, itemId))).catch(() => {});
   }
 
-  function handleDelete() {
-    if (selectedRow === undefined) return;
-    if (!window.confirm(deleteConfirmMessage(wbsItems, selectedRow.id, selectedRow.name))) return;
-    onDeleteWbsItem(selectedRow.id).catch(() => {});
+  async function handleAddSibling(itemId: number) {
+    const placement = siblingBelowPlacement(wbsItems, itemId);
+    if (placement === null) return;
+    await applyShifts(placement.shifts);
+    await onAddWbsItem(newWbsItemFields(placement.parentId, placement.displayOrder)).catch(() => {});
+  }
+
+  function handleIndent(itemId: number) {
+    const placement = indentPlacement(wbsItems, itemId);
+    if (placement === null) return;
+    if (wouldCreateCycle(wbsItems, itemId, placement.parentId)) return;
+    expandItem(placement.parentId);
+    return onUpdateWbsItem(itemId, placement).catch(() => {});
+  }
+
+  async function handleOutdent(itemId: number) {
+    const placement = outdentPlacement(wbsItems, itemId);
+    if (placement === null) return;
+    if (wouldCreateCycle(wbsItems, itemId, placement.parentId)) return;
+    await applyShifts(placement.shifts);
+    await onUpdateWbsItem(itemId, { parentId: placement.parentId, displayOrder: placement.displayOrder }).catch(
+      () => {}
+    );
+  }
+
+  function handleDelete(itemId: number) {
+    const target = wbsItems.find((item) => item.id === itemId);
+    if (target === undefined) return;
+    if (!window.confirm(deleteConfirmMessage(wbsItems, itemId, target.name))) return;
+    return onDeleteWbsItem(itemId).catch(() => {});
+  }
+
+  function runStructureAction(action: StructureAction, itemId: number) {
+    if (structureBusyRef.current) return;
+    structureBusyRef.current = true;
+    const work = (() => {
+      switch (action) {
+        case 'addChild':
+          return handleAddChild(itemId);
+        case 'addSibling':
+          return handleAddSibling(itemId);
+        case 'indent':
+          return handleIndent(itemId);
+        case 'outdent':
+          return handleOutdent(itemId);
+        case 'delete':
+          return handleDelete(itemId);
+      }
+    })();
+    Promise.resolve(work).finally(() => {
+      structureBusyRef.current = false;
+    });
+  }
+
+  function onGridKeyDown(event: {
+    key: string;
+    metaKey: boolean;
+    ctrlKey: boolean;
+    shiftKey: boolean;
+    cancel?: () => void;
+    preventDefault?: () => void;
+  }) {
+    if (rowMenu !== null) {
+      event.cancel?.();
+      event.preventDefault?.();
+      return;
+    }
+    const action = structureActionFromKey(event, isWbsOverlayOpen());
+    if (action === null || selectedRow === undefined) return;
+    event.cancel?.();
+    event.preventDefault?.();
+    runStructureAction(action, selectedRow.id);
   }
 
   const gridHeight = Math.max(
@@ -657,23 +784,16 @@ export function Wbs({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Work Breakdown Structure</h2>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={handleAddChild} disabled={selectedRow === undefined}>
-            + Child
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleDelete}
-            disabled={selectedRow === undefined}
-            className="text-red-600 hover:text-red-700"
-          >
-            Delete
-          </Button>
-          <Button onClick={handleAddRootItem}>Add root item</Button>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h2 className="text-lg font-semibold shrink-0">Work Breakdown Structure</h2>
+          {wbsItems.length > 0 && (
+            <p data-testid="wbs-structure-hint" className="text-muted-foreground truncate text-xs">
+              {structureHintText(isMac)}
+            </p>
+          )}
         </div>
+        {wbsItems.length === 0 && <Button onClick={handleAddRootItem}>Add root item</Button>}
       </div>
 
       {wbsItems.length === 0 ? (
@@ -695,6 +815,7 @@ export function Wbs({
             getRowThemeOverride={getRowThemeOverride}
             gridSelection={gridSelection}
             onGridSelectionChange={setGridSelection}
+            onKeyDown={onGridKeyDown}
             isOutsideClick={isOutsideClick}
             rowHeight={ROW_HEIGHT}
             headerHeight={HEADER_HEIGHT}
@@ -706,6 +827,25 @@ export function Wbs({
             theme={GRID_THEME}
           />
         </div>
+      )}
+
+      {rowMenu !== null && (
+        <WbsRowMenu
+          open
+          onOpenChange={(open) => {
+            if (!open) setRowMenu(null);
+          }}
+          x={rowMenu.x}
+          y={rowMenu.y}
+          canIndent={indentPlacement(wbsItems, rowMenu.id) !== null}
+          canOutdent={outdentPlacement(wbsItems, rowMenu.id) !== null}
+          isMac={isMac}
+          onAddChild={() => runStructureAction('addChild', rowMenu.id)}
+          onAddSibling={() => runStructureAction('addSibling', rowMenu.id)}
+          onIndent={() => runStructureAction('indent', rowMenu.id)}
+          onOutdent={() => runStructureAction('outdent', rowMenu.id)}
+          onDelete={() => runStructureAction('delete', rowMenu.id)}
+        />
       )}
 
       <div className="border-t pt-4">

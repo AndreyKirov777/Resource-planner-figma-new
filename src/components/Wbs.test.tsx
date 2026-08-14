@@ -19,6 +19,19 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
   const cellText = (cell: any): string =>
     cell.kind === actual.GridCellKind.Custom ? cell.copyData : (cell.displayData ?? '');
 
+  const fireKey = (props: any, partial: Record<string, unknown>) => {
+    props.onKeyDown?.({
+      key: 'Enter',
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      cancel: () => undefined,
+      preventDefault: () => undefined,
+      stopPropagation: () => undefined,
+      ...partial,
+    });
+  };
+
   const Harness = (props: any) => {
     const { rows, columns, getCellContent, onCellEdited, onGridSelectionChange, getRowThemeOverride } = props;
     const [draft, setDraft] = React.useState('');
@@ -56,6 +69,12 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
           probe portaled menu click
         </button>
         <button onClick={() => probeOutsideClick('somewhere-else')}>probe plain click</button>
+        <button onClick={() => fireKey(props, { key: 'Enter' })}>key Enter</button>
+        <button onClick={() => fireKey(props, { key: 'Enter', metaKey: true })}>key Cmd+Enter</button>
+        <button onClick={() => fireKey(props, { key: 'Tab' })}>key Tab</button>
+        <button onClick={() => fireKey(props, { key: 'Tab', shiftKey: true })}>key Shift+Tab</button>
+        <button onClick={() => fireKey(props, { key: 'Delete' })}>key Delete</button>
+        <button onClick={() => fireKey(props, { key: 'Backspace' })}>key Backspace</button>
         <button
           onClick={() => {
             if (captured.current === null) return;
@@ -103,6 +122,7 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
                 {`select row ${r}`}
               </button>
               <button onClick={() => taskData.onToggle(taskData.itemId)}>{`toggle row ${r}`}</button>
+              <button onClick={() => taskData.onOpenMenu(taskData.itemId, 0, 0)}>{`open menu row ${r}`}</button>
               <button
                 onClick={() => {
                   captured.current = { col: 1, row: r, cell: cells[1] };
@@ -380,51 +400,77 @@ describe('Wbs — collapse', () => {
   });
 });
 
-describe('Wbs — toolbar actions on the grid selection', () => {
-  it('disables + Child and Delete while nothing is selected', () => {
-    render(<Wbs {...defaultProps(threeLevelTree)} />);
+describe('Wbs — structure editing from the table', () => {
+  it('keeps Add root item only on an empty WBS and hides the old toolbar once rows exist', () => {
+    const { rerender } = render(<Wbs {...defaultProps([])} />);
+    expect(screen.getByRole('button', { name: /add root item/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('wbs-structure-hint')).not.toBeInTheDocument();
 
-    expect(screen.getByRole('button', { name: /\+ child/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /delete/i })).toBeDisabled();
+    rerender(<Wbs {...defaultProps(threeLevelTree)} />);
+    expect(screen.queryByRole('button', { name: /add root item/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /\+ child/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('wbs-structure-hint')).toBeInTheDocument();
   });
 
-  it('adds a root item with a client-computed displayOrder', async () => {
+  it('adds a child from the row menu and expands a collapsed parent', async () => {
     const user = userEvent.setup();
     const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    await user.click(screen.getByRole('button', { name: /add root item/i }));
+    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
+    expect(screen.queryByTestId('row-2')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'open menu row 0' }));
+    await user.click(screen.getByRole('menuitem', { name: /add child/i }));
 
+    expect(props.onAddWbsItem).toHaveBeenCalledWith(expect.objectContaining({ parentId: 1 }));
+    expect(screen.getByTestId('cell-1-2')).toHaveTextContent('Notes');
+  });
+
+  it('adds a sibling immediately below from the menu or Enter', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'open menu row 0' }));
+    await user.click(screen.getByRole('menuitem', { name: /add sibling below/i }));
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(4, { displayOrder: 2 });
     expect(props.onAddWbsItem).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'New item', parentId: null, displayOrder: 2 })
+      expect.objectContaining({ name: 'New item', parentId: null, displayOrder: 1 })
+    );
+
+    await user.click(screen.getByRole('button', { name: 'select row 3' }));
+    await user.click(screen.getByRole('button', { name: 'key Enter' }));
+    expect(props.onAddWbsItem).toHaveBeenLastCalledWith(
+      expect.objectContaining({ parentId: null, displayOrder: 2 })
     );
   });
 
-  it('adds a child under the selected row', async () => {
+  it('adds a child with Cmd+Enter', async () => {
     const user = userEvent.setup();
     const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
     await user.click(screen.getByRole('button', { name: 'select row 1' }));
-    await user.click(screen.getByRole('button', { name: /\+ child/i }));
-
+    await user.click(screen.getByRole('button', { name: 'key Cmd+Enter' }));
     expect(props.onAddWbsItem).toHaveBeenCalledWith(expect.objectContaining({ parentId: 2 }));
   });
 
-  it('expands a collapsed parent when adding a child to it, so the new row is visible', async () => {
+  it('indents and outdents from Tab / Shift+Tab', async () => {
     const user = userEvent.setup();
     const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    // Collapse row 0, then re-select it (collapsing invalidates the selection).
-    await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
-    expect(screen.queryByTestId('row-2')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'select row 0' }));
-    await user.click(screen.getByRole('button', { name: /\+ child/i }));
+    await user.click(screen.getByRole('button', { name: 'select row 3' }));
+    await user.click(screen.getByRole('button', { name: 'key Tab' }));
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(4, expect.objectContaining({ parentId: 1 }));
 
-    expect(props.onAddWbsItem).toHaveBeenCalledWith(expect.objectContaining({ parentId: 1 }));
-    // The subtree is open again, so the new child will land somewhere visible.
-    expect(screen.getByTestId('cell-1-2')).toHaveTextContent('Notes');
+    await user.click(screen.getByRole('button', { name: 'select row 2' }));
+    await user.click(screen.getByRole('button', { name: 'key Shift+Tab' }));
+    expect(props.onUpdateWbsItem).toHaveBeenCalledWith(
+      3,
+      expect.objectContaining({ parentId: 1, displayOrder: 1 })
+    );
   });
 
   it('confirms a delete naming the descendant count, then deletes', async () => {
@@ -433,8 +479,8 @@ describe('Wbs — toolbar actions on the grid selection', () => {
     const props = defaultProps(threeLevelTree);
     render(<Wbs {...props} />);
 
-    await user.click(screen.getByRole('button', { name: 'select row 0' }));
-    await user.click(screen.getByRole('button', { name: /delete/i }));
+    await user.click(screen.getByRole('button', { name: 'open menu row 0' }));
+    await user.click(screen.getByRole('menuitem', { name: /delete/i }));
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2 descendant items'));
     expect(props.onDeleteWbsItem).toHaveBeenCalledWith(1);
@@ -449,11 +495,33 @@ describe('Wbs — toolbar actions on the grid selection', () => {
     render(<Wbs {...props} />);
 
     await user.click(screen.getByRole('button', { name: 'select row 0' }));
-    await user.click(screen.getByRole('button', { name: /delete/i }));
+    await user.click(screen.getByRole('button', { name: 'key Delete' }));
 
     expect(props.onDeleteWbsItem).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
+  });
+
+  it('does not fire structure keys while a cell overlay is open', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    const portal = document.createElement('div');
+    portal.id = 'portal';
+    const clip = document.createElement('div');
+    clip.className = 'gdg-clip-region';
+    portal.appendChild(clip);
+    document.body.appendChild(portal);
+
+    await user.click(screen.getByRole('button', { name: 'select row 0' }));
+    await user.click(screen.getByRole('button', { name: 'key Enter' }));
+    await user.click(screen.getByRole('button', { name: 'key Delete' }));
+
+    expect(props.onAddWbsItem).not.toHaveBeenCalled();
+    expect(props.onDeleteWbsItem).not.toHaveBeenCalled();
+
+    portal.remove();
   });
 
   it('invalidates the selection when the visible row set changes', async () => {
@@ -462,15 +530,10 @@ describe('Wbs — toolbar actions on the grid selection', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
     render(<Wbs {...props} />);
 
-    // Row index 1 is "Interviews" (id 2)...
     await user.click(screen.getByRole('button', { name: 'select row 1' }));
-    expect(screen.getByRole('button', { name: /delete/i })).toBeEnabled();
-
-    // ...but collapsing row 0 makes index 1 point at "Build" (id 4) instead.
-    // A stale index would silently delete the wrong item, so it must drop.
     await user.click(screen.getByRole('button', { name: 'toggle row 0' }));
     expect(screen.getByTestId('cell-1-1')).toHaveTextContent('Build');
-    expect(screen.getByRole('button', { name: /delete/i })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'key Delete' }));
     expect(props.onDeleteWbsItem).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();

@@ -7,6 +7,7 @@ import {
   outlineNumbers,
   effectivePhases,
   withEffectivePhases,
+  wouldCreateCycle,
   WbsTreeNode,
 } from './wbsTree';
 import { WbsItem } from '../services/api';
@@ -70,6 +71,19 @@ describe('buildWbsTree', () => {
 
   it('returns an empty forest for an empty item list', () => {
     expect(buildWbsTree([])).toEqual([]);
+  });
+
+  it('surfaces a closed cycle as roots instead of hiding it', () => {
+    const items: WbsItem[] = [
+      item({ id: 1, name: 'A', parentId: 2 }),
+      item({ id: 2, name: 'B', parentId: 1 }),
+    ];
+
+    const tree = buildWbsTree(items);
+
+    expect(tree.map((n) => n.name).sort()).toEqual(['A', 'B']);
+    expect(tree.every((n) => n.children)).toBeTruthy();
+    expect(flattenVisibleTree(tree).map((r) => r.node.id).sort()).toEqual([1, 2]);
   });
 });
 
@@ -185,6 +199,64 @@ describe('descendantIds', () => {
 
   it('does not include unrelated roots or their subtrees', () => {
     expect(descendantIds(items, 1)).not.toContain(5);
+  });
+
+  it('does not under-count when the target sits in a closed cycle', () => {
+    const cyclic: WbsItem[] = [
+      item({ id: 1, name: 'A', parentId: 2 }),
+      item({ id: 2, name: 'B', parentId: 1 }),
+    ];
+    expect(descendantIds(cyclic, 1)).toEqual([]);
+    expect(buildWbsTree(cyclic).map((n) => n.id).sort()).toEqual([1, 2]);
+  });
+});
+
+describe('cycle walkers', () => {
+  it('does not stack-overflow on a cycle hanging off a root', () => {
+    const items: WbsItem[] = [
+      item({ id: 1, name: 'A', parentId: null }),
+      item({ id: 2, name: 'B', parentId: 1 }),
+      item({ id: 3, name: 'C', parentId: 2 }),
+    ];
+    // C → B is the back-edge; keep it in the assembled children by mutating.
+    const tree = buildWbsTree(items);
+    const b = tree[0].children[0];
+    const c = b.children[0];
+    c.children.push(b);
+
+    expect(() => flattenVisibleTree(tree)).not.toThrow();
+    expect(flattenVisibleTree(tree).map((r) => r.node.id)).toEqual([1, 2, 3]);
+    expect(() => outlineNumbers(tree)).not.toThrow();
+    expect(() => effectivePhases(tree)).not.toThrow();
+    expect(() => rollupHours(tree[0])).not.toThrow();
+    expect(() => descendantIds(items, 1)).not.toThrow();
+  });
+});
+
+describe('wouldCreateCycle', () => {
+  const items: WbsItem[] = [
+    item({ id: 1, name: 'Root', parentId: null }),
+    item({ id: 2, name: 'Child', parentId: 1 }),
+    item({ id: 3, name: 'Grand', parentId: 2 }),
+  ];
+
+  it('is false when reparenting to null or to a non-descendant', () => {
+    expect(wouldCreateCycle(items, 3, null)).toBe(false);
+    expect(wouldCreateCycle(items, 3, 1)).toBe(false);
+  });
+
+  it('is true for self-parent and for a descendant parent', () => {
+    expect(wouldCreateCycle(items, 1, 1)).toBe(true);
+    expect(wouldCreateCycle(items, 1, 2)).toBe(true);
+    expect(wouldCreateCycle(items, 1, 3)).toBe(true);
+  });
+
+  it('does not walk forever when the existing data already cycles', () => {
+    const cyclic = [
+      item({ id: 1, parentId: 2 }),
+      item({ id: 2, parentId: 1 }),
+    ];
+    expect(wouldCreateCycle(cyclic, 3, 1)).toBe(false);
   });
 });
 

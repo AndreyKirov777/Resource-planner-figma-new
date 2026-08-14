@@ -38,13 +38,40 @@ export function buildWbsTree(items: WbsItem[]): WbsTreeNode[] {
     }
   });
 
+  // Closed cycles never enter `roots` above (every member has a parent in-map)
+  // and would otherwise vanish. Promote every unreachable node to a root and
+  // unlink it so each item appears once, at depth 0.
+  const reachable = new Set<number>();
+  const markReachable = (node: WbsTreeNode, seen: Set<number>) => {
+    if (seen.has(node.id)) return;
+    seen.add(node.id);
+    reachable.add(node.id);
+    node.children.forEach((child) => markReachable(child, seen));
+  };
+  roots.forEach((root) => markReachable(root, new Set()));
+
+  items.forEach((item) => {
+    if (reachable.has(item.id)) return;
+    const node = nodeById.get(item.id)!;
+    roots.push(node);
+    if (item.parentId != null) {
+      const parent = nodeById.get(item.parentId);
+      if (parent) parent.children = parent.children.filter((child) => child.id !== item.id);
+    }
+    reachable.add(item.id);
+  });
+
   const bySiblingOrder = (a: WbsTreeNode, b: WbsTreeNode) =>
     a.displayOrder - b.displayOrder || a.id - b.id;
-  const sortRecursive = (nodes: WbsTreeNode[]) => {
+  const sortRecursive = (nodes: WbsTreeNode[], seen: Set<number>) => {
     nodes.sort(bySiblingOrder);
-    nodes.forEach((n) => sortRecursive(n.children));
+    nodes.forEach((n) => {
+      if (seen.has(n.id)) return;
+      seen.add(n.id);
+      sortRecursive(n.children, seen);
+    });
   };
-  sortRecursive(roots);
+  sortRecursive(roots, new Set());
 
   return roots;
 }
@@ -61,8 +88,11 @@ export function flattenVisibleTree(
   collapsedIds: Set<number> = new Set()
 ): WbsFlatRow[] {
   const rows: WbsFlatRow[] = [];
+  const seen = new Set<number>();
   const walk = (nodes: WbsTreeNode[], depth: number) => {
     for (const node of nodes) {
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
       rows.push({ node, depth, hasChildren: node.children.length > 0 });
       if (node.children.length > 0 && !collapsedIds.has(node.id)) {
         walk(node.children, depth + 1);
@@ -81,7 +111,10 @@ export function flattenVisibleTree(
  */
 export function rollupHours(node: WbsTreeNode): Map<string, number> {
   const totals = new Map<string, number>();
+  const seen = new Set<number>();
   const visit = (n: WbsTreeNode) => {
+    if (seen.has(n.id)) return;
+    seen.add(n.id);
     n.estimates.forEach((estimate) => {
       totals.set(estimate.discipline, (totals.get(estimate.discipline) ?? 0) + estimate.hours);
     });
@@ -102,8 +135,11 @@ export function rollupHours(node: WbsTreeNode): Map<string, number> {
  */
 export function outlineNumbers(tree: WbsTreeNode[]): Map<number, string> {
   const numbers = new Map<number, string>();
+  const seen = new Set<number>();
   const walk = (nodes: WbsTreeNode[], prefix: string) => {
     nodes.forEach((node, index) => {
+      if (seen.has(node.id)) return;
+      seen.add(node.id);
       const outline = prefix === '' ? String(index + 1) : `${prefix}.${index + 1}`;
       numbers.set(node.id, outline);
       walk(node.children, outline);
@@ -146,8 +182,11 @@ export function effectivePhases(
     name != null && (valid === undefined || valid.has(name));
 
   const resolved = new Map<number, EffectivePhase>();
+  const seen = new Set<number>();
   const walk = (nodes: WbsTreeNode[], inheritedName: string | null) => {
     for (const node of nodes) {
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
       const own = isLive(node.phaseName) ? node.phaseName : null;
       const phaseName = own ?? inheritedName;
       resolved.set(node.id, { phaseName, inherited: own === null && phaseName !== null });
@@ -186,25 +225,54 @@ export function withEffectivePhases(items: WbsItem[], validPhaseNames?: Iterable
 export function descendantIds(items: WbsItem[], id: number): number[] {
   const tree = buildWbsTree(items);
 
-  const findNode = (nodes: WbsTreeNode[]): WbsTreeNode | undefined => {
+  const findNode = (nodes: WbsTreeNode[], seen: Set<number>): WbsTreeNode | undefined => {
     for (const node of nodes) {
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
       if (node.id === id) return node;
-      const found = findNode(node.children);
+      const found = findNode(node.children, seen);
       if (found) return found;
     }
     return undefined;
   };
 
-  const target = findNode(tree);
+  const target = findNode(tree, new Set());
   if (!target) return [];
 
   const ids: number[] = [];
-  const collect = (node: WbsTreeNode) => {
+  const collect = (node: WbsTreeNode, seen: Set<number>) => {
     node.children.forEach((child) => {
+      if (seen.has(child.id)) return;
+      seen.add(child.id);
       ids.push(child.id);
-      collect(child);
+      collect(child, seen);
     });
   };
-  collect(target);
+  collect(target, new Set([target.id]));
   return ids;
+}
+
+/**
+ * True when moving `id` under `newParentId` would create a cycle (self-parent
+ * or any ancestor loop, including reparenting under a descendant).
+ * `newParentId: null` is always safe. Existing cycles in `items` are walked
+ * with a visited-set so this never stack-overflows.
+ */
+export function wouldCreateCycle(
+  items: Array<{ id: number; parentId: number | null }>,
+  id: number,
+  newParentId: number | null
+): boolean {
+  if (newParentId == null) return false;
+  if (newParentId === id) return true;
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const seen = new Set<number>();
+  let current: number | null = newParentId;
+  while (current != null) {
+    if (current === id) return true;
+    if (seen.has(current)) break;
+    seen.add(current);
+    current = byId.get(current)?.parentId ?? null;
+  }
+  return false;
 }

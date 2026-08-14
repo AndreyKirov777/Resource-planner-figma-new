@@ -367,6 +367,39 @@ describe('WBS API integration', () => {
       expect(res.status).toBe(400);
     });
 
+    it('rejects a descendant parentId that would cycle with 400', async () => {
+      const rootRes = await request(app)
+        .post(`/api/projects/${projectId}/wbs-items`)
+        .send({ name: 'Cycle root' });
+      const rootId = rootRes.body.id;
+      const childRes = await request(app)
+        .post(`/api/projects/${projectId}/wbs-items`)
+        .send({ name: 'Cycle child', parentId: rootId });
+      const childId = childRes.body.id;
+
+      const res = await request(app).put(`/api/wbs-items/${rootId}`).send({ parentId: childId });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/cycle/i);
+    });
+
+    it('rejects a multi-hop ancestor loop with 400', async () => {
+      const aRes = await request(app)
+        .post(`/api/projects/${projectId}/wbs-items`)
+        .send({ name: 'A' });
+      const aId = aRes.body.id;
+      const bRes = await request(app)
+        .post(`/api/projects/${projectId}/wbs-items`)
+        .send({ name: 'B', parentId: aId });
+      const bId = bRes.body.id;
+      const cRes = await request(app)
+        .post(`/api/projects/${projectId}/wbs-items`)
+        .send({ name: 'C', parentId: bId });
+      const cId = cRes.body.id;
+
+      const res = await request(app).put(`/api/wbs-items/${aId}`).send({ parentId: cId });
+      expect(res.status).toBe(400);
+    });
+
     it('updates scalar fields', async () => {
       const createRes = await request(app)
         .post(`/api/projects/${projectId}/wbs-items`)

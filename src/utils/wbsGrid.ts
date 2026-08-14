@@ -359,6 +359,131 @@ export function nextDisplayOrder(items: WbsItem[], parentId: number | null): num
     .reduce((max, item) => Math.max(max, item.displayOrder), -1) + 1;
 }
 
+export interface DisplayOrderShift {
+  id: number;
+  displayOrder: number;
+}
+
+/** Insert a new sibling immediately after `after`, bumping later siblings. */
+export interface InsertAfterPlacement {
+  parentId: number | null;
+  displayOrder: number;
+  shifts: DisplayOrderShift[];
+}
+
+function siblingsOf(items: WbsItem[], parentId: number | null): WbsItem[] {
+  return items
+    .filter((item) => item.parentId === parentId)
+    .sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
+}
+
+function insertAfter(items: WbsItem[], after: WbsItem): InsertAfterPlacement {
+  const siblings = siblingsOf(items, after.parentId);
+  const afterIndex = siblings.findIndex((sibling) => sibling.id === after.id);
+  const later = afterIndex === -1 ? [] : siblings.slice(afterIndex + 1);
+  return {
+    parentId: after.parentId,
+    displayOrder: after.displayOrder + 1,
+    shifts: later.map((sibling) => ({ id: sibling.id, displayOrder: sibling.displayOrder + 1 })),
+  };
+}
+
+/** Create-payload fields shared by add-root / add-child / add-sibling. */
+export function newWbsItemFields(
+  parentId: number | null,
+  displayOrder: number
+): { name: string; parentId: number | null; phaseName: null; displayOrder: number } {
+  return { name: 'New item', parentId, phaseName: null, displayOrder };
+}
+
+/** Place a new sibling immediately below `afterId` (same parent). */
+export function siblingBelowPlacement(items: WbsItem[], afterId: number): InsertAfterPlacement | null {
+  const after = items.find((item) => item.id === afterId);
+  if (after === undefined) return null;
+  return insertAfter(items, after);
+}
+
+/** Reparent `id` as the last child of its previous sibling, or `null` if none. */
+export function indentPlacement(
+  items: WbsItem[],
+  id: number
+): { parentId: number; displayOrder: number } | null {
+  const current = items.find((item) => item.id === id);
+  if (current === undefined) return null;
+  const siblings = siblingsOf(items, current.parentId);
+  const index = siblings.findIndex((sibling) => sibling.id === id);
+  if (index <= 0) return null;
+  const previous = siblings[index - 1];
+  return { parentId: previous.id, displayOrder: nextDisplayOrder(items, previous.id) };
+}
+
+/** Reparent `id` as the next sibling after its current parent, or `null` on a root. */
+export function outdentPlacement(items: WbsItem[], id: number): InsertAfterPlacement | null {
+  const current = items.find((item) => item.id === id);
+  if (current === undefined || current.parentId == null) return null;
+  const parent = items.find((item) => item.id === current.parentId);
+  if (parent === undefined) return null;
+  return insertAfter(items, parent);
+}
+
+export type StructureAction = 'addChild' | 'addSibling' | 'indent' | 'outdent' | 'delete';
+
+/** Map a Glide key event to a structure action. `null` while an overlay owns keys. */
+export function structureActionFromKey(
+  event: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean },
+  overlayOpen: boolean
+): StructureAction | null {
+  if (overlayOpen) return null;
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) return 'addChild';
+  if (event.key === 'Enter') return 'addSibling';
+  if (event.key === 'Tab' && event.shiftKey) return 'outdent';
+  if (event.key === 'Tab') return 'indent';
+  if (event.key === 'Delete' || event.key === 'Backspace') return 'delete';
+  return null;
+}
+
+export function isMacPlatform(platform = typeof navigator !== 'undefined' ? navigator.platform : ''): boolean {
+  return /Mac|iPhone|iPad|iPod/i.test(platform);
+}
+
+export function structureShortcutLabel(action: StructureAction, isMac: boolean): string {
+  switch (action) {
+    case 'addChild':
+      return isMac ? '\u2318\u21b5' : 'Ctrl+Enter';
+    case 'addSibling':
+      return '\u21b5';
+    case 'indent':
+      return '\u21e5';
+    case 'outdent':
+      return '\u21e7\u21e5';
+    case 'delete':
+      return '\u232b';
+  }
+}
+
+export function structureHintText(isMac: boolean): string {
+  const child = isMac ? '\u2318Enter' : 'Ctrl+Enter';
+  return `Enter sibling \u00b7 ${child} child \u00b7 Tab indent \u00b7 \u21e7Tab outdent \u00b7 \u232b delete`;
+}
+
+/** Side of the ⋮ hit box on the Task Description cell. */
+export const KEBAB_SIZE = 16;
+
+export function kebabLeft(cellWidth: number): number {
+  return Math.max(CELL_PAD, cellWidth - CELL_PAD - KEBAB_SIZE);
+}
+
+export function hitsKebab(
+  cellWidth: number,
+  cellHeight: number,
+  posX: number,
+  posY: number
+): boolean {
+  const left = kebabLeft(cellWidth);
+  const top = (cellHeight - KEBAB_SIZE) / 2;
+  return posX >= left && posX <= left + KEBAB_SIZE && posY >= top && posY <= top + KEBAB_SIZE;
+}
+
 /** Delete confirmation naming the subtree size — the DB cascade is silent. */
 export function deleteConfirmMessage(items: WbsItem[], id: number, name: string): string {
   const count = descendantIds(items, id).length;

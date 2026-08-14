@@ -38,6 +38,7 @@ import {
   getWeeksPerMonth,
 } from './src/utils/modeConversion';
 import { APP_DEFAULTS } from './src/config/defaults';
+import { wouldCreateCycle } from './src/utils/wbsTree';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -978,7 +979,8 @@ app.post('/api/projects/generate-plan', async (req, res) => {
 });
 
 // WBS endpoints (WBS-1: data model & API only — no reorder endpoint, no
-// reconciliation endpoint, no deep cycle detection; see spec-wbs-1).
+// reconciliation endpoint). Cycle detection on PUT parentId was lifted for
+// the structure-edit slice — see spec-wbs-structure-edit.
 
 // Validates a set of disciplines against the live GlobalRateCard-derived enum.
 // Mirrors the empty-rate-card guard used elsewhere in this feature: an empty
@@ -1073,6 +1075,13 @@ app.put('/api/wbs-items/:id', async (req, res) => {
       const parent = await prisma.wbsItem.findUnique({ where: { id: parentId } });
       if (!parent || parent.projectId !== existing.projectId) {
         return res.status(400).json({ error: 'parentId must reference a WBS item in the same project' });
+      }
+      const projectItems = await prisma.wbsItem.findMany({
+        where: { projectId: existing.projectId },
+        select: { id: true, parentId: true },
+      });
+      if (wouldCreateCycle(projectItems, id, parentId)) {
+        return res.status(400).json({ error: 'parentId would create a cycle' });
       }
     }
 

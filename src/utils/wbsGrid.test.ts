@@ -16,10 +16,20 @@ import {
   formatHours,
   formatHoursInput,
   hitsChevron,
+  hitsKebab,
   indentFor,
+  indentPlacement,
+  kebabLeft,
+  KEBAB_SIZE,
   layoutChips,
   nameEditFor,
   nextDisplayOrder,
+  newWbsItemFields,
+  outdentPlacement,
+  siblingBelowPlacement,
+  structureActionFromKey,
+  structureHintText,
+  structureShortcutLabel,
   pairKey,
   pairLabel,
   pairsFromEstimates,
@@ -526,6 +536,93 @@ describe('nextDisplayOrder', () => {
   it('starts at 0 when there are no siblings', () => {
     expect(nextDisplayOrder([], null)).toBe(0);
     expect(nextDisplayOrder(items, 99)).toBe(0);
+  });
+});
+
+describe('sibling / indent / outdent placement', () => {
+  const items = [
+    item({ id: 1, name: 'A', parentId: null, displayOrder: 0 }),
+    item({ id: 2, name: 'B', parentId: null, displayOrder: 1 }),
+    item({ id: 3, name: 'C', parentId: null, displayOrder: 2 }),
+    item({ id: 4, name: 'B.1', parentId: 2, displayOrder: 0 }),
+  ];
+
+  it('places a sibling immediately below and bumps later siblings', () => {
+    expect(siblingBelowPlacement(items, 1)).toEqual({
+      parentId: null,
+      displayOrder: 1,
+      shifts: [
+        { id: 2, displayOrder: 2 },
+        { id: 3, displayOrder: 3 },
+      ],
+    });
+  });
+
+  it('appends after the last sibling with no shifts', () => {
+    expect(siblingBelowPlacement(items, 3)).toEqual({
+      parentId: null,
+      displayOrder: 3,
+      shifts: [],
+    });
+  });
+
+  it('indents onto the previous sibling as its last child', () => {
+    expect(indentPlacement(items, 3)).toEqual({ parentId: 2, displayOrder: 1 });
+    expect(indentPlacement(items, 1)).toBeNull();
+  });
+
+  it('outdents to sit just after the former parent', () => {
+    expect(outdentPlacement(items, 4)).toEqual({
+      parentId: null,
+      displayOrder: 2,
+      shifts: [{ id: 3, displayOrder: 3 }],
+    });
+    expect(outdentPlacement(items, 1)).toBeNull();
+  });
+
+  it('builds the shared new-item payload', () => {
+    expect(newWbsItemFields(2, 1)).toEqual({
+      name: 'New item',
+      parentId: 2,
+      phaseName: null,
+      displayOrder: 1,
+    });
+  });
+});
+
+describe('structure shortcuts', () => {
+  it('maps keys only when no overlay is open', () => {
+    const enter = { key: 'Enter', metaKey: false, ctrlKey: false, shiftKey: false };
+    expect(structureActionFromKey(enter, false)).toBe('addSibling');
+    expect(structureActionFromKey({ ...enter, metaKey: true }, false)).toBe('addChild');
+    expect(structureActionFromKey({ ...enter, ctrlKey: true }, false)).toBe('addChild');
+    expect(structureActionFromKey({ key: 'Tab', metaKey: false, ctrlKey: false, shiftKey: false }, false)).toBe(
+      'indent'
+    );
+    expect(structureActionFromKey({ key: 'Tab', metaKey: false, ctrlKey: false, shiftKey: true }, false)).toBe(
+      'outdent'
+    );
+    expect(structureActionFromKey({ key: 'Delete', metaKey: false, ctrlKey: false, shiftKey: false }, false)).toBe(
+      'delete'
+    );
+    expect(structureActionFromKey({ key: 'Backspace', metaKey: false, ctrlKey: false, shiftKey: false }, false)).toBe(
+      'delete'
+    );
+    expect(structureActionFromKey(enter, true)).toBeNull();
+    expect(structureActionFromKey({ key: 'Tab', metaKey: false, ctrlKey: false, shiftKey: false }, true)).toBeNull();
+  });
+
+  it('uses platform glyphs in the menu and the heading hint', () => {
+    expect(structureShortcutLabel('addChild', true)).toBe('⌘↵');
+    expect(structureShortcutLabel('addChild', false)).toBe('Ctrl+Enter');
+    expect(structureHintText(true)).toContain('⌘Enter child');
+    expect(structureHintText(false)).toContain('Ctrl+Enter child');
+  });
+
+  it('keeps the kebab hit box on the right edge of the cell', () => {
+    expect(kebabLeft(200)).toBe(200 - 8 - KEBAB_SIZE);
+    expect(hitsKebab(200, 34, 200 - 8 - 2, 17)).toBe(true);
+    expect(hitsKebab(200, 34, 10, 17)).toBe(false);
   });
 });
 

@@ -59,6 +59,9 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
               >
                 {`select row ${r}`}
               </button>
+              <button onClick={() => cells[1].data.onOpenMenu(cells[1].data.itemId, 0, 0)}>
+                {`open menu row ${r}`}
+              </button>
               <button
                 onClick={() =>
                   onCellEdited([1, r], {
@@ -193,8 +196,8 @@ describe('App WBS handler wiring', () => {
 
     await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Root'));
 
-    await user.click(screen.getByRole('button', { name: 'select row 0' }));
-    await user.click(screen.getByRole('button', { name: /delete/i }));
+    await user.click(screen.getByRole('button', { name: 'open menu row 0' }));
+    await user.click(screen.getByRole('menuitem', { name: /delete/i }));
 
     // Confirm names the descendant count (3), matching the component contract.
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('3'));
@@ -222,8 +225,8 @@ describe('App WBS handler wiring', () => {
 
     await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Root A'));
 
-    await user.click(screen.getByRole('button', { name: 'select row 0' }));
-    await user.click(screen.getByRole('button', { name: /delete/i }));
+    await user.click(screen.getByRole('button', { name: 'open menu row 0' }));
+    await user.click(screen.getByRole('menuitem', { name: /delete/i }));
 
     await waitFor(() => expect(api.deleteWbsItem).toHaveBeenCalledWith(1));
     await waitFor(() => expect(screen.getByTestId('cell-1-0')).toHaveTextContent('Root B'));
