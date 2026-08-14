@@ -127,11 +127,12 @@ Some Figma-exported files import with a version suffix (e.g. `vaul@1.1.2`). Thes
 
 ## Git
 
-- Feature branches off `main` (current branch: `BMAD`).
+- Feature branches off `main`.
 - Short, plain commit messages (sentence case); no Conventional Commits enforced.
 - Don't commit `prisma/dev.db`, `build/`, or `.env`.
 
 ## Contribution Notes
 
-There is no `CONTRIBUTING.md` and no lint/PR automation in the repo. Practical expectations: keep README's
+There is no `CONTRIBUTING.md` and no linter configured. CI (.github/workflows/ci.yml) type-checks and runs
+the test suite on every PR. Practical expectations: keep README's
 API list in sync (test-guarded), keep `src/utils` tests green, and follow the conventions above.

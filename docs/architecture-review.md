@@ -27,8 +27,8 @@ type-check gate, two oversized frontend files, and hand-maintained duplication b
    CLI and server) and delete the stray copy after confirming it holds nothing needed.
    _Fixed: stray `prisma/prisma/dev.db` (stale, old schema — `WeeklyAllocation` etc.) removed via `git rm`;
    `.env`/[.env.example](../.env.example) document `DATABASE_URL=file:./dev.db` as the single canonical URL
-   (resolves to `prisma/dev.db` for both CLI and server). Note: `prisma/dev.db` remains git-tracked despite
-   being gitignored — left as-is to avoid data surprises._
+   (resolves to `prisma/dev.db` for both CLI and server). `prisma/dev.db` was later untracked in 9ddd139
+   and is now gitignored and local-only._
 
 3. ✅ **DONE — Nothing type-checks this codebase, ever.** `vite build` uses SWC with `noEmit` (no type-checking),
    there's no `typecheck` script in [package.json](../package.json), and there's no CI at all. In a
