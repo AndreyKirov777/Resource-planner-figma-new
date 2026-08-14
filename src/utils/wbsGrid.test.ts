@@ -30,11 +30,13 @@ import {
   phaseLabel,
   pruneCollapsedIds,
   rateCardRoles,
+  resourceListRoles,
+  rolesUseFreeText,
   sameHours,
   samePairs,
   RolePair,
 } from './wbsGrid';
-import { WbsItem, WbsEstimate, RateCard as RateCardType } from '../services/api';
+import { WbsItem, WbsEstimate, RateCard as RateCardType, ResourceList as ResourceListType } from '../services/api';
 
 function item(overrides: Partial<WbsItem>): WbsItem {
   return {
@@ -218,6 +220,18 @@ describe('pair helpers', () => {
   });
 });
 
+function resourceList(overrides: Partial<ResourceListType>): ResourceListType {
+  return {
+    id: 1,
+    role: 'Role',
+    intRate: 0,
+    projectId: 1,
+    createdAt: '',
+    updatedAt: '',
+    ...overrides,
+  };
+}
+
 describe('deriveDiscipline', () => {
   it('takes the discipline from the role rate-card row', () => {
     const cards = [rateCard({ role: 'BA', discipline: 'Analysis' })];
@@ -231,20 +245,77 @@ describe('deriveDiscipline', () => {
 });
 
 describe('availableRoles', () => {
-  it('offers distinct rate-card roles alphabetically', () => {
-    const cards = [rateCard({ id: 1, role: 'UX' }), rateCard({ id: 2, role: 'BA' }), rateCard({ id: 3, role: 'BA' })];
-    expect(availableRoles(cards, [])).toEqual(['BA', 'UX']);
+  it('offers distinct resource-list roles alphabetically', () => {
+    const list = [
+      resourceList({ id: 1, role: 'UX' }),
+      resourceList({ id: 2, role: 'BA' }),
+      resourceList({ id: 3, role: 'BA' }),
+    ];
+    const cards = [
+      rateCard({ id: 1, role: 'UX', discipline: 'Design' }),
+      rateCard({ id: 2, role: 'BA', discipline: 'Analysis' }),
+    ];
+    expect(availableRoles(list, [], cards)).toEqual(['BA', 'UX']);
   });
 
-  // Adding a role already on the item must not silently overwrite its hours.
   it('excludes roles already on the item', () => {
-    const cards = [rateCard({ id: 1, role: 'UX' }), rateCard({ id: 2, role: 'BA' })];
+    const list = [resourceList({ id: 1, role: 'UX' }), resourceList({ id: 2, role: 'BA' })];
+    const cards = [
+      rateCard({ id: 1, role: 'UX', discipline: 'Design' }),
+      rateCard({ id: 2, role: 'BA', discipline: 'Analysis' }),
+    ];
     const taken: RolePair[] = [{ role: 'BA', discipline: 'Analysis', hours: 4 }];
-    expect(availableRoles(cards, taken)).toEqual(['UX']);
+    expect(availableRoles(list, taken, cards)).toEqual(['UX']);
   });
 
-  it('is empty for an empty rate card, which is what triggers the free-text fallback', () => {
-    expect(availableRoles([], [])).toEqual([]);
+  it('omits a list role that the non-empty rate card cannot map', () => {
+    const list = [
+      resourceList({ id: 1, role: 'BA' }),
+      resourceList({ id: 2, role: 'Contractor' }),
+    ];
+    const cards = [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })];
+    expect(availableRoles(list, [], cards)).toEqual(['BA']);
+  });
+
+  it('omits a list role whose rate-card row has an empty discipline', () => {
+    const list = [resourceList({ id: 1, role: 'BA' })];
+    const cards = [rateCard({ id: 1, role: 'BA', discipline: '' })];
+    expect(availableRoles(list, [], cards)).toEqual([]);
+  });
+
+  it('keeps unmapped list roles when the rate card is empty', () => {
+    const list = [resourceList({ id: 1, role: 'Contractor' })];
+    expect(availableRoles(list, [], [])).toEqual(['Contractor']);
+  });
+
+  it('is empty for an empty resource list', () => {
+    expect(availableRoles([], [], [])).toEqual([]);
+    expect(availableRoles([], [], [rateCard({ role: 'BA' })])).toEqual([]);
+  });
+});
+
+describe('resourceListRoles', () => {
+  it('lists every distinct role the roster names, alphabetically', () => {
+    const list = [
+      resourceList({ id: 1, role: 'UX' }),
+      resourceList({ id: 2, role: 'BA' }),
+      resourceList({ id: 3, role: 'BA', location: 'London' }),
+    ];
+    expect(resourceListRoles(list)).toEqual(['BA', 'UX']);
+  });
+
+  it('is empty only for a genuinely empty roster', () => {
+    expect(resourceListRoles([])).toEqual([]);
+    expect(resourceListRoles([resourceList({ id: 1, role: '' })])).toEqual([]);
+  });
+});
+
+describe('rolesUseFreeText', () => {
+  it('is true only when both the roster and the rate card are empty', () => {
+    expect(rolesUseFreeText([], [])).toBe(true);
+    expect(rolesUseFreeText([], [rateCard({ role: 'BA' })])).toBe(false);
+    expect(rolesUseFreeText([resourceList({ role: 'BA' })], [])).toBe(false);
+    expect(rolesUseFreeText([resourceList({ role: 'BA' })], [rateCard({ role: 'BA' })])).toBe(false);
   });
 });
 
@@ -262,10 +333,11 @@ describe('rateCardRoles', () => {
   // This is the distinction the free-text gate depends on: a non-empty card
   // whose roles are all taken leaves `availableRoles` empty but is NOT empty,
   // and free text against it derives a discipline the server rejects with 400.
-  it('stays non-empty when every role is already on the item, unlike availableRoles', () => {
+  it('stays non-empty when every card role is already on the item, unlike availableRoles', () => {
+    const list = [resourceList({ id: 1, role: 'BA' })];
     const cards = [rateCard({ id: 1, role: 'BA' })];
     const taken: RolePair[] = [{ role: 'BA', discipline: 'Analysis', hours: 4 }];
-    expect(availableRoles(cards, taken)).toEqual([]);
+    expect(availableRoles(list, taken, cards)).toEqual([]);
     expect(rateCardRoles(cards)).toEqual(['BA']);
   });
 });

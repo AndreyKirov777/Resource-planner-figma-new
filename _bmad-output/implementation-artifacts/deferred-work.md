@@ -420,3 +420,15 @@ verified against the code on 2026-08-13:
   automatically on export (Prisma returns all scalars) but must be added explicitly to the
   import handler, which reconstructs each field by hand. Land `notes` before or with WBS-4's
   `schemaVersion` 2→3 bump rather than forcing a separate version.
+
+## Split out of Quick Dev 2026-08-14 (WBS-4 / D6 bundle)
+
+User chose **[S] Split**. First goal in this run: WBS Roles column picks from the **project
+resource list** (not the global rate card). Resource Plan rows already work that way; original
+D6 (plan-side rate-card picker) is therefore a no-op and is not deferred.
+
+- **WBS-4 — JSON export/import (`schemaVersion` 2 → 3).** WBS tree + estimates must round-trip
+  with project export/import (CAP-9). Independently shippable; no WBS UI change. Still the last
+  planned v1 slice from `sprint-change-proposal-2026-08-12.md`. Land `notes` before or with this
+  bump (see notes entry above) so the version only moves once.
+- **`WbsItem.notes`.** Already split out of WBS-2R (entry above). Unchanged.

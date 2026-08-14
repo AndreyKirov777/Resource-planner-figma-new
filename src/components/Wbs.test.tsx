@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Wbs } from './Wbs';
-import type { Project, RateCard, WbsItem } from '../services/api';
+import type { Project, RateCard, ResourceList, WbsItem } from '../services/api';
 
 /**
  * Glide draws into a canvas, so its cells are unreachable from Testing
@@ -217,6 +217,7 @@ function defaultProps(wbsItems: WbsItem[]) {
   return {
     project: mockProject,
     resourcePlans: [],
+    resourceLists: [] as ResourceList[],
     rateCards: [] as RateCard[],
     wbsItems,
     onAddWbsItem: vi.fn().mockResolvedValue(wbsItem({ id: 999 })),

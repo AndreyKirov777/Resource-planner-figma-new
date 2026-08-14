@@ -20,6 +20,7 @@ import {
   Project,
   ResourcePlan as ResourcePlanType,
   RateCard as RateCardType,
+  ResourceList as ResourceListType,
   WbsItem,
   WbsEstimate,
 } from '../services/api';
@@ -59,6 +60,7 @@ type WbsCreatePayload = Omit<Partial<WbsItem>, 'estimates'> & { estimates?: Part
 interface WbsProps {
   project: Project;
   resourcePlans: ResourcePlanType[];
+  resourceLists: ResourceListType[];
   rateCards: RateCardType[];
   wbsItems: WbsItem[];
   onAddWbsItem: (data: WbsCreatePayload) => Promise<WbsItem>;
@@ -118,6 +120,7 @@ interface RolesCellData {
   readonly kind: 'wbs-roles';
   readonly itemId: number;
   readonly pairs: RolePair[];
+  readonly resourceLists: ResourceListType[];
   readonly rateCards: RateCardType[];
   readonly committer: EstimateCommitter;
 }
@@ -328,6 +331,7 @@ const RolesCellRenderer: CustomRenderer<RolesCell> = {
         <RolesEditor
           itemId={cell.data.itemId}
           pairs={cell.data.pairs}
+          resourceLists={cell.data.resourceLists}
           rateCards={cell.data.rateCards}
           committer={cell.data.committer}
           // The editor persists through the committer, not through a cell
@@ -364,6 +368,7 @@ const EMPTY_SELECTION: GridSelection = {
 export function Wbs({
   project,
   resourcePlans,
+  resourceLists,
   rateCards,
   wbsItems,
   onAddWbsItem,
@@ -520,6 +525,7 @@ export function Wbs({
               kind: 'wbs-roles',
               itemId: gridRow.id,
               pairs: gridRow.pairs,
+              resourceLists,
               rateCards,
               committer,
             },
@@ -539,7 +545,7 @@ export function Wbs({
         }
       }
     },
-    [rows, phaseNames, rateCards, committer, toggleCollapse]
+    [rows, phaseNames, resourceLists, rateCards, committer, toggleCollapse]
   );
 
   /**

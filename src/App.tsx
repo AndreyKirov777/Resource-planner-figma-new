@@ -1238,6 +1238,7 @@ export default function App() {
             key={currentProject?.id || 'default'}
             project={currentProject}
             resourcePlans={resourcePlans}
+            resourceLists={resourceLists}
             rateCards={rateCards}
             wbsItems={wbsItems}
             onAddWbsItem={handleAddWbsItem}

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { RateCard as RateCardType } from '../services/api';
+import { RateCard as RateCardType, ResourceList as ResourceListType } from '../services/api';
 import {
   RolePair,
   EstimateCommitter,
@@ -9,7 +9,7 @@ import {
   pairDisplayName,
   pairKey,
   parseHours,
-  rateCardRoles,
+  rolesUseFreeText,
   sameHours,
   samePairs,
 } from '../utils/wbsGrid';
@@ -75,6 +75,7 @@ export interface RolesEditorProps {
   itemId: number;
   /** The item's server-backed pairs — the fallback merge basis. */
   pairs: RolePair[];
+  resourceLists: ResourceListType[];
   rateCards: RateCardType[];
   /**
    * Created once by the grid and passed in. Never owned by this component: the
@@ -106,7 +107,7 @@ export interface RolesEditorProps {
  *    make unparseable input indistinguishable from a cleared field and persist
  *    it as `0`. Blank commits `0`; anything unparseable reverts, visibly.
  */
-export function RolesEditor({ itemId, pairs, rateCards, committer, onClose }: RolesEditorProps) {
+export function RolesEditor({ itemId, pairs, resourceLists, rateCards, committer, onClose }: RolesEditorProps) {
   // Seeded from the committer so an edit made moments ago on this same row —
   // still in flight, so not yet reflected in `pairs` — is not clobbered.
   const [committed, setCommitted] = useState<RolePair[]>(() => committer.basisFor(itemId, pairs));
@@ -239,18 +240,15 @@ export function RolesEditor({ itemId, pairs, rateCards, committer, onClose }: Ro
   flushRef.current = flushDrafts;
   useEffect(() => () => flushRef.current(), []);
 
-  const cardRoles = rateCardRoles(rateCards);
-  const offeredRoles = availableRoles(rateCards, committed);
+  const offeredRoles = availableRoles(resourceLists, committed, rateCards);
   /**
-   * Free text is gated on the rate card being GENUINELY EMPTY, mirroring the
-   * server's own bypass in `validWbsDisciplines` — which keys off the rate-card
-   * table being empty, not off this item. Gating on `offeredRoles` instead
-   * degraded a perfectly good card to free text as soon as one item used all of
-   * its roles; `deriveDiscipline` then handed the typed role back as the
-   * discipline and the server rejected every such write with a 400.
+   * Free text is gated on BOTH the roster and the rate card being empty,
+   * mirroring the server's `validWbsDisciplines` bypass. An empty roster with a
+   * populated card must not open a typed input — `deriveDiscipline` would hand
+   * the typed role back as the discipline and the server would 400.
    */
-  const useFreeText = cardRoles.length === 0;
-  /** Non-empty card with nothing left for THIS item: show it, don't fake an input. */
+  const useFreeText = rolesUseFreeText(resourceLists, rateCards);
+  /** Nothing left to pick for THIS item, and free text would not be accepted. */
   const exhausted = !useFreeText && offeredRoles.length === 0;
 
   function addPair() {
@@ -369,7 +367,7 @@ export function RolesEditor({ itemId, pairs, rateCards, committer, onClose }: Ro
       <div className="flex items-center gap-2 border-t pt-2">
         {exhausted ? (
           <p className="text-muted-foreground flex-1 text-sm" data-testid="roles-exhausted">
-            Every rate-card role is already on this item.
+            No roles left to add.
           </p>
         ) : useFreeText ? (
           <Input

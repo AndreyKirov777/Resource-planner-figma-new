@@ -7,7 +7,7 @@
  * unreachable from Testing Library. Any derivation or commit rule left inside
  * the component would be permanently untestable, so all of it lives here.
  */
-import { WbsItem, WbsEstimate, RateCard as RateCardType } from '../services/api';
+import { WbsItem, WbsEstimate, RateCard as RateCardType, ResourceList as ResourceListType } from '../services/api';
 import { buildWbsTree, flattenVisibleTree, rollupHours, descendantIds, outlineNumbers, effectivePhases } from './wbsTree';
 import { resolveDiscipline } from './wbs';
 
@@ -135,32 +135,67 @@ export function pairsSummary(pairs: RolePair[]): string {
  * That fallback is ONLY ever valid for a genuinely empty card. The server's
  * bypass in `validWbsDisciplines` keys off the rate-card table being empty, so
  * a typed-role discipline against a non-empty card is rejected 400 every time.
- * The editor therefore offers free text only when `rateCardRoles` is empty —
- * not merely when `availableRoles` is, which also happens when a non-empty
- * card's roles are all already on the item.
+ * The editor therefore offers free text only when BOTH the resource list and
+ * the rate card are empty — not merely when `availableRoles` is, which also
+ * happens when every list role is already on the item, or when a populated
+ * card maps none of them.
  */
 export function deriveDiscipline(role: string, rateCards: RateCardType[]): string {
   return resolveDiscipline(role, rateCards) || role;
 }
 
-/**
- * Every distinct, non-empty role the rate card names, alphabetised.
- *
- * This — not `availableRoles` — is what decides whether the card is usable at
- * all. `availableRoles` subtracts the roles already on one item, so it goes
- * empty for a perfectly good card as soon as an item uses all of them.
- */
+/** Every distinct, non-empty role the rate card names, alphabetised. */
 export function rateCardRoles(rateCards: RateCardType[]): string[] {
+  return distinctRoles(rateCards);
+}
+
+/**
+ * Every distinct, non-empty role the project's resource list names, alphabetised.
+ *
+ * Duplicate list rows (same role, different location/rate) collapse to one
+ * string — WBS stores a role, not a list `id`.
+ */
+export function resourceListRoles(resourceLists: ResourceListType[]): string[] {
+  return distinctRoles(resourceLists);
+}
+
+function distinctRoles(rows: { role: string }[]): string[] {
   const roles = new Set(
-    rateCards.map((rc) => rc.role).filter((role): role is string => !!role && role.trim() !== '')
+    rows.map((row) => row.role).filter((role): role is string => !!role && role.trim() !== '')
   );
   return Array.from(roles).sort((a, b) => a.localeCompare(b));
 }
 
-/** Distinct rate-card roles, alphabetised, excluding any already on the item. */
-export function availableRoles(rateCards: RateCardType[], taken: RolePair[]): string[] {
+/**
+ * Roles the overlay Select may offer: distinct resource-list roles, minus any
+ * already on the item. When the rate card is non-empty, also drop list roles
+ * that `resolveDiscipline` cannot map — those writes would 400.
+ */
+export function availableRoles(
+  resourceLists: ResourceListType[],
+  taken: RolePair[],
+  rateCards: RateCardType[]
+): string[] {
   const used = new Set(taken.map((pair) => pair.role));
-  return rateCardRoles(rateCards).filter((role) => !used.has(role));
+  const cardEmpty = rateCardRoles(rateCards).length === 0;
+  return resourceListRoles(resourceLists).filter((role) => {
+    if (used.has(role)) return false;
+    // Falsy (undefined or '') is not a usable mapping — `deriveDiscipline`
+    // would fall back to the role string and a non-empty card would 400.
+    if (!cardEmpty && !resolveDiscipline(role, rateCards)) return false;
+    return true;
+  });
+}
+
+/**
+ * Free-text is accepted by the server only when the rate card is empty. An
+ * empty roster with a populated card must not open that input — it would 400.
+ */
+export function rolesUseFreeText(
+  resourceLists: ResourceListType[],
+  rateCards: RateCardType[]
+): boolean {
+  return resourceListRoles(resourceLists).length === 0 && rateCardRoles(rateCards).length === 0;
 }
 
 /**

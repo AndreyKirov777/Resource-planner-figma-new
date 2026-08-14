@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RolesEditor, NameEditor, PhaseEditor, isInsidePortaledMenu } from './RolesEditor';
 import { createEstimateCommitter, RolePair } from '../utils/wbsGrid';
-import type { RateCard as RateCardType, WbsEstimate } from '../services/api';
+import type { RateCard as RateCardType, ResourceList as ResourceListType, WbsEstimate } from '../services/api';
 
 type ReplaceFn = (itemId: number, estimates: Partial<WbsEstimate>[]) => Promise<void>;
 
@@ -44,8 +44,21 @@ function rateCard(overrides: Partial<RateCardType>): RateCardType {
   };
 }
 
+function resourceList(overrides: Partial<ResourceListType>): ResourceListType {
+  return {
+    id: 1,
+    role: 'Role',
+    intRate: 0,
+    projectId: 1,
+    createdAt: '',
+    updatedAt: '',
+    ...overrides,
+  };
+}
+
 function setup(options: {
   pairs?: RolePair[];
+  resourceLists?: ResourceListType[];
   rateCards?: RateCardType[];
   replace?: ReturnType<typeof vi.fn>;
 } = {}) {
@@ -56,6 +69,7 @@ function setup(options: {
     <RolesEditor
       itemId={10}
       pairs={options.pairs ?? []}
+      resourceLists={options.resourceLists ?? []}
       rateCards={options.rateCards ?? []}
       committer={committer}
       onClose={onClose}
@@ -65,9 +79,10 @@ function setup(options: {
 }
 
 describe('RolesEditor — adding and removing pairs', () => {
-  it('adds a role picked from the rate card, deriving the discipline from the same row', async () => {
+  it('adds a role picked from the resource list, deriving the discipline from the rate card', async () => {
     const user = userEvent.setup();
     const { replace } = setup({
+      resourceLists: [resourceList({ id: 1, role: 'BA' })],
       rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })],
     });
 
@@ -81,7 +96,7 @@ describe('RolesEditor — adding and removing pairs', () => {
     );
   });
 
-  it('falls back to free text when the rate card is empty, using the role as the discipline', async () => {
+  it('falls back to free text when the resource list and rate card are both empty, using the role as the discipline', async () => {
     const user = userEvent.setup();
     const { replace } = setup({ rateCards: [] });
 
@@ -101,6 +116,7 @@ describe('RolesEditor — adding and removing pairs', () => {
     const user = userEvent.setup();
     const { replace } = setup({
       pairs: [{ role: 'UX', discipline: 'Design', hours: 8 }],
+      resourceLists: [resourceList({ id: 1, role: 'BA' }), resourceList({ id: 2, role: 'UX' })],
       rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })],
     });
 
@@ -137,6 +153,7 @@ describe('RolesEditor — adding and removing pairs', () => {
     const user = userEvent.setup();
     setup({
       pairs: [{ role: 'BA', discipline: 'Analysis', hours: 16 }],
+      resourceLists: [resourceList({ id: 1, role: 'BA' }), resourceList({ id: 2, role: 'UX' })],
       rateCards: [
         rateCard({ id: 1, role: 'BA', discipline: 'Analysis' }),
         rateCard({ id: 2, role: 'UX', discipline: 'Design' }),
@@ -166,13 +183,14 @@ describe('RolesEditor — adding and removing pairs', () => {
   });
 });
 
-describe('RolesEditor — free text is gated on an EMPTY rate card, not an exhausted one', () => {
+describe('RolesEditor — free text is gated on an EMPTY roster AND empty rate card', () => {
   // `deriveDiscipline` hands a free-text role back as its own discipline. The
   // server's bypass accepts that only when the rate-card table is empty, so
   // offering free text against a non-empty card produces a guaranteed 400.
-  it('shows an exhausted state, not a free-text input, when a non-empty card has nothing left', () => {
+  it('shows an exhausted state, not a free-text input, when every list role is already on the item', () => {
     setup({
       pairs: [{ role: 'BA', discipline: 'Analysis', hours: 16 }],
+      resourceLists: [resourceList({ id: 1, role: 'BA' })],
       rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })],
     });
 
@@ -183,9 +201,10 @@ describe('RolesEditor — free text is gated on an EMPTY rate card, not an exhau
     expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
   });
 
-  it('still offers the picker while the card has anything left', () => {
+  it('still offers the picker while the list has anything left', () => {
     setup({
       pairs: [{ role: 'BA', discipline: 'Analysis', hours: 16 }],
+      resourceLists: [resourceList({ id: 1, role: 'BA' }), resourceList({ id: 2, role: 'UX' })],
       rateCards: [
         rateCard({ id: 1, role: 'BA', discipline: 'Analysis' }),
         rateCard({ id: 2, role: 'UX', discipline: 'Design' }),
@@ -196,11 +215,66 @@ describe('RolesEditor — free text is gated on an EMPTY rate card, not an exhau
     expect(screen.queryByTestId('roles-exhausted')).not.toBeInTheDocument();
   });
 
-  it('offers free text only for a genuinely empty card', () => {
+  it('offers free text only when both the roster and the rate card are empty', () => {
     setup({ pairs: [{ role: 'BA', discipline: 'Analysis', hours: 16 }], rateCards: [] });
 
     expect(screen.getByLabelText('New role name')).toBeInTheDocument();
     expect(screen.queryByTestId('roles-exhausted')).not.toBeInTheDocument();
+  });
+
+  it('does not offer free text when the roster is empty but the rate card is populated', () => {
+    setup({
+      resourceLists: [],
+      rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })],
+    });
+
+    expect(screen.getByTestId('roles-exhausted')).toBeInTheDocument();
+    expect(screen.queryByLabelText('New role name')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'New role' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
+  });
+
+  it('does not offer a list role that the non-empty rate card cannot map', async () => {
+    const user = userEvent.setup();
+    setup({
+      resourceLists: [
+        resourceList({ id: 1, role: 'BA' }),
+        resourceList({ id: 2, role: 'Contractor' }),
+      ],
+      rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })],
+    });
+
+    await user.click(screen.getByRole('combobox', { name: 'New role' }));
+    expect(screen.getByRole('option', { name: 'BA' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Contractor' })).not.toBeInTheDocument();
+  });
+
+  it('collapses duplicate resource-list rows to one picker option', async () => {
+    const user = userEvent.setup();
+    setup({
+      resourceLists: [
+        resourceList({ id: 1, role: 'BA', location: 'Ukraine' }),
+        resourceList({ id: 2, role: 'BA', location: 'London' }),
+      ],
+      rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })],
+    });
+
+    await user.click(screen.getByRole('combobox', { name: 'New role' }));
+    expect(screen.getAllByRole('option', { name: 'BA' })).toHaveLength(1);
+  });
+
+  it('keeps an existing pair whose role is no longer on the list', () => {
+    setup({
+      pairs: [{ role: 'BA', discipline: 'Analysis', hours: 16 }],
+      resourceLists: [resourceList({ id: 1, role: 'UX' })],
+      rateCards: [
+        rateCard({ id: 1, role: 'BA', discipline: 'Analysis' }),
+        rateCard({ id: 2, role: 'UX', discipline: 'Design' }),
+      ],
+    });
+
+    expect(screen.getByLabelText('Hours for BA')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove BA' })).toBeInTheDocument();
   });
 });
 
@@ -571,6 +645,7 @@ describe('RolesEditor — failure and race handling', () => {
       <RolesEditor
         itemId={10}
         pairs={[{ role: 'BA', discipline: 'Analysis', hours: 16 }]}
+        resourceLists={[]}
         rateCards={[]}
         committer={committer}
         onClose={vi.fn()}
@@ -585,7 +660,10 @@ describe('RolesEditor — failure and race handling', () => {
 describe('overlay dismissal guards', () => {
   it('marks the portaled role menu so Glide ClickOutsideContainer ignores it', async () => {
     const user = userEvent.setup();
-    setup({ rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })] });
+    setup({
+      resourceLists: [resourceList({ id: 1, role: 'BA' })],
+      rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })],
+    });
 
     await user.click(screen.getByRole('combobox', { name: 'New role' }));
 
@@ -600,7 +678,10 @@ describe('overlay dismissal guards', () => {
 
   it('lifts the rendered menu above #portal z-index:1000', async () => {
     const user = userEvent.setup();
-    setup({ rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })] });
+    setup({
+      resourceLists: [resourceList({ id: 1, role: 'BA' })],
+      rateCards: [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })],
+    });
 
     await user.click(screen.getByRole('combobox', { name: 'New role' }));
 
