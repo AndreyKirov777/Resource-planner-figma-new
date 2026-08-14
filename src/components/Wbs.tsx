@@ -989,7 +989,8 @@ export function Wbs({
     function onPointerUp(event: PointerEvent) {
       if (event.button !== 0) return;
       const drag = dragRef.current;
-      const preview = dropPreviewRef.current;
+      const hit = hitTest(event.clientX, event.clientY);
+      const preview = hit === null ? null : previewForHit(hit);
       abortDrag();
       if (drag?.active !== true || preview === null) return;
       handleDropRef.current(drag.draggedId, preview.targetId, preview.zone);

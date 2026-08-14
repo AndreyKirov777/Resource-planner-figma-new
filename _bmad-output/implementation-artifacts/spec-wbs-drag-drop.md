@@ -127,11 +127,11 @@ Persist copies `handleOutdent`: bump destination later siblings, then PUT the dr
 - Hit-test the row under the pointer; outside the grid cancels
   [`Wbs.tsx:920`](../../src/components/Wbs.tsx#L920)
 
-- Preview writes the ref immediately so pointer-up cannot commit a stale zone
-  [`Wbs.tsx:887`](../../src/components/Wbs.tsx#L887)
+- Pointer-up recomputes the drop from the release coordinates
+  [`Wbs.tsx:989`](../../src/components/Wbs.tsx#L989)
 
 - Insert line vs nest highlight; grab cursor on the outline cell
-  [`Wbs.tsx:1128`](../../src/components/Wbs.tsx#L1128)
+  [`Wbs.tsx:1131`](../../src/components/Wbs.tsx#L1131)
 
 **Tests**
 
