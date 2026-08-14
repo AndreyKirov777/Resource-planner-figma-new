@@ -15,20 +15,12 @@ The Teach Me Testing workflow is a multi-session learning companion that teaches
 
 ### Starting Fresh
 
-```bash
-# From TEA module location
-cd /path/to/bmad-method-test-architecture-enterprise
+Invoke the skill directly:
 
-# Run the workflow
-bmad run teach-me-testing
-```
+- Claude Code, Cursor, Windsurf: `/bmad-teach-me-testing`
+- Codex: `$bmad-teach-me-testing`
 
-Or invoke through TEA agent menu:
-
-```bash
-bmad agent tea
-# Select [TMT] Teach Me Testing
-```
+Or activate the TEA agent (`/bmad-tea` or `$bmad-tea`) and select menu code `TMT`.
 
 ### Continuing Existing Progress
 
@@ -79,7 +71,7 @@ Your progress is automatically saved after each session:
 
 - **Progress file:** `{test_artifacts}/teaching-progress/{your-name}-tea-progress.yaml`
 - **Session notes:** `{test_artifacts}/tea-academy/{your-name}/session-{N}-notes.md`
-- **Certificate:** `{test_artifacts}/tea-academy/{your-name}/tea-completion-certificate.md`
+- **Completion Summary:** `{test_artifacts}/tea-academy/{your-name}/tea-completion-summary.md`
 
 ## Quiz Scoring
 
@@ -89,7 +81,7 @@ Your progress is automatically saved after each session:
 
 ## Completion
 
-Complete all 7 sessions to receive your TEA Academy completion certificate with:
+Complete all 7 sessions to receive your TEA Academy completion summary with:
 
 - Session completion dates and scores
 - Skills acquired checklist
