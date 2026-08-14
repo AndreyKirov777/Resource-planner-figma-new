@@ -10,11 +10,20 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Added
 
 ### Changed
-- Redesigned the WBS page as a flat five-column grid (WBS · Task Description · Phase · Roles · Hours), replacing the dynamically-widening discipline × hours matrix. Phase now inherits down the tree, and roles/hours are edited as role×hours pairs with the discipline derived from the rate card.
 
 ### Fixed
 
 ### Removed
+
+## [0.3.0] - 2026-08-13
+
+### Changed
+- Redesigned the WBS page as a flat five-column grid (WBS · Task Description · Phase · Roles · Hours), replacing the dynamically-widening discipline × hours matrix. Phase now inherits down the tree, and roles/hours are edited as role×hours pairs with the discipline derived from the rate card.
+
+## [0.2.0] - 2026-08-13
+
+### Added
+- Work Breakdown Structure (WBS) tab: decompose a project into a task tree, estimate effort per discipline, and see a phase × discipline variance report against the resource plan (gaps surfaced as "Unassigned WBS hours" and "Unmapped plan roles").
 
 ## [0.1.0] - 2026-08-12
 
