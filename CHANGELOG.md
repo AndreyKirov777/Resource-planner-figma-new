@@ -8,15 +8,21 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ## [Unreleased]
 
 ### Added
-- Project JSON export/import now includes the WBS tree and its estimates (`schemaVersion` 3). Older v2 files still import with an empty WBS.
 
 ### Changed
 
 ### Fixed
-- Adding a WBS item now selects the new row (and focuses the grid on it) instead of dropping the selection when the table updates.
-- Deleting a WBS item now selects the row above (or the next surviving row if the deleted item was first).
 
 ### Removed
+
+## [0.3.2] - 2026-08-14
+
+### Added
+- Project JSON export/import now includes the WBS tree and its estimates (`schemaVersion` 3). Older v2 files still import with an empty WBS.
+
+### Fixed
+- Adding a WBS item now selects the new row (and focuses the grid on it) instead of dropping the selection when the table updates.
+- Deleting a WBS item now selects the row above (or the next surviving row if the deleted item was first).
 
 ## [0.3.1] - 2026-08-14
 
