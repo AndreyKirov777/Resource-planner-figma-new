@@ -57,7 +57,7 @@ Resource Planner exists so a delivery lead, pre-sales engineer, or PM can turn t
 
 - **CAP-9 — Export & import**
   - **intent:** A user can export a plan to Excel, export/import a project as JSON, and capture a PNG snapshot.
-  - **success:** Excel export is phase-grouped with per-row financials and totals; JSON export wraps `{ schemaVersion, exportedAt, data }` and round-trips on import (accepting legacy `weeklyAllocations`/`weekNumber`), with the global rate card excluded; PNG renders the table + financial summary.
+  - **success:** Excel export is phase-grouped with per-row financials and totals; JSON export wraps `{ schemaVersion: 3, exportedAt, data }` and round-trips lists, plans, allocations, and the WBS tree on import (accepting legacy `weeklyAllocations`/`weekNumber` and v2 payloads with no WBS), with the global rate card excluded; PNG renders the table + financial summary.
 
 - **CAP-10 — AI draft plan generation**
   - **intent:** A user can describe a project in natural language, pick a delivery region, and receive an editable draft resource plan to review before anything is saved.

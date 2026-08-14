@@ -250,6 +250,9 @@ app.get('/api/projects/:id/export', async (req, res) => {
         resourceLists: true,
         resourcePlans: {
           include: { allocations: true }
+        },
+        wbsItems: {
+          include: { estimates: true }
         }
       }
     });
@@ -262,7 +265,7 @@ app.get('/api/projects/:id/export', async (req, res) => {
 
     // Wrap to allow future schema versioning
     const payload = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: new Date().toISOString(),
       data: project
     };
@@ -274,6 +277,78 @@ app.get('/api/projects/:id/export', async (req, res) => {
     res.status(500).json({ error: 'Failed to export project' });
   }
 });
+
+/** Snapshot-restore WBS on import. Remaps ids; unknown/cyclic parentId → root. Does not validate disciplines. */
+async function rematerializeWbsItems(wbsItems: any[], newProjectId: number) {
+  const items = Array.isArray(wbsItems) ? wbsItems.filter((i) => i && typeof i === 'object') : [];
+  if (items.length === 0) return;
+
+  const payloadIds = new Set(
+    items
+      .map((i) => i.id)
+      .filter((id) => id != null && Number.isFinite(Number(id)))
+      .map((id) => Number(id))
+  );
+  const idMap = new Map<number, number>();
+  let remaining = items.slice();
+
+  while (remaining.length > 0) {
+    const ready: any[] = [];
+    const blocked: any[] = [];
+    for (const item of remaining) {
+      const oldParent = item.parentId == null ? null : Number(item.parentId);
+      const parentInPayload = oldParent != null && payloadIds.has(oldParent);
+      if (!parentInPayload || idMap.has(oldParent)) {
+        ready.push(item);
+      } else {
+        blocked.push(item);
+      }
+    }
+
+    const forceRoot = ready.length === 0;
+    const batch = forceRoot ? blocked : ready;
+
+    for (const item of batch) {
+      const oldParent = item.parentId == null ? null : Number(item.parentId);
+      const parentInPayload = !forceRoot && oldParent != null && payloadIds.has(oldParent);
+      const newParentId = parentInPayload ? (idMap.get(oldParent) ?? null) : null;
+      const rawEstimates = (Array.isArray(item.estimates) ? item.estimates : [])
+        .filter((e: any) => e && typeof e === 'object' && !Array.isArray(e));
+      const seenPairs = new Set<string>();
+      const estimates = [];
+      for (const e of rawEstimates) {
+        const discipline = e.discipline ?? '';
+        const role = e.role ?? '';
+        const pairKey = `${discipline}\0${role}`;
+        if (seenPairs.has(pairKey)) continue;
+        seenPairs.add(pairKey);
+        const hours = Number(e.hours);
+        estimates.push({
+          discipline,
+          role,
+          hours: Number.isFinite(hours) ? hours : 0,
+        });
+      }
+      const order = parseInt(item.displayOrder, 10);
+      const created = await prisma.wbsItem.create({
+        data: {
+          name: item.name || '',
+          phaseName: item.phaseName ?? null,
+          displayOrder: Number.isFinite(order) ? order : 0,
+          projectId: newProjectId,
+          parentId: newParentId,
+          ...(estimates.length > 0 ? { estimates: { create: estimates } } : {}),
+        },
+      });
+      if (item.id != null && Number.isFinite(Number(item.id))) {
+        idMap.set(Number(item.id), created.id);
+      }
+    }
+
+    if (forceRoot) break;
+    remaining = blocked;
+  }
+}
 
 // Project import endpoint
 app.post('/api/projects/import', async (req, res) => {
@@ -344,6 +419,9 @@ app.post('/api/projects/import', async (req, res) => {
         }
       });
     }
+
+    // WBS tree — Prisma-direct snapshot restore (no discipline re-validation).
+    await rematerializeWbsItems(projectData.wbsItems, newProjectId);
 
     res.json({ message: 'Import completed', projectId: newProjectId });
   } catch (error) {

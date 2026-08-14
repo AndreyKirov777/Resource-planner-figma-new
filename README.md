@@ -131,8 +131,8 @@
   - `PUT /projects/:id` - Update project
   - `DELETE /projects/:id` - Delete project (cascades to resource lists, resource plans, and their allocations)
   - `POST /projects/:id/copy` - Duplicate a project with all of its data
-  - `GET /projects/:id/export` - Export a project (and its data) as JSON
-  - `POST /projects/import` - Import a project from JSON
+  - `GET /projects/:id/export` - Export a project (lists, plans, allocations, and WBS) as JSON
+  - `POST /projects/import` - Import a project from JSON (including WBS tree + estimates)
 
   #### Rate Card (global — shared across all projects)
   - `GET /rate-cards` - Get the global rate card

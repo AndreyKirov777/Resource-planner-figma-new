@@ -90,10 +90,12 @@ floats (`ukraine?`, `easternEurope?`, `asiaGE?`, `asiaARMKZ?`, `latam?`, `mexico
   import meta. Replaces the whole card.
 - **Convert planning mode (route 9):** converts phases and every plan's allocations in a transaction using
   [src/utils/modeConversion.ts](../src/utils/modeConversion.ts); returns the fully reloaded project.
-- **Copy / export / import (routes 6–8):** operate on project + lists + plans + allocations only. The
-  **global rate card is never copied/exported/imported per project.** Import accepts legacy
-  `weeklyAllocations`/`weekNumber` as well as `allocations`/`periodNumber`; export wraps payload as
-  `{ schemaVersion: 2, exportedAt, data }`.
+- **Copy / export / import (routes 6–8):** copy still operates on project + lists + plans +
+  allocations only (no WBS). Export/import also carry the WBS tree (`wbsItems` + nested
+  `estimates`). The **global rate card is never copied/exported/imported per project.** Import
+  accepts legacy `weeklyAllocations`/`weekNumber` as well as `allocations`/`periodNumber`, and
+  v2 payloads with no `wbsItems` (empty WBS); export wraps payload as
+  `{ schemaVersion: 3, exportedAt, data }`.
 
 ## Adding an Endpoint (checklist)
 

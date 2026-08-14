@@ -216,8 +216,9 @@ describe('WBS API integration', () => {
   async function cleanupTestProjects() {
     const res = await request(app).get('/api/projects');
     if (res.status !== 200 || !Array.isArray(res.body)) return;
-    const names = [TEST_PROJECT_NAME, TEST_PROJECT_NAME_OTHER];
-    const toDelete = res.body.filter((p: { name: string }) => names.includes(p.name));
+    const toDelete = res.body.filter((p: { name: string }) =>
+      p.name.startsWith(TEST_PROJECT_NAME) || p.name.startsWith('WBS-4 ')
+    );
     for (const p of toDelete as { id: number }[]) {
       await request(app).delete(`/api/projects/${p.id}`);
     }
@@ -521,6 +522,232 @@ describe('WBS API integration', () => {
       expect(ids).not.toContain(rootId);
       expect(ids).not.toContain(childId);
       expect(ids).not.toContain(grandchildId);
+    });
+  });
+
+  describe('GET /export and POST /import (WBS-4)', () => {
+    async function deleteProject(id: number) {
+      await request(app).delete(`/api/projects/${id}`);
+    }
+
+    it('round-trips a nested WBS with estimates, lists, and plans', async () => {
+      const proj = await request(app).post('/api/projects').send({ name: 'WBS-4 round-trip source' });
+      const srcId = proj.body.id;
+
+      const listRes = await request(app)
+        .post(`/api/projects/${srcId}/resource-lists`)
+        .send({ role: 'Developer', intRate: 40 });
+      expect(listRes.status).toBe(200);
+
+      const planRes = await request(app)
+        .post(`/api/projects/${srcId}/resource-plans`)
+        .send({
+          role: 'Developer',
+          intHourlyRate: 50,
+          clientHourlyRate: 75,
+          allocations: [{ periodNumber: 1, allocation: 100 }],
+        });
+      expect(planRes.status).toBe(200);
+
+      const rootRes = await request(app)
+        .post(`/api/projects/${srcId}/wbs-items`)
+        .send({
+          name: 'Root task',
+          phaseName: 'Phase 1',
+          displayOrder: 1,
+          estimates: [
+            { discipline: validDisciplineA, role: 'Lead', hours: 16 },
+            { discipline: validDisciplineB, role: '', hours: 8 },
+          ],
+        });
+      expect(rootRes.status).toBe(201);
+      const rootId = rootRes.body.id;
+
+      const childRes = await request(app)
+        .post(`/api/projects/${srcId}/wbs-items`)
+        .send({
+          name: 'Child task',
+          parentId: rootId,
+          phaseName: null,
+          displayOrder: 2,
+          estimates: [{ discipline: validDisciplineA, hours: 4 }],
+        });
+      expect(childRes.status).toBe(201);
+
+      const exportRes = await request(app).get(`/api/projects/${srcId}/export`);
+      expect(exportRes.status).toBe(200);
+      expect(exportRes.body.schemaVersion).toBe(3);
+      expect(exportRes.body.data.wbsItems).toHaveLength(2);
+
+      const importRes = await request(app).post('/api/projects/import').send(exportRes.body);
+      expect(importRes.status).toBe(200);
+      const newId = importRes.body.projectId;
+
+      const wbs = (await request(app).get(`/api/projects/${newId}/wbs`)).body as Array<{
+        id: number;
+        name: string;
+        parentId: number | null;
+        phaseName: string | null;
+        displayOrder: number;
+        estimates: Array<{ discipline: string; role: string; hours: number }>;
+      }>;
+      expect(wbs).toHaveLength(2);
+      const newRoot = wbs.find((i) => i.name === 'Root task');
+      const newChild = wbs.find((i) => i.name === 'Child task');
+      expect(newRoot).toBeDefined();
+      expect(newChild).toBeDefined();
+      expect(newRoot!.parentId).toBeNull();
+      expect(newChild!.parentId).toBe(newRoot!.id);
+      expect(newRoot!.phaseName).toBe('Phase 1');
+      expect(newChild!.phaseName).toBeNull();
+      expect(newRoot!.displayOrder).toBe(1);
+      expect(newRoot!.estimates.map((e) => e.role).sort()).toEqual(['', 'Lead']);
+      expect(newRoot!.estimates.find((e) => e.role === 'Lead')!.hours).toBe(16);
+      expect(newChild!.estimates).toHaveLength(1);
+      expect(newChild!.estimates[0].hours).toBe(4);
+      expect(newRoot!.id).not.toBe(rootId);
+
+      const lists = (await request(app).get(`/api/projects/${newId}/resource-lists`)).body;
+      expect(lists.some((r: { role: string }) => r.role === 'Developer')).toBe(true);
+      const plans = (await request(app).get(`/api/projects/${newId}/resource-plans`)).body;
+      expect(plans.some((p: { role: string }) => p.role === 'Developer')).toBe(true);
+
+      await deleteProject(srcId);
+      await deleteProject(newId);
+    });
+
+    it('exports empty wbsItems and schemaVersion 3 when the project has no WBS', async () => {
+      const proj = await request(app).post('/api/projects').send({ name: 'WBS-4 empty source' });
+      const srcId = proj.body.id;
+
+      const exportRes = await request(app).get(`/api/projects/${srcId}/export`);
+      expect(exportRes.status).toBe(200);
+      expect(exportRes.body.schemaVersion).toBe(3);
+      expect(exportRes.body.data.wbsItems).toEqual([]);
+
+      const importRes = await request(app).post('/api/projects/import').send(exportRes.body);
+      expect(importRes.status).toBe(200);
+      const wbs = (await request(app).get(`/api/projects/${importRes.body.projectId}/wbs`)).body;
+      expect(wbs).toEqual([]);
+
+      await deleteProject(srcId);
+      await deleteProject(importRes.body.projectId);
+    });
+
+    it('imports a v2 payload (no wbsItems) and a raw unwrapped body as empty WBS', async () => {
+      const v2 = await request(app).post('/api/projects/import').send({
+        schemaVersion: 2,
+        data: {
+          name: 'WBS-4 v2 wrapped',
+          resourceLists: [{ role: 'BA', intRate: 10 }],
+        },
+      });
+      expect(v2.status).toBe(200);
+      expect((await request(app).get(`/api/projects/${v2.body.projectId}/wbs`)).body).toEqual([]);
+      const lists = (await request(app).get(`/api/projects/${v2.body.projectId}/resource-lists`)).body;
+      expect(lists.some((r: { role: string }) => r.role === 'BA')).toBe(true);
+
+      const raw = await request(app).post('/api/projects/import').send({
+        name: 'WBS-4 v2 raw',
+        resourcePlans: [{
+          role: 'QA',
+          intHourlyRate: 1,
+          clientHourlyRate: 2,
+          allocations: [{ periodNumber: 1, allocation: 50 }],
+        }],
+      });
+      expect(raw.status).toBe(200);
+      expect((await request(app).get(`/api/projects/${raw.body.projectId}/wbs`)).body).toEqual([]);
+
+      await deleteProject(v2.body.projectId);
+      await deleteProject(raw.body.projectId);
+    });
+
+    it('promotes orphan and cyclic parentId items to roots', async () => {
+      const orphan = await request(app).post('/api/projects/import').send({
+        schemaVersion: 3,
+        data: {
+          name: 'WBS-4 orphan',
+          wbsItems: [
+            { id: 1, name: 'Orphan child', parentId: 99, displayOrder: 0, estimates: [] },
+          ],
+        },
+      });
+      expect(orphan.status).toBe(200);
+      const orphanWbs = (await request(app).get(`/api/projects/${orphan.body.projectId}/wbs`)).body;
+      expect(orphanWbs).toHaveLength(1);
+      expect(orphanWbs[0].parentId).toBeNull();
+
+      const cycle = await request(app).post('/api/projects/import').send({
+        schemaVersion: 3,
+        data: {
+          name: 'WBS-4 cycle',
+          wbsItems: [
+            { id: 10, name: 'A', parentId: 11, displayOrder: 0 },
+            { id: 11, name: 'B', parentId: 10, displayOrder: 1 },
+          ],
+        },
+      });
+      expect(cycle.status).toBe(200);
+      const cycleWbs = (await request(app).get(`/api/projects/${cycle.body.projectId}/wbs`)).body as Array<{
+        parentId: number | null;
+      }>;
+      expect(cycleWbs).toHaveLength(2);
+      expect(cycleWbs.every((i) => i.parentId == null)).toBe(true);
+
+      await deleteProject(orphan.body.projectId);
+      await deleteProject(cycle.body.projectId);
+    });
+
+    it('writes an estimate whose discipline is not on the live rate card', async () => {
+      const res = await request(app).post('/api/projects/import').send({
+        schemaVersion: 3,
+        data: {
+          name: 'WBS-4 unknown discipline',
+          wbsItems: [{
+            id: 1,
+            name: 'Unmapped hours',
+            parentId: null,
+            displayOrder: 0,
+            estimates: [{ discipline: UNKNOWN_DISCIPLINE, role: '', hours: 12 }],
+          }],
+        },
+      });
+      expect(res.status).toBe(200);
+      const wbs = (await request(app).get(`/api/projects/${res.body.projectId}/wbs`)).body;
+      expect(wbs[0].estimates[0].discipline).toBe(UNKNOWN_DISCIPLINE);
+      expect(wbs[0].estimates[0].hours).toBe(12);
+
+      await deleteProject(res.body.projectId);
+    });
+
+    it('skips malformed estimate rows and coerces displayOrder/hours without 500', async () => {
+      const res = await request(app).post('/api/projects/import').send({
+        schemaVersion: 3,
+        data: {
+          name: 'WBS-4 malformed estimates',
+          wbsItems: [{
+            id: 1,
+            name: 'Messy',
+            parentId: null,
+            displayOrder: '2',
+            estimates: [
+              null,
+              { discipline: validDisciplineA, role: '', hours: 5 },
+              { discipline: validDisciplineA, role: '', hours: 9 },
+              { discipline: validDisciplineB, role: '', hours: 'Infinity' },
+            ],
+          }],
+        },
+      });
+      expect(res.status).toBe(200);
+      const wbs = (await request(app).get(`/api/projects/${res.body.projectId}/wbs`)).body;
+      expect(wbs[0].displayOrder).toBe(2);
+      expect(wbs[0].estimates).toHaveLength(2);
+      expect(wbs[0].estimates.find((e: { discipline: string }) => e.discipline === validDisciplineA).hours).toBe(5);
+      expect(wbs[0].estimates.find((e: { discipline: string }) => e.discipline === validDisciplineB).hours).toBe(0);
+
+      await deleteProject(res.body.projectId);
     });
   });
 });

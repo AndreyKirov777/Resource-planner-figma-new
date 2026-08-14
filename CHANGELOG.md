@@ -8,6 +8,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ## [Unreleased]
 
 ### Added
+- Project JSON export/import now includes the WBS tree and its estimates (`schemaVersion` 3). Older v2 files still import with an empty WBS.
 
 ### Changed
 
