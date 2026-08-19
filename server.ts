@@ -1082,6 +1082,7 @@ app.get('/api/projects/:projectId/wbs', async (req, res) => {
     });
     res.json(items);
   } catch (error) {
+    console.error('Error fetching WBS items:', error);
     res.status(500).json({ error: 'Failed to fetch WBS items' });
   }
 });
