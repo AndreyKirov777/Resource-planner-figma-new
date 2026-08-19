@@ -1607,7 +1607,6 @@ export function ResourcePlan({
                 </div>
               </DropdownMenuContent>
             </DropdownMenu>
-            <span className="text-sm text-muted-foreground">{periodLabelPlural}: {periodNumbers.length} | Roles: {resourcePlans.length}</span>
           </div>
         </div>
 
