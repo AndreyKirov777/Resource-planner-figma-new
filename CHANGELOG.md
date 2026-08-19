@@ -8,6 +8,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ## [Unreleased]
 
 ### Added
+- Planning Table **Columns** dropdown to show or hide lead columns (Rate card role, Client Role, Name, internal costs, client rates, Margin). The choice is remembered per project in the browser and does not change Excel, PNG, or the client link.
 
 ### Changed
 

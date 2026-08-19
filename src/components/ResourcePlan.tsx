@@ -11,8 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
@@ -20,12 +23,22 @@ import {
 } from './ui/dropdown-menu';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
-import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2, GripVertical, SplitSquareHorizontal } from 'lucide-react';
+import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2, GripVertical, SplitSquareHorizontal, Columns3 } from 'lucide-react';
 import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft } from '../services/api';
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod, phaseStartOffset, reorderPhases, remapPeriodNumber, splitPhase, uniquePhaseName } from '../utils/phases';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
 import { GeneratePlanSheet } from './GeneratePlanSheet';
+import {
+  LEAD_COLUMNS,
+  TOTAL_COLUMNS,
+  COLUMN_MENU_SECTIONS,
+  getVisibleLeadColumns,
+  loadHiddenColumns,
+  saveHiddenColumns,
+  resolveColumn,
+  type LeadColumnId,
+} from './planningColumns';
 
 interface ResourcePlanProps {
   project: Project;
@@ -214,6 +227,34 @@ export function ResourcePlan({
   }>({ show: false, x: 0, y: 0, periodNumber: null, colIndex: null });
   const [lastMousePosition, setLastMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [gridSelection, setGridSelection] = useState<GridSelection>();
+  const [hiddenColumns, setHiddenColumns] = useState<LeadColumnId[]>(() => loadHiddenColumns(project.id));
+
+  // Switching projects loads that project's own column choice.
+  useEffect(() => {
+    setHiddenColumns(loadHiddenColumns(project.id));
+  }, [project.id]);
+
+  const visibleLeadColumns = useMemo(() => getVisibleLeadColumns(hiddenColumns), [hiddenColumns]);
+  const frozenColumnCount = useMemo(
+    () => visibleLeadColumns.filter((c) => c.frozen).length,
+    [visibleLeadColumns]
+  );
+
+  const toggleColumn = useCallback((id: LeadColumnId) => {
+    setHiddenColumns((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      saveHiddenColumns(project.id, next);
+      return next;
+    });
+    // A hidden column can leave the selection pointing past the last column.
+    setGridSelection(undefined);
+  }, [project.id]);
+
+  const showAllColumns = useCallback(() => {
+    setHiddenColumns([]);
+    saveHiddenColumns(project.id, []);
+    setGridSelection(undefined);
+  }, [project.id]);
   const [phaseBreakdownOpen, setPhaseBreakdownOpen] = useState(true);
   const [editingPhaseIndex, setEditingPhaseIndex] = useState<number | null>(null);
   const [editingPhaseName, setEditingPhaseName] = useState('');
@@ -380,17 +421,9 @@ export function ResourcePlan({
 
   // Glide Data Grid column definitions (period columns grouped by phase)
   const columns = useMemo((): GridColumn[] => {
-    const cols: GridColumn[] = [
-      { title: '', width: 60 },
-      { title: 'Rate card role', width: 200 },
-      { title: 'Client Role', width: 150 },
-      { title: 'Name', width: 150 },
-      { title: 'Hourly cost', width: 90, group: 'Internal' },
-      { title: 'Daily cost', width: 90, group: 'Internal' },
-      { title: 'Hourly rate', width: 90, group: 'Client' },
-      { title: 'Daily rate', width: 90, group: 'Client' },
-      { title: 'Margin', width: 70 },
-    ];
+    const cols: GridColumn[] = visibleLeadColumns.map((c) =>
+      c.group ? { title: c.title, width: c.width, group: c.group } : { title: c.title, width: c.width }
+    );
     let periodIndex = 0;
     phases.forEach((phase) => {
       const count = phase.periodCount ?? 0;
@@ -400,200 +433,115 @@ export function ResourcePlan({
         periodIndex++;
       }
     });
-    cols.push(
-      { title: 'Cost', width: 100, group: 'Total' },
-      { title: 'Price', width: 100, group: 'Total' },
-      { title: 'Efforts, h', width: 90, group: 'Total' }
-    );
+    TOTAL_COLUMNS.forEach((t) => cols.push({ title: t.title, width: t.width, group: 'Total' }));
     return cols;
-  }, [phases, isMonthly]);
+  }, [phases, isMonthly, visibleLeadColumns]);
 
   // Get cell content function for glide-data-grid
   const getCellContent = useCallback(([col, row]: Item): GridCell => {
+    const empty: GridCell = { kind: GridCellKind.Text, data: '', allowOverlay: false, displayData: '' };
     const plan = resourcePlans[row];
-    if (!plan) {
-      return {
-        kind: GridCellKind.Text,
-        data: '',
-        allowOverlay: false,
-        displayData: '',
-      };
-    }
+    if (!plan) return empty;
 
-    const colIndex = col;
-    let colOffset = 0;
+    const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length);
 
-    // Actions column
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Custom,
-        data: { id: plan.id, onRemove: () => removeRole(plan.id) },
-        allowOverlay: false,
-        copyData: '',
-      } as ActionCell;
-    }
-    colOffset++;
-
-    // Rate card role
-    if (colIndex === colOffset) {
-      const isValidRole = resourceLists.some(r => r.role === plan.role);
-      return {
-        kind: GridCellKind.Text,
-        data: plan.role || '',
-        allowOverlay: true,
-        displayData: plan.role || 'Select role...',
-        copyData: plan.role || '',
-        readonly: false,
-      };
-    }
-    colOffset++;
-
-    // Client Role
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Text,
-        data: plan.clientRole || '',
-        allowOverlay: true,
-        displayData: plan.clientRole || '',
-        copyData: plan.clientRole || '',
-        readonly: false,
-      };
-    }
-    colOffset++;
-
-    // Name
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Text,
-        data: plan.name || '',
-        allowOverlay: true,
-        displayData: plan.name || '',
-        copyData: plan.name || '',
-        readonly: false,
-      };
-    }
-    colOffset++;
-
-    // Hourly cost
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Number,
-        data: plan.intHourlyRate,
-        allowOverlay: true,
-        displayData: `$${Math.round(plan.intHourlyRate)}`,
-        copyData: plan.intHourlyRate.toString(),
-        readonly: false,
-      };
-    }
-    colOffset++;
-
-    // Daily cost
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Text,
-        data: `$${Math.round(plan.intHourlyRate * 8)}`,
-        allowOverlay: false,
-        displayData: `$${Math.round(plan.intHourlyRate * 8)}`,
-      };
-    }
-    colOffset++;
-
-    // Hourly rate
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Number,
-        data: plan.clientHourlyRate,
-        allowOverlay: true,
-        displayData: `${currencySymbol}${Math.round(plan.clientHourlyRate)}`,
-        copyData: plan.clientHourlyRate.toString(),
-        readonly: false,
-      };
-    }
-    colOffset++;
-
-    // Daily rate
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Text,
-        data: `${currencySymbol}${Math.round(plan.clientHourlyRate * 8)}`,
-        allowOverlay: false,
-        displayData: `${currencySymbol}${Math.round(plan.clientHourlyRate * 8)}`,
-      };
-    }
-    colOffset++;
-
-    // Margin
-    if (colIndex === colOffset) {
-      const margin = calculateMargin(plan);
-      return {
-        kind: GridCellKind.Text,
-        data: margin === null ? '-' : `${margin.toFixed(1)}%`,
-        allowOverlay: false,
-        displayData: margin === null ? '-' : `${margin.toFixed(1)}%`,
-      };
-    }
-    colOffset++;
-
-    // Week columns
-    for (let i = 0; i < periodNumbers.length; i++) {
-      if (colIndex === colOffset + i) {
-        const weekNum = periodNumbers[i];
-        const allocation = plan.allocations.find(wa => wa.periodNumber === weekNum);
-        const value = allocation?.allocation || 0;
-        return {
-          kind: GridCellKind.Number,
-          data: value,
-          allowOverlay: true,
-          displayData: `${value}%`,
-          copyData: value.toString(),
-          readonly: false,
-          themeOverride: {
-            bgCell: getAllocationBgColor(value)
-          }
-        };
+    if (resolved.kind === 'lead') {
+      switch (resolved.id) {
+        case 'actions':
+          return {
+            kind: GridCellKind.Custom,
+            data: { id: plan.id, onRemove: () => removeRole(plan.id) },
+            allowOverlay: false,
+            copyData: '',
+          } as ActionCell;
+        case 'role':
+          return {
+            kind: GridCellKind.Text,
+            data: plan.role || '',
+            allowOverlay: true,
+            displayData: plan.role || 'Select role...',
+            copyData: plan.role || '',
+            readonly: false,
+          };
+        case 'clientRole':
+          return {
+            kind: GridCellKind.Text,
+            data: plan.clientRole || '',
+            allowOverlay: true,
+            displayData: plan.clientRole || '',
+            copyData: plan.clientRole || '',
+            readonly: false,
+          };
+        case 'name':
+          return {
+            kind: GridCellKind.Text,
+            data: plan.name || '',
+            allowOverlay: true,
+            displayData: plan.name || '',
+            copyData: plan.name || '',
+            readonly: false,
+          };
+        case 'intHourly':
+          return {
+            kind: GridCellKind.Number,
+            data: plan.intHourlyRate,
+            allowOverlay: true,
+            displayData: `$${Math.round(plan.intHourlyRate)}`,
+            copyData: plan.intHourlyRate.toString(),
+            readonly: false,
+          };
+        case 'intDaily': {
+          const text = `$${Math.round(plan.intHourlyRate * 8)}`;
+          return { kind: GridCellKind.Text, data: text, allowOverlay: false, displayData: text };
+        }
+        case 'clientHourly':
+          return {
+            kind: GridCellKind.Number,
+            data: plan.clientHourlyRate,
+            allowOverlay: true,
+            displayData: `${currencySymbol}${Math.round(plan.clientHourlyRate)}`,
+            copyData: plan.clientHourlyRate.toString(),
+            readonly: false,
+          };
+        case 'clientDaily': {
+          const text = `${currencySymbol}${Math.round(plan.clientHourlyRate * 8)}`;
+          return { kind: GridCellKind.Text, data: text, allowOverlay: false, displayData: text };
+        }
+        case 'margin': {
+          const margin = calculateMargin(plan);
+          const text = margin === null ? '-' : `${margin.toFixed(1)}%`;
+          return { kind: GridCellKind.Text, data: text, allowOverlay: false, displayData: text };
+        }
       }
     }
-    colOffset += periodNumbers.length;
 
-    // Total int cost
-    if (colIndex === colOffset) {
+    if (resolved.kind === 'period') {
+      const weekNum = periodNumbers[resolved.index];
+      const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
+      const value = allocation?.allocation || 0;
       return {
-        kind: GridCellKind.Text,
-        data: `$${Math.round(calculateTotalIntCost(plan))}`,
-        allowOverlay: false,
-        displayData: `$${Math.round(calculateTotalIntCost(plan))}`,
-      };
-    }
-    colOffset++;
-
-    // Total price
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Text,
-        data: `${currencySymbol}${Math.round(calculateTotalPrice(plan))}`,
-        allowOverlay: false,
-        displayData: `${currencySymbol}${Math.round(calculateTotalPrice(plan))}`,
-      };
-    }
-    colOffset++;
-
-    // Efforts
-    if (colIndex === colOffset) {
-      return {
-        kind: GridCellKind.Text,
-        data: `${Math.round(calculateEstimatedEfforts(plan))}`,
-        allowOverlay: false,
-        displayData: `${Math.round(calculateEstimatedEfforts(plan))}`,
+        kind: GridCellKind.Number,
+        data: value,
+        allowOverlay: true,
+        displayData: `${value}%`,
+        copyData: value.toString(),
+        readonly: false,
+        themeOverride: { bgCell: getAllocationBgColor(value) },
       };
     }
 
-    return {
-      kind: GridCellKind.Text,
-      data: '',
-      allowOverlay: false,
-      displayData: '',
-    };
-  }, [resourcePlans, periodNumbers, currencySymbol, resourceLists, removeRole, project.exchangeRate]);
+    if (resolved.kind === 'total') {
+      const text =
+        resolved.index === 0
+          ? `$${Math.round(calculateTotalIntCost(plan))}`
+          : resolved.index === 1
+            ? `${currencySymbol}${Math.round(calculateTotalPrice(plan))}`
+            : `${Math.round(calculateEstimatedEfforts(plan))}`;
+      return { kind: GridCellKind.Text, data: text, allowOverlay: false, displayData: text };
+    }
+
+    return empty;
+  }, [resourcePlans, periodNumbers, currencySymbol, resourceLists, removeRole, project.exchangeRate, visibleLeadColumns]);
 
   // Handle cell editing
   const onCellEdited = useCallback((cell: Item, newValue: EditableGridCell) => {
@@ -601,15 +549,11 @@ export function ResourcePlan({
     const plan = resourcePlans[row];
     if (!plan) return;
 
-    const colIndex = col;
-    let colOffset = 0;
+    const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length);
 
-    // Skip actions column
-    colOffset++;
-
-    // Rate card role (free-text fallback; primary path is the role picker dialog)
-    if (colIndex === colOffset) {
-      if (newValue.kind === GridCellKind.Text) {
+    if (resolved.kind === 'lead') {
+      // Rate card role (free-text fallback; primary path is the role picker dialog)
+      if (resolved.id === 'role' && newValue.kind === GridCellKind.Text) {
         const newRole = newValue.data;
         const roleMatches = resourceLists.filter((r) => r.role === newRole);
         const selectedResource =
@@ -641,108 +585,77 @@ export function ResourcePlan({
           );
           onResourcePlansChange(updatedResourcePlans);
         }
+        return;
       }
-      return;
-    }
-    colOffset++;
-
-    // Client Role
-    if (colIndex === colOffset) {
-      if (newValue.kind === GridCellKind.Text) {
+      if (resolved.id === 'clientRole' && newValue.kind === GridCellKind.Text) {
         const updatedResourcePlans = resourcePlans.map(p =>
           p.id === plan.id ? { ...p, clientRole: newValue.data } : p
         );
         onResourcePlansChange(updatedResourcePlans);
+        return;
       }
-      return;
-    }
-    colOffset++;
-
-    // Name
-    if (colIndex === colOffset) {
-      if (newValue.kind === GridCellKind.Text) {
+      if (resolved.id === 'name' && newValue.kind === GridCellKind.Text) {
         const updatedResourcePlans = resourcePlans.map(p =>
           p.id === plan.id ? { ...p, name: newValue.data } : p
         );
         onResourcePlansChange(updatedResourcePlans);
+        return;
       }
-      return;
-    }
-    colOffset++;
-
-    // Hourly cost
-    if (colIndex === colOffset) {
-      if (newValue.kind === GridCellKind.Number) {
+      if (resolved.id === 'intHourly' && newValue.kind === GridCellKind.Number) {
         const updatedResourcePlans = resourcePlans.map(p =>
           p.id === plan.id ? { ...p, intHourlyRate: newValue.data || 0 } : p
         );
         onResourcePlansChange(updatedResourcePlans);
+        return;
       }
-      return;
-    }
-    colOffset++;
-
-    // Skip daily cost (calculated)
-    colOffset++;
-
-    // Hourly rate
-    if (colIndex === colOffset) {
-      if (newValue.kind === GridCellKind.Number) {
+      if (resolved.id === 'clientHourly' && newValue.kind === GridCellKind.Number) {
         const updatedResourcePlans = resourcePlans.map(p =>
           p.id === plan.id ? { ...p, clientHourlyRate: newValue.data || 0 } : p
         );
         onResourcePlansChange(updatedResourcePlans);
-      }
-      return;
-    }
-    colOffset++;
-
-    // Skip daily rate and margin (calculated)
-    colOffset += 2;
-
-    // Week columns
-    for (let i = 0; i < periodNumbers.length; i++) {
-      if (colIndex === colOffset + i) {
-        if (newValue.kind === GridCellKind.Number) {
-          const weekNum = periodNumbers[i];
-          const clampedValue = Math.max(0, Math.min(100, newValue.data || 0));
-          
-          const updatedResourcePlans = resourcePlans.map(p => {
-            if (p.id !== plan.id) return p;
-            
-            const existing = p.allocations.find(wa => wa.periodNumber === weekNum);
-            if (existing) {
-              const updatedAllocations = p.allocations.map(wa =>
-                wa.periodNumber === weekNum
-                  ? { ...wa, allocation: clampedValue, updatedAt: new Date().toISOString() }
-                  : wa
-              );
-              return { ...p, allocations: updatedAllocations };
-            }
-            
-            const now = new Date().toISOString();
-            const newAllocation = {
-              id: 0,
-              periodNumber: weekNum,
-              allocation: clampedValue,
-              resourcePlanId: p.id,
-              createdAt: now,
-              updatedAt: now,
-            } as Allocation;
-            
-            return { ...p, allocations: [...p.allocations, newAllocation] };
-          });
-          
-          onResourcePlansChange(updatedResourcePlans);
-        }
         return;
       }
+      // actions / intDaily / clientDaily / margin are computed — not editable.
+      return;
     }
-  }, [resourcePlans, periodNumbers, resourceLists, project.defaultMargin, project.exchangeRate, onResourcePlansChange]);
+
+    if (resolved.kind === 'period' && newValue.kind === GridCellKind.Number) {
+      const weekNum = periodNumbers[resolved.index];
+      const clampedValue = Math.max(0, Math.min(100, newValue.data || 0));
+      
+      const updatedResourcePlans = resourcePlans.map(p => {
+        if (p.id !== plan.id) return p;
+        
+        const existing = p.allocations.find(wa => wa.periodNumber === weekNum);
+        if (existing) {
+          const updatedAllocations = p.allocations.map(wa =>
+            wa.periodNumber === weekNum
+              ? { ...wa, allocation: clampedValue, updatedAt: new Date().toISOString() }
+              : wa
+          );
+          return { ...p, allocations: updatedAllocations };
+        }
+        
+        const now = new Date().toISOString();
+        const newAllocation = {
+          id: 0,
+          periodNumber: weekNum,
+          allocation: clampedValue,
+          resourcePlanId: p.id,
+          createdAt: now,
+          updatedAt: now,
+        } as Allocation;
+        
+        return { ...p, allocations: [...p.allocations, newAllocation] };
+      });
+      
+      onResourcePlansChange(updatedResourcePlans);
+    }
+  }, [resourcePlans, periodNumbers, resourceLists, project.defaultMargin, project.exchangeRate, onResourcePlansChange, visibleLeadColumns]);
 
   // Handle batch cell edits (used by fill handle)
   const onCellsEdited = useCallback((newValues: readonly { location: Item; value: EditableGridCell }[]) => {
-    const periodColumnStartIndex = 9; // Skip the first 9 columns
+    const periodColumnStartIndex = visibleLeadColumns.length;
     
     // Group changes by resource plan
     const planUpdates = new Map<number, { plan: ResourcePlanType; updates: { weekNum: number; value: number }[] }>();
@@ -806,7 +719,7 @@ export function ResourcePlan({
     }
     
     return false; // Allow individual onCellEdited calls for non-week columns
-  }, [resourcePlans, periodNumbers, onResourcePlansChange]);
+  }, [resourcePlans, periodNumbers, onResourcePlansChange, visibleLeadColumns]);
 
   const addPeriod = useCallback(() => {
     if (phases.length === 0) return;
@@ -996,8 +909,7 @@ export function ResourcePlan({
       event.preventDefault();
     }
     
-    // Calculate the week column offset - skip the first 9 columns (actions, role, client role, name, hourly cost, daily cost, hourly rate, daily rate, margin)
-    const periodColumnStartIndex = 9;
+    const periodColumnStartIndex = visibleLeadColumns.length;
     const periodColumnIndex = colIndex - periodColumnStartIndex;
     
     // Only show context menu for period columns
@@ -1031,7 +943,7 @@ export function ResourcePlan({
         colIndex
       });
     }
-  }, [periodNumbers, lastMousePosition]);
+  }, [periodNumbers, lastMousePosition, visibleLeadColumns]);
 
   // Close context menu when clicking elsewhere and prevent browser context menu
   useEffect(() => {
@@ -1642,6 +1554,59 @@ export function ResourcePlan({
               </Button>
             )}
             <Button size="sm" variant="outline" onClick={() => setShowGeneratePlan(true)}>✦ Generate AI Plan</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <Columns3 className="h-4 w-4 mr-1" />
+                  Columns
+                  {hiddenColumns.length > 0 && (
+                    <span className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#8f4f8f] px-1 text-[11px] font-semibold leading-none text-white">
+                      {hiddenColumns.length}
+                    </span>
+                  )}
+                  <ChevronDown className="h-3 w-3 ml-1 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[236px]">
+                {COLUMN_MENU_SECTIONS.map((section, sectionIndex) => (
+                  <React.Fragment key={section.label ?? `section-${sectionIndex}`}>
+                    {sectionIndex > 0 && <DropdownMenuSeparator />}
+                    {section.label && (
+                      <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                        {section.label}
+                      </DropdownMenuLabel>
+                    )}
+                    {section.ids.map((id) => {
+                      const def = LEAD_COLUMNS.find((c) => c.id === id);
+                      if (!def) return null;
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={id}
+                          checked={!hiddenColumns.includes(id)}
+                          onCheckedChange={() => toggleColumn(id)}
+                          onSelect={(event) => event.preventDefault()}
+                        >
+                          {def.menuLabel ?? def.title}
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={hiddenColumns.length === 0}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    showAllColumns();
+                  }}
+                >
+                  Show all
+                </DropdownMenuItem>
+                <div className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
+                  Doesn’t affect Excel, PNG or the client link
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <span className="text-sm text-muted-foreground">{periodLabelPlural}: {periodNumbers.length} | Roles: {resourcePlans.length}</span>
           </div>
         </div>
@@ -1692,15 +1657,16 @@ export function ResourcePlan({
             }}
             onCellActivated={(cell) => {
               const [col, row] = cell;
-              if (col === 0) { // Actions column
+              const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length);
+              if (resolved.kind !== 'lead') return;
+
+              if (resolved.id === 'actions') {
                 const plan = resourcePlans[row];
-                if (plan) {
-                  removeRole(plan.id);
-                }
+                if (plan) removeRole(plan.id);
                 return;
               }
-              // Rate Card role column (index 1)
-              if (col === 1) {
+
+              if (resolved.id === 'role') {
                 const plan = resourcePlans[row];
                 if (plan) {
                   // Prefer role + rate match so same role in different locations stays distinct
@@ -1715,9 +1681,8 @@ export function ResourcePlan({
                 return;
               }
               // For all other columns, allow normal editing behavior
-              return;
             }}
-            freezeColumns={4}
+            freezeColumns={frozenColumnCount}
             rowMarkers="number"
             smoothScrollX={true}
             smoothScrollY={true}

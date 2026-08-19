@@ -451,3 +451,7 @@ paths, not contract breaks.
   `nextDisplayOrder` / `NaN` note under WBS-2R review.
 - **Canvas WBS has no focusable ⋮.** Inherent Glide `<canvas>` a11y gap, already
   logged under WBS-2R. Keyboard structure actions still work via `onKeyDown`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-planning-table-column-visibility.md`
+  summary: Planning Table hourly cost/rate cell edits still accept negative or non-finite numbers.
+  evidence: Pre-existing `onCellEdited` bodies write `newValue.data || 0` with no finite/min clamp; this story was required to keep those mutation bodies verbatim.
