@@ -6,7 +6,16 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Plus, Trash2 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 import { ResourceList as ResourceListType } from '../services/api';
+import { LOCATIONS } from '../config/defaults';
+import { LOCATION_LABELS, canonicalLocationLabel, locationAbbr } from '../utils/regions';
 
 interface ResourceListProps {
   resourceLists: ResourceListType[];
@@ -117,12 +126,16 @@ export function ResourceList({
       {
         headerName: 'Location',
         field: 'location',
-        width: 120,
+        width: 110,
         editable: true,
+        cellEditor: 'agSelectCellEditor',
+        cellEditorParams: { values: LOCATION_LABELS },
+        valueFormatter: (params: any) => locationAbbr(params.value),
+        tooltipValueGetter: (params: any) => canonicalLocationLabel(params.value),
         onCellValueChanged: (params: any) => {
           const updatedResources = resourceLists.map(resource =>
             resource.id === params.data.id
-              ? { ...resource, location: params.newValue }
+              ? { ...resource, location: canonicalLocationLabel(params.newValue) || undefined }
               : resource
           );
           onResourceListsChange(updatedResources);
@@ -183,7 +196,7 @@ export function ResourceList({
       clientRole: newClientRole.trim() || undefined,
       name: newName.trim() || undefined,
       intRate: parseFloat(newRate) || 0,
-      location: newLocation.trim() || undefined,
+      location: newLocation || undefined,
       description: newDescription.trim() || undefined
     };
     
@@ -250,16 +263,20 @@ export function ResourceList({
                 className="mt-1"
               />
             </div>
-            <div className="w-28">
+            <div className="w-36">
               <Label htmlFor="newLocation" className="text-sm font-medium">Location</Label>
-              <Input
-                id="newLocation"
-                placeholder="New York"
-                value={newLocation}
-                onChange={(e) => setNewLocation(e.target.value)}
-                maxLength={20}
-                className="mt-1"
-              />
+              <Select value={newLocation} onValueChange={setNewLocation}>
+                <SelectTrigger id="newLocation" className="mt-1">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LOCATIONS.map((loc) => (
+                    <SelectItem key={loc.slug} value={loc.label}>
+                      {loc.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex-1 min-w-40">
               <Label htmlFor="newDescription" className="text-sm font-medium">Description</Label>

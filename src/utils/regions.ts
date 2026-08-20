@@ -1,5 +1,5 @@
 import type { GeneratePlanRegion } from '../services/api';
-import { LOCATIONS } from '../config/defaults';
+import { LOCATIONS, type LocationSlug } from '../config/defaults';
 
 export const GENERATE_PLAN_REGIONS: ReadonlyArray<{ value: GeneratePlanRegion; label: string }> = [
   { value: 'ukraine', label: 'Ukraine' },
@@ -30,4 +30,51 @@ export function resolveLocationLabel(regionOrSlug: string): string {
   return REGION_LABEL_BY_VALUE.get(regionOrSlug)
     ?? LOCATION_SLUG_LABELS.get(regionOrSlug)
     ?? regionOrSlug;
+}
+
+/** Short badge form per rate card region, used where a full label does not fit. */
+const LOCATION_ABBREVIATIONS: Record<LocationSlug, string> = {
+  'ukraine': 'UA',
+  'eastern-europe': 'EE',
+  'asia-ge': 'GE',
+  'asia-arm-kz': 'ARM/KZ',
+  'latam': 'LATAM',
+  'mexico': 'MX',
+  'india': 'IN',
+  'new-york': 'NY',
+  'london': 'LDN',
+};
+
+/** The only location values the UI offers, in rate card tab order. */
+export const LOCATION_LABELS: readonly string[] = LOCATIONS.map(({ label }) => label);
+
+/** Collapse a slug, a camelCase region key and a label to one comparable key. */
+function normalizeLocationKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// Location strings reach the DB from three writers (rate card, plan generation, manual entry),
+// so spellings vary ('asia-arm-kz', 'asiaARMKZ', 'Asia (ARM, KZ)'). All collapse to one slug here.
+const SLUG_BY_NORMALIZED_KEY = new Map<string, LocationSlug>();
+for (const { slug, label } of LOCATIONS) {
+  SLUG_BY_NORMALIZED_KEY.set(normalizeLocationKey(slug), slug);
+  SLUG_BY_NORMALIZED_KEY.set(normalizeLocationKey(label), slug);
+}
+for (const { value, label } of GENERATE_PLAN_REGIONS) {
+  const slug = SLUG_BY_NORMALIZED_KEY.get(normalizeLocationKey(value));
+  if (slug) SLUG_BY_NORMALIZED_KEY.set(normalizeLocationKey(label), slug);
+}
+
+/** Resolve any known spelling to its canonical label; unknown values pass through unchanged. */
+export function canonicalLocationLabel(value?: string | null): string {
+  if (!value) return '';
+  const slug = SLUG_BY_NORMALIZED_KEY.get(normalizeLocationKey(value));
+  return slug ? LOCATION_SLUG_LABELS.get(slug) ?? value : value;
+}
+
+/** Abbreviate a location for dense tables ('Ukraine' -> 'UA'); unknown values pass through. */
+export function locationAbbr(value?: string | null): string {
+  if (!value) return '';
+  const slug = SLUG_BY_NORMALIZED_KEY.get(normalizeLocationKey(value));
+  return slug ? LOCATION_ABBREVIATIONS[slug] : value;
 }
