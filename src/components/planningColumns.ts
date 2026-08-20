@@ -66,21 +66,24 @@ const TOGGLEABLE_IDS = new Set<string>(
   LEAD_COLUMNS.filter((c) => !c.pinned).map((c) => c.id)
 );
 
+/** Hidden until the user saves a choice for the project. */
+export const DEFAULT_HIDDEN_COLUMNS: readonly LeadColumnId[] = ['intDaily', 'clientDaily'];
+
 export const columnStorageKey = (projectId: number) => `planning-columns:${projectId}`;
 
 /** Reads hidden column ids for a project. Unknown or pinned ids are dropped. */
 export function loadHiddenColumns(projectId: number): LeadColumnId[] {
   try {
     const raw = window.localStorage.getItem(columnStorageKey(projectId));
-    if (!raw) return [];
+    if (!raw) return [...DEFAULT_HIDDEN_COLUMNS];
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) return [...DEFAULT_HIDDEN_COLUMNS];
     const valid = parsed.filter(
       (id): id is LeadColumnId => typeof id === 'string' && TOGGLEABLE_IDS.has(id)
     );
     return [...new Set(valid)];
   } catch {
-    return [];
+    return [...DEFAULT_HIDDEN_COLUMNS];
   }
 }
 

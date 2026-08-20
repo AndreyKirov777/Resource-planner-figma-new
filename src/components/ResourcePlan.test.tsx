@@ -108,15 +108,20 @@ describe('ResourcePlan', () => {
     const user = userEvent.setup();
     render(<ResourcePlan {...defaultProps} />);
 
-    await user.click(screen.getByRole('button', { name: /^columns$/i }));
+    await user.click(screen.getByRole('button', { name: /columns/i }));
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Daily cost' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Daily rate' })).toHaveAttribute('aria-checked', 'false');
     await user.click(screen.getByRole('menuitemcheckbox', { name: 'Name' }));
 
-    expect(window.localStorage.getItem(columnStorageKey(1))).toBe(JSON.stringify(['name']));
+    expect(window.localStorage.getItem(columnStorageKey(1))).toBe(
+      JSON.stringify(['intDaily', 'clientDaily', 'name'])
+    );
     expect(screen.getByRole('menuitemcheckbox', { name: 'Name' })).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByRole('button', { name: /columns/i, hidden: true })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: /columns/i, hidden: true })).toHaveTextContent('3');
 
     await user.click(screen.getByRole('menuitem', { name: 'Show all' }));
     expect(window.localStorage.getItem(columnStorageKey(1))).toBe(JSON.stringify([]));
     expect(screen.getByRole('menuitemcheckbox', { name: 'Name' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Daily cost' })).toHaveAttribute('aria-checked', 'true');
   });
 });

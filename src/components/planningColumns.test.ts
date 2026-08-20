@@ -81,11 +81,17 @@ describe('planningColumns', () => {
     expect(resolveColumn(1, visible, 4)).toEqual({ kind: 'period', index: 0 });
   });
 
+  it('hides Internal and Client daily columns when nothing is stored', () => {
+    expect(loadHiddenColumns(1)).toEqual(['intDaily', 'clientDaily']);
+  });
+
   it('round-trips hidden columns per project id', () => {
     saveHiddenColumns(1, ['name']);
     saveHiddenColumns(2, ['margin', 'clientDaily']);
     expect(loadHiddenColumns(1)).toEqual(['name']);
     expect(loadHiddenColumns(2)).toEqual(['margin', 'clientDaily']);
+    expect(loadHiddenColumns(3)).toEqual(['intDaily', 'clientDaily']);
+    saveHiddenColumns(3, []);
     expect(loadHiddenColumns(3)).toEqual([]);
   });
 
@@ -103,10 +109,10 @@ describe('planningColumns', () => {
     expect(loadHiddenColumns(4)).toEqual(['name', 'margin']);
 
     window.localStorage.setItem(columnStorageKey(2), 'not json');
-    expect(loadHiddenColumns(2)).toEqual([]);
+    expect(loadHiddenColumns(2)).toEqual(['intDaily', 'clientDaily']);
 
     window.localStorage.setItem(columnStorageKey(3), JSON.stringify({ name: true }));
-    expect(loadHiddenColumns(3)).toEqual([]);
+    expect(loadHiddenColumns(3)).toEqual(['intDaily', 'clientDaily']);
   });
 
   it('treats persist failures as non-fatal', () => {

@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning Table · Column toggle</title>
+<style>
+  :root{
+    --font: Inter, Roboto, -apple-system, BlinkMacSystemFont, 'avenir next', avenir, 'segoe ui', 'helvetica neue', helvetica, Ubuntu, noto, arial, sans-serif;
+    --border: rgba(115,115,115,0.16);
+    --bg-header: #f6f6f6;
+    --text-dark: #313131;
+    --text-medium: #737373;
+    --text-header: #4a4a4a;
+    --accent: #8f4f8f;
+    --ui-border: #e4e4e7;
+    --ui-muted: #71717a;
+    --ui-hover: #f4f4f5;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:28px 32px 64px;
+    font-family:var(--font); font-size:14px; color:var(--text-dark);
+    background:#fff;
+  }
+  .page{max-width:1180px; margin:0 auto}
+  .note{
+    font-size:13px; color:var(--ui-muted); line-height:1.6;
+    border-left:3px solid var(--ui-border); padding:2px 0 2px 12px; margin:0 0 28px;
+  }
+  h2{font-size:20px; font-weight:600; margin:0}
+  h3.section{font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--ui-muted); margin:40px 0 12px}
+
+  /* ── toolbar ─────────────────────────────────────────── */
+  .toolbar{display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:8px}
+  .btns{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+  .btn{
+    display:inline-flex; align-items:center; gap:6px;
+    height:32px; padding:0 12px; border-radius:6px;
+    font-size:14px; font-weight:500; font-family:inherit;
+    border:1px solid transparent; cursor:pointer; white-space:nowrap;
+  }
+  .btn-primary{background:#18181b; color:#fff}
+  .btn-outline{background:#fff; color:#18181b; border-color:var(--ui-border)}
+  .btn-outline:hover{background:var(--ui-hover)}
+  .btn-danger{background:#ef4444; color:#fff}
+  .btn svg{width:15px; height:15px}
+  .counts{font-size:14px; color:var(--ui-muted)}
+  .badge{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:18px; height:18px; padding:0 5px; margin-left:2px;
+    border-radius:9px; background:var(--accent); color:#fff;
+    font-size:11px; font-weight:600; line-height:1;
+  }
+  .hint{font-size:14px; color:var(--ui-muted); margin:0 0 8px; line-height:1.6}
+  .hint b{font-weight:500}
+  .hint .b1{color:#2563eb} .hint .b2{color:#7c3aed}
+
+  /* ── dropdown ────────────────────────────────────────── */
+  .menu-wrap{position:relative}
+  .menu{
+    position:absolute; top:calc(100% + 4px); left:0; z-index:40;
+    min-width:236px; padding:4px; border-radius:6px;
+    background:#fff; border:1px solid rgba(0,0,0,.1);
+    box-shadow:0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -2px rgba(0,0,0,.1);
+  }
+  .menu[hidden]{display:none}
+  .menu-label{padding:6px 8px 4px 30px; font-size:12px; font-weight:500; color:var(--ui-muted)}
+  .menu-sep{height:1px; margin:4px -4px; background:var(--ui-border)}
+  .menu-item{
+    display:flex; align-items:center; width:100%; gap:8px;
+    padding:6px 8px 6px 30px; border-radius:4px; position:relative;
+    font-size:14px; font-family:inherit; color:var(--text-dark);
+    background:none; border:0; cursor:pointer; text-align:left;
+  }
+  .menu-item:hover{background:var(--ui-hover)}
+  .menu-item .check{position:absolute; left:8px; width:14px; height:14px; opacity:0}
+  .menu-item[aria-checked="true"] .check{opacity:1}
+  .menu-item.reset{padding-left:30px; color:var(--ui-muted)}
+  .menu-foot{padding:6px 8px 4px 30px; font-size:12px; color:#a1a1aa; line-height:1.45}
+
+  /* ── grid ────────────────────────────────────────────── */
+  .grid-shell{
+    border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; background:#fff;
+  }
+  .grid-scroll{overflow-x:auto; overflow-y:hidden}
+  table{border-collapse:separate; border-spacing:0; font-size:14px; table-layout:fixed}
+  th,td{
+    border-right:1px solid var(--border); border-bottom:1px solid var(--border);
+    padding:0 8px; height:34px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    background:#fff;
+  }
+  thead th{
+    background:var(--bg-header); color:var(--text-header);
+    font:600 14px var(--font); text-align:left; height:36px;
+  }
+  thead tr.groups th{text-align:center; font-weight:600; color:var(--text-header)}
+  thead tr.groups th.empty{background:var(--bg-header)}
+  td.num{text-align:right} th.num{text-align:right}
+  td.muted{color:var(--text-medium)}
+  .frozen{position:sticky; z-index:2}
+  thead .frozen{z-index:5}
+  .frozen-edge{box-shadow:2px 0 5px -2px rgba(0,0,0,.18)}
+  .rowmark{
+    width:40px; color:var(--text-medium); text-align:center; font-size:13px;
+    background:var(--bg-header);
+  }
+  td.actions{text-align:center; color:#b1b1b1}
+  td.actions svg{width:14px; height:14px; vertical-align:middle}
+  tbody tr:last-child td{border-bottom:0}
+
+  .legend{display:flex; gap:20px; flex-wrap:wrap; font-size:13px; color:var(--ui-muted); margin-top:10px}
+  .legend b{color:var(--text-dark); font-weight:500}
+  .qa{margin:12px 0 0; padding:0; list-style:none; font-size:14px; line-height:1.7}
+  .qa li{padding-left:18px; position:relative; color:#3f3f46}
+  .qa li::before{content:'—'; position:absolute; left:0; color:#a1a1aa}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <p class="note">
+    Прототип на живых токенах сетки (<code>GRID_THEME</code>, <code>PHASE_COLORS</code>).
+    Чекбоксы рабочие — попробуйте поскрывать колонки и обратите внимание, как сокращается
+    горизонтальный скролл и как «съезжает» граница закреплённой зоны.
+  </p>
+
+  <div class="toolbar">
+    <h2>Planning Table</h2>
+    <div class="btns">
+      <button class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add Role</button>
+      <button class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add Week at End</button>
+      <button class="btn btn-danger">Clear all</button>
+      <button class="btn btn-outline">✦ Generate AI Plan</button>
+
+      <div class="menu-wrap">
+        <button class="btn btn-outline" id="colBtn" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M3 5h18M3 12h18M3 19h18"/><path d="M9 3v18M15 3v18" opacity=".45"/>
+          </svg>
+          Columns<span class="badge" id="colBadge" hidden>2</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;opacity:.6"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="menu" id="colMenu" hidden role="menu"></div>
+      </div>
+
+      <span class="counts">Weeks: 8 | Roles: 4</span>
+    </div>
+  </div>
+
+  <p class="hint">
+    <b class="b1">Right-click</b> on any week column header to insert weeks before/after or delete that specific week from the planning table.<br>
+    <b class="b2">Fill Handle:</b> Select cells and use the fill handle to drag and fill adjacent cells, or use Ctrl+D / Ctrl+R.
+  </p>
+
+  <div class="grid-shell">
+    <div class="grid-scroll"><table id="grid"></table></div>
+  </div>
+
+  <div class="legend">
+    <span><b>Закреплено:</b> <span id="frozenInfo"></span></span>
+    <span><b>Ширина таблицы:</b> <span id="widthInfo"></span></span>
+    <span><b>Экспорт:</b> Excel / PNG / Client view — всегда все колонки</span>
+  </div>
+
+  <h3 class="section">Что стоит подтвердить</h3>
+  <ul class="qa">
+    <li>Кнопка <b>Columns</b> стоит в общем ряду действий, последней перед счётчиками. Альтернатива — прижать её вправо, отдельно от «создающих» кнопок.</li>
+    <li>В меню колонки сгруппированы ровно так же, как групповые заголовки в сетке (Internal / Client) — чтобы «Hourly cost» и «Hourly rate» не путались.</li>
+    <li>Скрыть можно все восемь, включая <b>Rate card role</b> (как в задании). Колонка действий и номера строк — всегда на месте. Если скрыть и роль, и имя, строка перестаёт быть опознаваемой — можно запретить скрывать последнюю из этой пары.</li>
+    <li>Счётчик на кнопке появляется, только когда что-то скрыто, — иначе кнопка молчит.</li>
+    <li>Закрепление (<code>freezeColumns</code>) считается от видимых: спрятали Name — граница уезжает влево, скролл не ломается.</li>
+  </ul>
+</div>
+
+<script>
+// ── Дескрипторы колонок: ровно та модель, что предлагается в коде ──────────
+const LEAD = [
+  { id:'actions',      title:'',                width:60,  frozen:true, pinned:true },
+  { id:'role',         title:'Rate card role',  width:200, frozen:true, menu:'Rate card role' },
+  { id:'clientRole',   title:'Client Role',     width:150, frozen:true, menu:'Client Role' },
+  { id:'name',         title:'Name',            width:150, frozen:true, menu:'Name' },
+  { id:'intHourly',    title:'Hourly cost',     width:90, group:'Internal', menu:'Hourly cost', num:true },
+  { id:'intDaily',     title:'Daily cost',      width:90, group:'Internal', menu:'Daily cost',  num:true },
+  { id:'clientHourly', title:'Hourly rate',     width:90, group:'Client',   menu:'Hourly rate', num:true },
+  { id:'clientDaily',  title:'Daily rate',      width:90, group:'Client',   menu:'Daily rate',  num:true },
+  { id:'margin',       title:'Margin',          width:70,  menu:'Margin', num:true },
+];
+
+const MENU_SECTIONS = [
+  { label:null,        ids:['role','clientRole','name'] },
+  { label:'Internal',  ids:['intHourly','intDaily'] },
+  { label:'Client',    ids:['clientHourly','clientDaily'] },
+  { label:null,        ids:['margin'] },
+];
+
+const PHASES = [
+  { name:'Discovery',   count:3, color:'#E3F2FD' },
+  { name:'Development', count:5, color:'#FCE4EC' },
+];
+const TOTALS = [
+  { id:'tCost',   title:'Cost',      width:100 },
+  { id:'tPrice',  title:'Price',     width:100 },
+  { id:'tEffort', title:'Efforts, h',width:90 },
+];
+
+const PLANS = [
+  { role:'Senior Backend Engineer', clientRole:'Tech Lead',  name:'Ivan P.',  ih:45, ch:70, m:42.9, a:[100,100,80,100,100,100,60,40], cost:'$14 400', price:'€22 400', eff:'320' },
+  { role:'Frontend Engineer',       clientRole:'Developer',  name:'Anna K.',  ih:38, ch:60, m:43.6, a:[20,60,100,100,100,100,80,60],  cost:'$11 552', price:'€18 240', eff:'304' },
+  { role:'QA Engineer',             clientRole:'QA',         name:'',         ih:28, ch:45, m:44.6, a:[0,0,40,60,80,100,100,100],     cost:'$5 376',  price:'€8 640',  eff:'192' },
+  { role:'Project Manager',         clientRole:'PM',         name:'Maria S.', ih:40, ch:65, m:45.2, a:[50,50,50,50,50,50,50,50],      cost:'$6 400',  price:'€10 400', eff:'160' },
+];
+
+const hidden = new Set(['name','intDaily']); // стартовое состояние = «что-то скрыто»
+
+const allocBg = p => {
+  p = Math.max(0, Math.min(100, Math.round(p)));
+  if (p <= 0) return '#ffffff';
+  const t = p/100, lerp=(a,b)=>Math.round(a+(b-a)*t);
+  const h = v => v.toString(16).padStart(2,'0');
+  return '#'+h(lerp(255,0x63))+h(lerp(255,0xBE))+h(lerp(255,0x7B));
+};
+
+const visibleLead = () => LEAD.filter(c => c.pinned || !hidden.has(c.id));
+
+const CHECK = '<svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
+function renderMenu(){
+  const menu = document.getElementById('colMenu');
+  let html = '';
+  MENU_SECTIONS.forEach((sec, i) => {
+    if (i) html += '<div class="menu-sep"></div>';
+    if (sec.label) html += `<div class="menu-label">${sec.label}</div>`;
+    sec.ids.forEach(id => {
+      const col = LEAD.find(c => c.id === id);
+      const on = !hidden.has(id);
+      html += `<button class="menu-item" role="menuitemcheckbox" aria-checked="${on}" data-id="${id}">${CHECK}<span>${col.menu}</span></button>`;
+    });
+  });
+  html += '<div class="menu-sep"></div>'
+       +  `<button class="menu-item reset" data-reset="1">${CHECK.replace('class="check"','class="check" style="opacity:0"')}<span>Показать все</span></button>`
+       +  '<div class="menu-foot">Не влияет на Excel, PNG и клиентскую ссылку</div>';
+  menu.innerHTML = html;
+
+  menu.querySelectorAll('[data-id]').forEach(el => el.addEventListener('click', () => {
+    const id = el.dataset.id;
+    hidden.has(id) ? hidden.delete(id) : hidden.add(id);
+    render();
+  }));
+  menu.querySelector('[data-reset]').addEventListener('click', () => { hidden.clear(); render(); });
+
+  const badge = document.getElementById('colBadge');
+  badge.hidden = hidden.size === 0;
+  badge.textContent = hidden.size;
+}
+
+function renderGrid(){
+  const lead = visibleLead();
+  const periods = [];
+  PHASES.forEach(ph => { for (let i=0;i<ph.count;i++) periods.push(ph); });
+
+  // sticky-смещения считаются от ВИДИМЫХ закреплённых колонок
+  const frozen = lead.filter(c => c.frozen);
+  const offsets = {}; let acc = 40; // 40px = колонка номеров строк
+  frozen.forEach(c => { offsets[c.id] = acc; acc += c.width; });
+  const lastFrozenId = frozen.length ? frozen[frozen.length-1].id : null;
+
+  const cls = c => 'frozen' + (c.id === lastFrozenId ? ' frozen-edge' : '');
+  const sty = c => `left:${offsets[c.id]}px;width:${c.width}px;min-width:${c.width}px`;
+  const cell = (c, inner, extra='') =>
+    c.frozen
+      ? `<td class="${cls(c)} ${extra}" style="${sty(c)}">${inner}</td>`
+      : `<td class="${extra}" style="width:${c.width}px;min-width:${c.width}px">${inner}</td>`;
+
+  // ── строка групповых заголовков ──
+  let groups = `<th class="rowmark frozen frozen-edge" style="left:0;width:40px;min-width:40px" rowspan="2"></th>`;
+  let run = null;
+  const flush = () => {
+    if (!run) return;
+    const w = run.cols.reduce((s,c)=>s+c.width,0);
+    const bg = run.color ? `background:${run.color};` : '';
+    const isFrozenRun = run.cols[0].frozen;
+    const pos = isFrozenRun ? `position:sticky;left:${offsets[run.cols[0].id]}px;z-index:5;` : '';
+    const edge = run.cols.some(c=>c.id===lastFrozenId) ? 'frozen-edge' : '';
+    groups += `<th class="${run.name?'':'empty'} ${edge}" colspan="${run.cols.length}" style="${pos}${bg}width:${w}px;min-width:${w}px">${run.name||''}</th>`;
+    run = null;
+  };
+  lead.forEach(c => {
+    const name = c.group || null;
+    if (run && run.name === name && run.color === undefined) run.cols.push(c);
+    else { flush(); run = { name, cols:[c], color:undefined }; }
+  });
+  flush();
+  periods.forEach(ph => {
+    if (run && run.name === ph.name) run.cols.push({width:50,id:'p'});
+    else { flush(); run = { name:ph.name, cols:[{width:50,id:'p'}], color:ph.color }; }
+  });
+  flush();
+  run = { name:'Total', cols:TOTALS, color:undefined }; flush();
+
+  // ── строка заголовков колонок ──
+  let head = '';
+  lead.forEach(c => {
+    head += c.frozen
+      ? `<th class="${cls(c)}" style="${sty(c)}">${c.title}</th>`
+      : `<th class="${c.num?'num':''}" style="width:${c.width}px;min-width:${c.width}px">${c.title}</th>`;
+  });
+  periods.forEach((ph,i) => head += `<th class="num" style="width:50px;min-width:50px">${i+1}</th>`);
+  TOTALS.forEach(t => head += `<th class="num" style="width:${t.width}px;min-width:${t.width}px">${t.title}</th>`);
+
+  // ── тело ──
+  let body = '';
+  PLANS.forEach((p, r) => {
+    let tr = `<tr><td class="rowmark frozen frozen-edge" style="left:0;width:40px;min-width:40px">${r+1}</td>`;
+    const value = {
+      actions:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+      role:p.role, clientRole:p.clientRole, name:p.name,
+      intHourly:'$'+p.ih, intDaily:'$'+(p.ih*8),
+      clientHourly:'€'+p.ch, clientDaily:'€'+(p.ch*8),
+      margin:p.m.toFixed(1)+'%',
+    };
+    lead.forEach(c => {
+      const extra = c.id==='actions' ? 'actions' : (c.num ? 'num' : (c.id==='name' && !p.name ? 'muted' : ''));
+      tr += cell(c, value[c.id], extra);
+    });
+    p.a.forEach(v => tr += `<td class="num" style="width:50px;min-width:50px;background:${allocBg(v)}">${v}%</td>`);
+    tr += `<td class="num" style="width:100px;min-width:100px">${p.cost}</td>`
+       +  `<td class="num" style="width:100px;min-width:100px">${p.price}</td>`
+       +  `<td class="num" style="width:90px;min-width:90px">${p.eff}</td></tr>`;
+    body += tr;
+  });
+
+  document.getElementById('grid').innerHTML =
+    `<thead><tr class="groups">${groups}</tr><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+
+  const total = 40 + lead.reduce((s,c)=>s+c.width,0) + periods.length*50 + 290;
+  document.getElementById('grid').style.width = total + 'px';
+  document.getElementById('frozenInfo').textContent =
+    frozen.map(c => c.title || 'Actions').join(' · ') + `  (freezeColumns = ${frozen.length})`;
+  document.getElementById('widthInfo').textContent = total + ' px';
+}
+
+function render(){ renderMenu(); renderGrid(); }
+
+const btn = document.getElementById('colBtn'), menu = document.getElementById('colMenu');
+btn.addEventListener('click', e => {
+  e.stopPropagation();
+  menu.hidden = !menu.hidden;
+  btn.setAttribute('aria-expanded', String(!menu.hidden));
+});
+menu.addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => { menu.hidden = true; btn.setAttribute('aria-expanded','false'); });
+
+render();
+menu.hidden = false; btn.setAttribute('aria-expanded','true'); // открыто, чтобы меню было видно сразу
+</script>
+</body>
+</html>
