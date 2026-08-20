@@ -58,16 +58,17 @@ describe('planningColumns', () => {
   it('resolves lead, period and total columns with all columns visible', () => {
     const visible = getVisibleLeadColumns([]);
     expect(resolveColumn(0, visible, 8)).toEqual({ kind: 'lead', id: 'actions' });
-    expect(resolveColumn(8, visible, 8)).toEqual({ kind: 'lead', id: 'margin' });
-    expect(resolveColumn(9, visible, 8)).toEqual({ kind: 'period', index: 0 });
-    expect(resolveColumn(16, visible, 8)).toEqual({ kind: 'period', index: 7 });
-    expect(resolveColumn(17, visible, 8)).toEqual({ kind: 'total', index: 0 });
-    expect(resolveColumn(19, visible, 8)).toEqual({ kind: 'total', index: 2 });
-    expect(resolveColumn(20, visible, 8)).toEqual({ kind: 'none' });
+    expect(resolveColumn(4, visible, 8)).toEqual({ kind: 'lead', id: 'location' });
+    expect(resolveColumn(9, visible, 8)).toEqual({ kind: 'lead', id: 'margin' });
+    expect(resolveColumn(10, visible, 8)).toEqual({ kind: 'period', index: 0 });
+    expect(resolveColumn(17, visible, 8)).toEqual({ kind: 'period', index: 7 });
+    expect(resolveColumn(18, visible, 8)).toEqual({ kind: 'total', index: 0 });
+    expect(resolveColumn(20, visible, 8)).toEqual({ kind: 'total', index: 2 });
+    expect(resolveColumn(21, visible, 8)).toEqual({ kind: 'none' });
   });
 
   it('shifts the period and total columns left when lead columns are hidden', () => {
-    const visible = getVisibleLeadColumns(['name', 'intDaily']);
+    const visible = getVisibleLeadColumns(['name', 'location', 'intDaily']);
     expect(visible).toHaveLength(7);
     expect(resolveColumn(3, visible, 8)).toEqual({ kind: 'lead', id: 'intHourly' });
     expect(resolveColumn(7, visible, 8)).toEqual({ kind: 'period', index: 0 });

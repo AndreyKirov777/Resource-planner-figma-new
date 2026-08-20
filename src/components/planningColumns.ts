@@ -9,6 +9,7 @@ export type LeadColumnId =
   | 'role'
   | 'clientRole'
   | 'name'
+  | 'location'
   | 'intHourly'
   | 'intDaily'
   | 'clientHourly'
@@ -35,6 +36,7 @@ export const LEAD_COLUMNS: readonly LeadColumnDef[] = [
   { id: 'role',         title: 'Rate card role', width: 200, frozen: true, menuLabel: 'Rate card role' },
   { id: 'clientRole',   title: 'Client Role',    width: 150, frozen: true, menuLabel: 'Client Role' },
   { id: 'name',         title: 'Name',           width: 150, frozen: true, menuLabel: 'Name' },
+  { id: 'location',     title: 'Location',       width: 70,  frozen: true, menuLabel: 'Location' },
   { id: 'intHourly',    title: 'Hourly cost',    width: 90, group: 'Internal', menuLabel: 'Hourly cost' },
   { id: 'intDaily',     title: 'Daily cost',     width: 90, group: 'Internal', menuLabel: 'Daily cost' },
   { id: 'clientHourly', title: 'Hourly rate',    width: 90, group: 'Client',   menuLabel: 'Hourly rate' },
@@ -56,7 +58,7 @@ export interface ColumnMenuSection {
 
 /** Menu layout — mirrors the grid's group headers so duplicate titles stay distinguishable. */
 export const COLUMN_MENU_SECTIONS: readonly ColumnMenuSection[] = [
-  { ids: ['role', 'clientRole', 'name'] },
+  { ids: ['role', 'clientRole', 'name', 'location'] },
   { label: 'Internal', ids: ['intHourly', 'intDaily'] },
   { label: 'Client', ids: ['clientHourly', 'clientDaily'] },
   { ids: ['margin'] },

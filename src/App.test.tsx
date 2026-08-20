@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import * as ExcelJS from 'exceljs';
 import App from './App';
 
 // App uses react-router hooks (useSearchParams); provide a Router context in tests.
@@ -13,6 +14,7 @@ vi.mock('./components/ResourcePlan', () => ({
     projectName: string;
     onProjectNameChange: (name: string) => void;
     onExportProject?: () => void;
+    onExportToExcel?: () => void;
   }) => (
     <div data-testid="resource-plan">
       <input
@@ -24,6 +26,11 @@ vi.mock('./components/ResourcePlan', () => ({
       {props.onExportProject && (
         <button type="button" onClick={props.onExportProject}>
           Save file
+        </button>
+      )}
+      {props.onExportToExcel && (
+        <button type="button" onClick={props.onExportToExcel}>
+          Export Excel
         </button>
       )}
     </div>
@@ -174,6 +181,54 @@ describe('App', () => {
       expect(api.exportProject).toHaveBeenCalledWith(1);
       expect(createObjectURL).toHaveBeenCalled();
     });
+  });
+
+  it('exports Location between Name and the cost columns, leaving the rest aligned', async () => {
+    const user = userEvent.setup();
+    let exported: Blob | undefined;
+    global.URL.createObjectURL = vi.fn((blob: Blob) => {
+      exported = blob;
+      return 'blob:mock-url';
+    }) as unknown as typeof URL.createObjectURL;
+    global.URL.revokeObjectURL = vi.fn();
+
+    const api = await getApi();
+    vi.mocked(api.getResourceLists).mockResolvedValue([
+      { id: 1, projectId: 1, role: 'BA', clientRole: 'Analyst', name: 'Ann', intRate: 30,
+        location: 'Asia (ARM, KZ)', description: '', createdAt: '', updatedAt: '' },
+    ]);
+    vi.mocked(api.getResourcePlans).mockResolvedValue([
+      { id: 1, projectId: 1, role: 'BA', clientRole: 'Analyst', name: 'Ann', intHourlyRate: 30,
+        clientHourlyRate: 60, displayOrder: 0, createdAt: '', updatedAt: '',
+        allocations: [{ id: 1, resourcePlanId: 1, periodNumber: 1, allocation: 100, createdAt: '', updatedAt: '' }] },
+    ]);
+
+    renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /export excel/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: /export excel/i }));
+    await waitFor(() => expect(exported).toBeDefined());
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await exported!.arrayBuffer());
+    const sheet = workbook.worksheets[0];
+
+    // Row 1 is the phase band, row 2 the headers, row 3 the single plan row, row 4 the totals.
+    const headers = sheet.getRow(2).values as string[];
+    expect(headers[4]).toBe('Location');
+    expect(headers[5]).toBe('Internal Hourly Cost ($)');
+    expect(headers[9]).toBe('Margin (%)');
+    expect(headers[10]).toBe('Week 1 (%)');
+
+    const row = sheet.getRow(3).values as (string | number)[];
+    expect(row[4]).toBe('Asia (ARM,KZ)');
+    expect(row[5]).toBe(30);
+    expect(row[10]).toBe(100);
+
+    const totals = sheet.getRow(4).values as (string | number)[];
+    expect(totals[1]).toBe('TOTALS');
+    expect(totals[11]).toBeGreaterThan(0); // Total Internal Cost, right of the week columns
   });
 
   it('project name change calls updateProject', async () => {

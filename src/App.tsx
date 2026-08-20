@@ -17,7 +17,8 @@ import * as ExcelJS from 'exceljs';
 import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct, hoursPerPeriod } from './utils/calculations';
 import { PHASE_COLORS } from './utils/phases';
 import { getClientRoleFromRole } from './utils/clientRoleMapping';
-import { resolveLocationLabel } from './utils/regions';
+import { canonicalLocationLabel, locationAbbr, resolveLocationLabel } from './utils/regions';
+import { findResourceForPlan } from './utils/resourceMatching';
 import { descendantIds } from './utils/wbsTree';
 import { APP_DEFAULTS } from './config/defaults';
 
@@ -596,7 +597,15 @@ export default function App() {
       const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€' :
         currentProject.clientCurrency === 'GBP' ? '£' : '$';
 
-      const firstWeekCol = 9;
+      // Lead columns 1..9 are Rate Card Role, Client Role, Name, Location, Internal Hourly,
+      // Internal Daily, Client Hourly, Client Daily, Margin — the number formats below index
+      // off these, so a new lead column means updating them together.
+      const COL_INT_HOURLY = 5;
+      const COL_INT_DAILY = 6;
+      const COL_CLIENT_HOURLY = 7;
+      const COL_CLIENT_DAILY = 8;
+      const COL_MARGIN = 9;
+      const firstWeekCol = 10;
 
       // Hex to Excel ARGB (e.g. #E3F2FD -> 'FFE3F2FD')
       const hexToArgb = (hex: string): string => {
@@ -635,6 +644,7 @@ export default function App() {
         'Rate Card Role',
         'Client Role',
         'Name',
+        'Location',
         'Internal Hourly Cost ($)',
         'Internal Daily Cost ($)',
         `Client Hourly Rate (${currencySymbol})`,
@@ -666,6 +676,9 @@ export default function App() {
           plan.role || '',
           plan.clientRole || '',
           plan.name || '',
+          canonicalLocationLabel(
+            findResourceForPlan(plan.role, plan.intHourlyRate, resourceLists)?.location
+          ),
           plan.intHourlyRate,
           intDailyRate,
           plan.clientHourlyRate,
@@ -685,6 +698,7 @@ export default function App() {
       // Totals row
       const totalsRow = [
         'TOTALS',
+        '',
         '',
         '',
         '',
@@ -785,17 +799,17 @@ export default function App() {
         }
       });
 
-      const internalCostColumns = [4, 5, firstWeekCol + weekNumbers.length];
+      const internalCostColumns = [COL_INT_HOURLY, COL_INT_DAILY, firstWeekCol + weekNumbers.length];
       internalCostColumns.forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = '$#,##0';
       });
-      const clientCurrencyColumns = [6, 7, firstWeekCol + weekNumbers.length + 1];
+      const clientCurrencyColumns = [COL_CLIENT_HOURLY, COL_CLIENT_DAILY, firstWeekCol + weekNumbers.length + 1];
       const clientCurrencyFormat = currentProject.clientCurrency === 'EUR' ? '€#,##0' :
         currentProject.clientCurrency === 'GBP' ? '£#,##0' : '$#,##0';
       clientCurrencyColumns.forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = clientCurrencyFormat;
       });
-      const marginColumn = 8;
+      const marginColumn = COL_MARGIN;
       const weekColumns = weekNumbers.map((_, index) => firstWeekCol + index);
       [marginColumn, ...weekColumns].forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = '0"%"';
@@ -873,6 +887,9 @@ export default function App() {
         role: plan.role || '',
         clientRole: plan.clientRole || '',
         name: plan.name || '',
+        location: locationAbbr(
+          findResourceForPlan(plan.role, plan.intHourlyRate, resourceLists)?.location
+        ),
         intHourlyRate: plan.intHourlyRate,
         clientHourlyRate: plan.clientHourlyRate,
         margin,
@@ -903,6 +920,7 @@ export default function App() {
       { label: 'Rate Card Role',                    w: 160 },
       { label: 'Client Role',                       w: 130 },
       { label: 'Name',                              w: 130 },
+      { label: 'Location',                          w: 70  },
       { label: 'Int. Hourly ($)',                   w: 110 },
       { label: `Client Hourly (${currencySymbol})`, w: 120 },
       { label: 'Margin %',                          w: 80  },
@@ -971,6 +989,7 @@ export default function App() {
         row.role,
         row.clientRole,
         row.name,
+        row.location,
         `$${row.intHourlyRate.toFixed(0)}`,
         `${currencySymbol}${row.clientHourlyRate.toFixed(0)}`,
         `${row.margin.toFixed(1)}%`,
@@ -998,7 +1017,7 @@ export default function App() {
     ctx.fillStyle = '#e2e8f0';
     ctx.fillRect(tableX, totalsY, tableW, ROW_H);
     const totalsValues = [
-      'TOTALS', '', '', '', '', '',
+      'TOTALS', '', '', '', '', '', '',
       `$${Math.round(grandIntCost).toLocaleString()}`,
       `${currencySymbol}${Math.round(grandPrice).toLocaleString()}`,
       `${Math.round(grandEfforts).toLocaleString()}h`,

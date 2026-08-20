@@ -28,6 +28,8 @@ import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as Resou
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod, phaseStartOffset, reorderPhases, remapPeriodNumber, splitPhase, uniquePhaseName } from '../utils/phases';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
+import { canonicalLocationLabel, locationAbbr } from '../utils/regions';
+import { findResourceForPlan } from '../utils/resourceMatching';
 import { GeneratePlanSheet } from './GeneratePlanSheet';
 import {
   LEAD_COLUMNS,
@@ -481,6 +483,16 @@ export function ResourcePlan({
             copyData: plan.name || '',
             readonly: false,
           };
+        case 'location': {
+          const resource = findResourceForPlan(plan.role, plan.intHourlyRate, resourceLists);
+          return {
+            kind: GridCellKind.Text,
+            data: locationAbbr(resource?.location),
+            allowOverlay: false,
+            displayData: locationAbbr(resource?.location),
+            copyData: canonicalLocationLabel(resource?.location),
+          };
+        }
         case 'intHourly':
           return {
             kind: GridCellKind.Number,
@@ -555,11 +567,10 @@ export function ResourcePlan({
       // Rate card role (free-text fallback; primary path is the role picker dialog)
       if (resolved.id === 'role' && newValue.kind === GridCellKind.Text) {
         const newRole = newValue.data;
-        const roleMatches = resourceLists.filter((r) => r.role === newRole);
+        // An ambiguous role still has to land somewhere here, so fall back to the first match.
         const selectedResource =
-          roleMatches.length === 1
-            ? roleMatches[0]
-            : roleMatches.find((r) => r.intRate === plan.intHourlyRate) ?? roleMatches[0];
+          findResourceForPlan(newRole, plan.intHourlyRate, resourceLists) ??
+          resourceLists.find((r) => r.role === newRole);
 
         if (selectedResource) {
           const defaultMargin = project.defaultMargin || 25.0;
@@ -615,7 +626,7 @@ export function ResourcePlan({
         onResourcePlansChange(updatedResourcePlans);
         return;
       }
-      // actions / intDaily / clientDaily / margin are computed — not editable.
+      // actions / location / intDaily / clientDaily / margin are computed — not editable.
       return;
     }
 
@@ -1602,9 +1613,6 @@ export function ResourcePlan({
                 >
                   Show all
                 </DropdownMenuItem>
-                <div className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
-                  Doesn’t affect Excel, PNG or the client link
-                </div>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1668,11 +1676,8 @@ export function ResourcePlan({
               if (resolved.id === 'role') {
                 const plan = resourcePlans[row];
                 if (plan) {
-                  // Prefer role + rate match so same role in different locations stays distinct
                   const match =
-                    resourceLists.find(
-                      (r) => r.role === plan.role && r.intRate === plan.intHourlyRate
-                    ) ??
+                    findResourceForPlan(plan.role, plan.intHourlyRate, resourceLists) ??
                     resourceLists.find((r) => r.role === plan.role);
                   setRoleSelection(match ? String(match.id) : '');
                   setRolePicker({ open: true, row });
