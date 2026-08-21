@@ -155,6 +155,7 @@ vi.mock('./services/api', () => ({
     deleteProject: vi.fn(),
     exportProject: vi.fn(),
     importProject: vi.fn(),
+    getRoadmap: vi.fn(),
   },
 }));
 
@@ -167,6 +168,7 @@ beforeEach(async () => {
   vi.mocked(api.getRateCards).mockResolvedValue([]);
   vi.mocked(api.getRateCardMeta).mockResolvedValue({ fileName: null, importedAt: null });
   vi.mocked(api.getResourcePlans).mockResolvedValue([]);
+  vi.mocked(api.getRoadmap).mockResolvedValue({ lanes: [] });
 });
 
 async function openWbsTab() {

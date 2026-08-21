@@ -15,3 +15,18 @@ class ResizeObserverMock {
   disconnect() {}
 }
 global.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+
+// sonner's <Toaster /> (mounted once in App.tsx for the roadmap's undo toasts)
+// reads prefers-color-scheme via matchMedia on mount; jsdom has no implementation.
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}

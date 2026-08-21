@@ -9,10 +9,29 @@ import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
 import { ProjectList } from './components/ProjectList';
 import { Wbs } from './components/Wbs';
-import { api, Project, Phase, Allocation, ResourceList as ResourceListType, RateCard as RateCardType, RateCardImportMeta, ResourcePlan as ResourcePlanType, WbsItem, WbsEstimate, GeneratePlanDraft, GeneratePlanResourceList } from './services/api';
+import { Roadmap } from './components/roadmap/Roadmap';
+import {
+  api,
+  Project,
+  Phase,
+  Allocation,
+  ResourceList as ResourceListType,
+  RateCard as RateCardType,
+  RateCardImportMeta,
+  ResourcePlan as ResourcePlanType,
+  WbsItem,
+  WbsEstimate,
+  GeneratePlanDraft,
+  GeneratePlanResourceList,
+  RoadmapLaneWithItems,
+  RoadmapItem,
+  RoadmapItemKind,
+  BootstrapRoadmapPayload,
+} from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
+import { Toaster } from './components/ui/sonner';
 import * as ExcelJS from 'exceljs';
 import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct, hoursPerPeriod } from './utils/calculations';
 import { PHASE_COLORS } from './utils/phases';
@@ -36,6 +55,7 @@ export default function App() {
   const [rateCardMeta, setRateCardMeta] = useState<RateCardImportMeta | null>(null);
   const [resourcePlans, setResourcePlans] = useState<ResourcePlanType[]>([]);
   const [wbsItems, setWbsItems] = useState<WbsItem[]>([]);
+  const [roadmapLanes, setRoadmapLanes] = useState<RoadmapLaneWithItems[]>([]);
   const [activeTab, setActiveTab] = useState('resource-plan');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,15 +114,17 @@ export default function App() {
 
       // Load all related (project-scoped) data. Rate cards are global and
       // loaded separately via loadGlobalRateCards().
-      const [resourceListsData, resourcePlansData, wbsItemsData] = await Promise.all([
+      const [resourceListsData, resourcePlansData, wbsItemsData, roadmapData] = await Promise.all([
         api.getResourceLists(project.id),
         api.getResourcePlans(project.id),
-        api.getWbsItems(project.id)
+        api.getWbsItems(project.id),
+        api.getRoadmap(project.id),
       ]);
 
       setResourceLists(resourceListsData);
       setResourcePlans(resourcePlansData);
       setWbsItems(wbsItemsData);
+      setRoadmapLanes(roadmapData.lanes);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load project data');
@@ -389,6 +411,162 @@ export default function App() {
       console.error('Error updating WBS estimates:', err);
       throw err;
     }
+  };
+
+  // Roadmap handlers (Slice A). Deliberately independent of the WBS reconciliation
+  // math (WBS-3) — the roadmap reads wbsItems but never mutates them, except via
+  // the explicit link endpoint mirrored in handleSetWbsRoadmapLink.
+  const refreshRoadmap = async (): Promise<void> => {
+    if (!currentProject) return;
+    try {
+      const data = await api.getRoadmap(currentProject.id);
+      setRoadmapLanes(data.lanes);
+    } catch (err) {
+      console.error('Error refreshing roadmap:', err);
+    }
+  };
+
+  const handleAddRoadmapLane = async (name: string): Promise<void> => {
+    if (!currentProject) return;
+    try {
+      const lane = await api.createRoadmapLane(currentProject.id, name);
+      setRoadmapLanes(prev => [...prev, lane]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add lane');
+      console.error('Error adding roadmap lane:', err);
+      throw err;
+    }
+  };
+
+  const handleUpdateRoadmapLane = async (
+    id: number,
+    data: { name?: string; displayOrder?: number }
+  ): Promise<void> => {
+    const previous = roadmapLanes;
+    setRoadmapLanes(prev => prev.map(l => (l.id === id ? { ...l, ...data } : l)));
+    try {
+      await api.updateRoadmapLane(id, data);
+    } catch (err) {
+      setRoadmapLanes(previous);
+      console.error('Error updating roadmap lane:', err);
+      throw err;
+    }
+  };
+
+  const handleDeleteRoadmapLane = async (id: number): Promise<void> => {
+    const previous = roadmapLanes;
+    setRoadmapLanes(prev => prev.filter(l => l.id !== id));
+    try {
+      await api.deleteRoadmapLane(id);
+    } catch (err) {
+      setRoadmapLanes(previous);
+      setError(err instanceof Error ? err.message : 'Failed to delete lane');
+      console.error('Error deleting roadmap lane:', err);
+      throw err;
+    }
+  };
+
+  const handleAddRoadmapItem = async (
+    laneId: number,
+    data: { name: string; kind?: RoadmapItemKind; startPeriod: number; periodCount: number }
+  ): Promise<RoadmapItem> => {
+    if (!currentProject) throw new Error('No current project');
+    const item = await api.createRoadmapItem(currentProject.id, { laneId, ...data });
+    setRoadmapLanes(prev => prev.map(l => (l.id === laneId ? { ...l, items: [...l.items, item] } : l)));
+    return item;
+  };
+
+  /** rows[i]'s items patched in place, or moved to a new lane when `patch.laneId` differs. */
+  function patchRoadmapItemInLanes(
+    lanes: RoadmapLaneWithItems[],
+    id: number,
+    patch: Partial<RoadmapItem>
+  ): RoadmapLaneWithItems[] {
+    let moving: RoadmapItem | null = null;
+    const withoutItem = lanes.map(lane => {
+      const idx = lane.items.findIndex(i => i.id === id);
+      if (idx < 0) return lane;
+      moving = { ...lane.items[idx], ...patch };
+      return { ...lane, items: lane.items.filter(i => i.id !== id) };
+    });
+    if (moving === null) return lanes;
+    const target = moving as RoadmapItem;
+    return withoutItem.map(lane =>
+      lane.id === target.laneId
+        ? { ...lane, items: [...lane.items, target].sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id) }
+        : lane
+    );
+  }
+
+  const handleUpdateRoadmapItem = async (
+    id: number,
+    data: Partial<{
+      name: string;
+      laneId: number;
+      kind: RoadmapItemKind;
+      startPeriod: number;
+      periodCount: number;
+      displayOrder: number;
+    }>
+  ): Promise<void> => {
+    const previous = roadmapLanes;
+    setRoadmapLanes(prev => patchRoadmapItemInLanes(prev, id, data));
+    try {
+      await api.updateRoadmapItem(id, data);
+    } catch (err) {
+      setRoadmapLanes(previous);
+      throw err;
+    }
+  };
+
+  const handleDeleteRoadmapItem = async (id: number): Promise<void> => {
+    const previous = roadmapLanes;
+    setRoadmapLanes(prev => prev.map(l => ({ ...l, items: l.items.filter(i => i.id !== id) })));
+    try {
+      await api.deleteRoadmapItem(id);
+    } catch (err) {
+      setRoadmapLanes(previous);
+      setError(err instanceof Error ? err.message : 'Failed to delete roadmap item');
+      console.error('Error deleting roadmap item:', err);
+      throw err;
+    }
+  };
+
+  const handleReplaceRoadmapItemLinks = async (itemId: number, wbsItemIds: number[]): Promise<void> => {
+    try {
+      await api.replaceRoadmapItemLinks(itemId, wbsItemIds);
+      await refreshRoadmap();
+    } catch (err) {
+      console.error('Error updating roadmap scope:', err);
+      throw err;
+    }
+  };
+
+  const handleSetWbsRoadmapLink = async (wbsItemId: number, roadmapItemId: number | null): Promise<void> => {
+    try {
+      await api.setWbsRoadmapLink(wbsItemId, roadmapItemId);
+      await refreshRoadmap();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update roadmap link');
+      console.error('Error updating WBS roadmap link:', err);
+      throw err;
+    }
+  };
+
+  const handleBootstrapRoadmap = async (payload: BootstrapRoadmapPayload): Promise<void> => {
+    if (!currentProject) return;
+    try {
+      const data = await api.bootstrapRoadmap(currentProject.id, payload);
+      setRoadmapLanes(data.lanes);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create roadmap');
+      console.error('Error bootstrapping roadmap:', err);
+      throw err;
+    }
+  };
+
+  const handleSetProjectStartDate = async (startDate: string | null): Promise<void> => {
+    await handleProjectSettingsChange({ startDate });
   };
 
   const handleApplyGeneratedPlan = async (draft: GeneratePlanDraft) => {
@@ -1169,12 +1347,13 @@ export default function App() {
   return (
     <div className="p-6">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="project-list">Project list</TabsTrigger>
           <TabsTrigger value="resource-plan">Resource Plan</TabsTrigger>
           <TabsTrigger value="resource-list">Resource List</TabsTrigger>
           <TabsTrigger value="rate-card">Rate Card</TabsTrigger>
           <TabsTrigger value="wbs">WBS</TabsTrigger>
+          <TabsTrigger value="roadmap">Roadmap</TabsTrigger>
         </TabsList>
 
         <TabsContent value="project-list" className="mt-6">
@@ -1266,7 +1445,26 @@ export default function App() {
             onReplaceWbsEstimates={handleReplaceWbsEstimates}
           />
         </TabsContent>
+
+        <TabsContent value="roadmap" className="mt-6">
+          <Roadmap
+            key={currentProject?.id || 'default'}
+            project={currentProject}
+            wbsItems={wbsItems}
+            roadmapLanes={roadmapLanes}
+            onAddLane={handleAddRoadmapLane}
+            onUpdateLane={handleUpdateRoadmapLane}
+            onDeleteLane={handleDeleteRoadmapLane}
+            onAddItem={handleAddRoadmapItem}
+            onUpdateItem={handleUpdateRoadmapItem}
+            onDeleteItem={handleDeleteRoadmapItem}
+            onReplaceItemLinks={handleReplaceRoadmapItemLinks}
+            onBootstrap={handleBootstrapRoadmap}
+            onSetStartDate={handleSetProjectStartDate}
+          />
+        </TabsContent>
       </Tabs>
+      <Toaster />
     </div>
   );
 }

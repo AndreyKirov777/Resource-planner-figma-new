@@ -75,6 +75,7 @@ vi.mock('./services/api', () => ({
     deleteProject: vi.fn(),
     exportProject: vi.fn(),
     importProject: vi.fn(),
+    getRoadmap: vi.fn(),
   },
 }));
 
@@ -88,6 +89,7 @@ beforeEach(async () => {
   vi.mocked(api.getRateCardMeta).mockResolvedValue({ fileName: null, importedAt: null });
   vi.mocked(api.getResourcePlans).mockResolvedValue([]);
   vi.mocked(api.getWbsItems).mockResolvedValue([]);
+  vi.mocked(api.getRoadmap).mockResolvedValue({ lanes: [] });
 });
 
 describe('App', () => {
