@@ -65,6 +65,8 @@ export interface Project {
   planningMode: string; // 'weekly' | 'monthly'
   defaultLocation?: string;
   phases?: string;
+  /** Anchors period 1 for the roadmap's calendar labels; null = ordinals only. */
+  startDate?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -150,6 +152,59 @@ export interface WbsItem {
   createdAt: string;
   updatedAt: string;
   estimates: WbsEstimate[];
+}
+
+// Roadmap (Slice A: CAP-1..7, 11, 12) — see _bmad-output/specs/spec-roadmap/data-model.md
+
+export type RoadmapItemKind = 'bar' | 'milestone';
+
+export interface RoadmapLane {
+  id: number;
+  name: string;
+  displayOrder: number;
+  projectId: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoadmapItem {
+  id: number;
+  name: string;
+  kind: RoadmapItemKind;
+  startPeriod: number;
+  /** >= 1 for a bar; 0 for a milestone. */
+  periodCount: number;
+  displayOrder: number;
+  laneId: number;
+  projectId: number;
+  createdAt: string;
+  updatedAt: string;
+  /** WBS nodes DIRECTLY linked to this item (not the inherited subtree). */
+  wbsItemIds: number[];
+}
+
+export interface RoadmapLaneWithItems extends RoadmapLane {
+  items: RoadmapItem[];
+}
+
+export interface RoadmapPayload {
+  lanes: RoadmapLaneWithItems[];
+}
+
+export interface BootstrapRoadmapItem {
+  name: string;
+  startPeriod: number;
+  periodCount: number;
+  wbsItemIds: number[];
+}
+
+export interface BootstrapRoadmapLane {
+  name: string;
+  items: BootstrapRoadmapItem[];
+}
+
+export interface BootstrapRoadmapPayload {
+  lanes: BootstrapRoadmapLane[];
 }
 
 function pickDefined<T extends Record<string, unknown>>(obj: T, keys: (keyof T)[]): Partial<T> {
