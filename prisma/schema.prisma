@@ -22,6 +22,8 @@ model Project {
   planningMode    String          @default("weekly")
   defaultLocation String?         @default("ukraine")
   phases          String?         @default("[{\"name\":\"Phase 1\",\"periodCount\":8,\"color\":\"#E3F2FD\"}]")
+  // Anchors period 1 for the roadmap's calendar labels; null = ordinals only.
+  startDate       DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -29,6 +31,8 @@ model Project {
   resourceLists   ResourceList[]
   resourcePlans   ResourcePlan[]
   wbsItems        WbsItem[]
+  roadmapLanes    RoadmapLane[]
+  roadmapItems    RoadmapItem[]
 }
 
 // Rate card is global: a single shared set common to all projects.
@@ -125,6 +129,9 @@ model WbsItem {
   parent          WbsItem?        @relation("WbsTree", fields: [parentId], references: [id], onDelete: Cascade)
   children        WbsItem[]       @relation("WbsTree")
   estimates       WbsEstimate[]
+  // "This node, with its subtree, is delivered by that roadmap item." Relation field
+  // only — WbsItem's own columns are untouched, per the roadmap SPEC's constraint.
+  roadmapLink     RoadmapLink?
 }
 
 // Multi-disciplinary hour estimate for a WbsItem: one row per (item, discipline, role).
@@ -141,4 +148,52 @@ model WbsEstimate {
   wbsItem         WbsItem         @relation(fields: [wbsItemId], references: [id], onDelete: Cascade)
 
   @@unique([wbsItemId, discipline, role])
+}
+
+// ---------------------------------------------------------------------------
+// Project Roadmap (Slice A) — see _bmad-output/specs/spec-roadmap/data-model.md
+// Flat by design: lanes hold items; items hold nothing. No nesting.
+// ---------------------------------------------------------------------------
+
+// A workstream row on the roadmap. Order is explicit, like ResourcePlan.displayOrder.
+model RoadmapLane {
+  id              Int             @id @default(autoincrement())
+  name            String
+  displayOrder    Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  projectId       Int
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items           RoadmapItem[]
+}
+
+// A window or milestone inside a lane. Flat: no parent, ever.
+model RoadmapItem {
+  id              Int             @id @default(autoincrement())
+  name            String
+  kind            String          @default("bar")  // "bar" | "milestone"
+  startPeriod     Int                               // 1-based, in the project's planningMode unit
+  periodCount     Int             @default(1)       // >= 1 for bars; 0 for milestones
+  displayOrder    Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  laneId          Int
+  lane            RoadmapLane     @relation(fields: [laneId], references: [id], onDelete: Cascade)
+  projectId       Int             // denormalised so the link/project invariant check is one query
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  links           RoadmapLink[]
+}
+
+// "This WBS node, with its subtree, is delivered by that roadmap item."
+// Lives in its own table so WbsItem does not change. Absent row = not linked directly.
+model RoadmapLink {
+  id              Int             @id @default(autoincrement())
+  createdAt       DateTime        @default(now())
+
+  wbsItemId       Int             @unique
+  wbsItem         WbsItem         @relation(fields: [wbsItemId], references: [id], onDelete: Cascade)
+  roadmapItemId   Int
+  roadmapItem     RoadmapItem     @relation(fields: [roadmapItemId], references: [id], onDelete: Cascade)
 }
