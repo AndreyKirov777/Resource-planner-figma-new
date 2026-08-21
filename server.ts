@@ -25,6 +25,13 @@ import {
   wbsItemCreateSchema,
   wbsItemUpdateSchema,
   wbsEstimatesReplaceSchema,
+  roadmapLaneCreateSchema,
+  roadmapLaneUpdateSchema,
+  roadmapItemCreateSchema,
+  roadmapItemUpdateSchema,
+  roadmapLinksReplaceSchema,
+  wbsRoadmapLinkSchema,
+  bootstrapRoadmapSchema,
 } from './server-validation';
 import { generateResourcePlan } from './server/planner/generateResourcePlan';
 import { loadAIConfig } from './server/llm/config';
@@ -39,6 +46,7 @@ import {
 } from './src/utils/modeConversion';
 import { APP_DEFAULTS } from './src/config/defaults';
 import { wouldCreateCycle } from './src/utils/wbsTree';
+import { convertRoadmapItemsToMonthly, convertRoadmapItemsToWeekly } from './src/utils/roadmap';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -53,6 +61,20 @@ app.use(express.json());
 
 // Serve static files from the React app build directory
 app.use(express.static(path.join(__dirname, 'build')));
+
+/**
+ * Prisma's SQLite DateTime column requires a full ISO-8601 datetime — a
+ * date-only string like "2026-01-05" (what a date picker naturally sends)
+ * throws "premature end of input" if handed straight to the client.
+ * `startDateSchema` already checked parseability; this only reshapes it.
+ * `undefined` (field omitted) passes through unchanged so Prisma leaves the
+ * column alone; `null` (explicit clear) also passes through unchanged.
+ */
+function normalizeStartDate(value: string | null | undefined): string | null | undefined {
+  if (value == null || value === '') return value === '' ? null : value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
+}
 
 // Initialize default project if none exists
 async function initializeDefaultProject() {
@@ -120,6 +142,7 @@ app.post('/api/projects', async (req, res) => {
         planningMode: parsed.data.planningMode ?? APP_DEFAULTS.planningMode,
         defaultLocation: parsed.data.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: parsed.data.phases ?? undefined,
+        startDate: normalizeStartDate(parsed.data.startDate),
       }
     });
     res.json(project);
@@ -136,7 +159,7 @@ app.put('/api/projects/:id', async (req, res) => {
     }
     const project = await prisma.project.update({
       where: { id: parseInt(req.params.id) },
-      data: parsed.data
+      data: { ...parsed.data, startDate: normalizeStartDate(parsed.data.startDate) },
     });
     res.json(project);
   } catch (error) {
@@ -263,11 +286,17 @@ app.get('/api/projects/:id/export', async (req, res) => {
 
     // Rate cards are global and intentionally excluded from per-project export.
 
-    // Wrap to allow future schema versioning
+    const roadmap = await fetchRoadmapPayload(projectId);
+
+    // Wrap to allow future schema versioning. schemaVersion 4 adds
+    // `Project.startDate` (already on `project`, a plain scalar column) and
+    // `roadmapLanes` (lanes -> items -> wbsItemIds); a schemaVersion 3
+    // payload is what this looked like before the roadmap existed and still
+    // imports cleanly — the roadmap is simply absent.
     const payload = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       exportedAt: new Date().toISOString(),
-      data: project
+      data: { ...project, roadmapLanes: roadmap.lanes },
     };
 
     res.setHeader('Content-Type', 'application/json');
@@ -278,10 +307,14 @@ app.get('/api/projects/:id/export', async (req, res) => {
   }
 });
 
-/** Snapshot-restore WBS on import. Remaps ids; unknown/cyclic parentId → root. Does not validate disciplines. */
-async function rematerializeWbsItems(wbsItems: any[], newProjectId: number) {
+/**
+ * Snapshot-restore WBS on import. Remaps ids; unknown/cyclic parentId → root.
+ * Does not validate disciplines. Returns the old-id -> new-id map so callers
+ * (roadmap link rematerialization) can remap references to these items.
+ */
+async function rematerializeWbsItems(wbsItems: any[], newProjectId: number): Promise<Map<number, number>> {
   const items = Array.isArray(wbsItems) ? wbsItems.filter((i) => i && typeof i === 'object') : [];
-  if (items.length === 0) return;
+  if (items.length === 0) return new Map();
 
   const payloadIds = new Set(
     items
@@ -348,6 +381,83 @@ async function rematerializeWbsItems(wbsItems: any[], newProjectId: number) {
     if (forceRoot) break;
     remaining = blocked;
   }
+
+  return idMap;
+}
+
+/**
+ * Snapshot-restore the roadmap on import: lanes and items are recreated
+ * fresh, and each item's DIRECT links are remapped through `wbsIdMap` (a
+ * source id absent from the map — e.g. a WBS node the import payload didn't
+ * include — is silently dropped, mirroring `rematerializeWbsItems`' own
+ * "unknown parent -> root" tolerance rather than failing the whole import).
+ * `lanes` is the same `{ name, items: [{ ...item, wbsItemIds }] }` shape
+ * `GET .../roadmap` returns, so export and import share one wire format.
+ */
+async function rematerializeRoadmap(lanes: any[], newProjectId: number, wbsIdMap: Map<number, number>) {
+  const laneList = Array.isArray(lanes) ? lanes.filter((l) => l && typeof l === 'object') : [];
+  for (const laneData of laneList) {
+    const laneOrder = parseInt(laneData.displayOrder, 10);
+    const lane = await prisma.roadmapLane.create({
+      data: {
+        name: laneData.name || '',
+        displayOrder: Number.isFinite(laneOrder) ? laneOrder : 0,
+        projectId: newProjectId,
+      },
+    });
+
+    const itemsData = Array.isArray(laneData.items) ? laneData.items : [];
+    for (const itemData of itemsData) {
+      const kind = itemData.kind === 'milestone' ? 'milestone' : 'bar';
+      const startPeriod = parseInt(itemData.startPeriod, 10);
+      const periodCount = parseInt(itemData.periodCount, 10);
+      const order = parseInt(itemData.displayOrder, 10);
+      const item = await prisma.roadmapItem.create({
+        data: {
+          name: itemData.name || '',
+          kind,
+          startPeriod: Number.isFinite(startPeriod) && startPeriod >= 1 ? startPeriod : 1,
+          periodCount: Number.isFinite(periodCount) && periodCount >= 0 ? periodCount : (kind === 'milestone' ? 0 : 1),
+          displayOrder: Number.isFinite(order) ? order : 0,
+          laneId: lane.id,
+          projectId: newProjectId,
+        },
+      });
+
+      const rawWbsItemIds: any[] = Array.isArray(itemData.wbsItemIds) ? itemData.wbsItemIds : [];
+      const remapped = rawWbsItemIds
+        .map((oldId) => wbsIdMap.get(Number(oldId)))
+        .filter((id): id is number => id != null);
+      if (kind !== 'milestone' && remapped.length > 0) {
+        await prisma.roadmapLink.createMany({
+          data: remapped.map((wbsItemId) => ({ wbsItemId, roadmapItemId: item.id })),
+        });
+      }
+    }
+  }
+}
+
+/** Same shape `GET /api/projects/:id/roadmap` returns — the export/import wire format too. */
+async function fetchRoadmapPayload(projectId: number) {
+  const lanes = await prisma.roadmapLane.findMany({
+    where: { projectId },
+    orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+    include: {
+      items: {
+        orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+        include: { links: true },
+      },
+    },
+  });
+  return {
+    lanes: lanes.map((lane) => ({
+      ...lane,
+      items: lane.items.map(({ links, ...item }) => ({
+        ...item,
+        wbsItemIds: links.map((l) => l.wbsItemId),
+      })),
+    })),
+  };
 }
 
 // Project import endpoint
@@ -372,6 +482,7 @@ app.post('/api/projects/import', async (req, res) => {
         planningMode: projectData.planningMode ?? APP_DEFAULTS.planningMode,
         defaultLocation: projectData.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: projectData.phases ?? undefined,
+        startDate: normalizeStartDate(projectData.startDate ?? null) ?? null,
       }
     });
 
@@ -421,7 +532,14 @@ app.post('/api/projects/import', async (req, res) => {
     }
 
     // WBS tree — Prisma-direct snapshot restore (no discipline re-validation).
-    await rematerializeWbsItems(projectData.wbsItems, newProjectId);
+    const wbsIdMap = await rematerializeWbsItems(projectData.wbsItems, newProjectId);
+
+    // Roadmap — absent on a schemaVersion 3 payload (or any payload predating
+    // the feature); the roadmap is simply left empty, exactly like an
+    // import that never had one.
+    if (Array.isArray(projectData.roadmapLanes)) {
+      await rematerializeRoadmap(projectData.roadmapLanes, newProjectId, wbsIdMap);
+    }
 
     res.json({ message: 'Import completed', projectId: newProjectId });
   } catch (error) {
@@ -894,6 +1012,10 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
     const convertedPhases = targetMode === 'monthly'
       ? convertPhasesToMonthly(phases, weeksPerMonth)
       : convertPhasesToWeekly(phases, weeksPerMonth);
+    const convertedProjectPeriodCount = convertedPhases.reduce(
+      (sum: number, p: any) => sum + (p.periodCount ?? p.weekCount ?? 0),
+      0
+    );
 
     // Perform conversion in a transaction
     await prisma.$transaction(async (tx) => {
@@ -936,6 +1058,26 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
               resourcePlanId: rp.id,
             }))
           });
+        }
+      }
+
+      // Convert roadmap items the same way phases are scaled (decision:
+      // ceil-coarsening weekly->monthly, round-splitting monthly->weekly).
+      // Milestones keep periodCount 0 and map startPeriod by boundary only.
+      const roadmapItems = await tx.roadmapItem.findMany({ where: { projectId } });
+      if (roadmapItems.length > 0) {
+        const converted = targetMode === 'monthly'
+          ? convertRoadmapItemsToMonthly(roadmapItems, weeksPerMonth, convertedProjectPeriodCount)
+          : convertRoadmapItemsToWeekly(roadmapItems, weeksPerMonth, convertedProjectPeriodCount);
+        for (let i = 0; i < roadmapItems.length; i++) {
+          const orig = roadmapItems[i];
+          const next = converted[i];
+          if (next.startPeriod !== orig.startPeriod || next.periodCount !== orig.periodCount) {
+            await tx.roadmapItem.update({
+              where: { id: orig.id },
+              data: { startPeriod: next.startPeriod, periodCount: next.periodCount },
+            });
+          }
         }
       }
     });
@@ -1224,6 +1366,323 @@ app.put('/api/wbs-items/:id/estimates', async (req, res) => {
   } catch (error) {
     console.error('Error replacing WBS estimates:', error);
     res.status(500).json({ error: 'Failed to replace WBS estimates' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Project Roadmap (Slice A) — see _bmad-output/specs/spec-roadmap/data-model.md
+//
+// Two invariants enforced at the boundary, both 400: wbsItem.projectId ===
+// roadmapItem.projectId, and a milestone never carries scope.
+// ---------------------------------------------------------------------------
+
+// GET /api/projects/:id/roadmap — one round trip: lanes, each with its items and their direct wbsItemIds.
+app.get('/api/projects/:id/roadmap', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    res.json(await fetchRoadmapPayload(projectId));
+  } catch (error) {
+    console.error('Error fetching roadmap:', error);
+    res.status(500).json({ error: 'Failed to fetch roadmap' });
+  }
+});
+
+// POST /api/projects/:id/roadmap/lanes — appended at the end.
+app.post('/api/projects/:id/roadmap/lanes', async (req, res) => {
+  try {
+    const parsed = roadmapLaneCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const projectId = parseInt(req.params.id);
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    const agg = await prisma.roadmapLane.aggregate({ where: { projectId }, _max: { displayOrder: true } });
+    const lane = await prisma.roadmapLane.create({
+      data: { name: parsed.data.name, projectId, displayOrder: (agg._max.displayOrder ?? -1) + 1 },
+    });
+    res.status(201).json({ ...lane, items: [] });
+  } catch (error) {
+    console.error('Error creating roadmap lane:', error);
+    res.status(500).json({ error: 'Failed to create roadmap lane' });
+  }
+});
+
+// PATCH /api/roadmap-lanes/:id
+app.patch('/api/roadmap-lanes/:id', async (req, res) => {
+  try {
+    const parsed = roadmapLaneUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const id = parseInt(req.params.id);
+    const existing = await prisma.roadmapLane.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: 'Roadmap lane not found' });
+    }
+    const lane = await prisma.roadmapLane.update({ where: { id }, data: parsed.data });
+    res.json(lane);
+  } catch (error) {
+    console.error('Error updating roadmap lane:', error);
+    res.status(500).json({ error: 'Failed to update roadmap lane' });
+  }
+});
+
+// DELETE /api/roadmap-lanes/:id — cascades (DB-level onDelete: Cascade) to its items and their links.
+app.delete('/api/roadmap-lanes/:id', async (req, res) => {
+  try {
+    await prisma.roadmapLane.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ message: 'Roadmap lane deleted' });
+  } catch (error) {
+    console.error('Error deleting roadmap lane:', error);
+    res.status(500).json({ error: 'Failed to delete roadmap lane' });
+  }
+});
+
+// POST /api/projects/:id/roadmap/items
+app.post('/api/projects/:id/roadmap/items', async (req, res) => {
+  try {
+    const parsed = roadmapItemCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const projectId = parseInt(req.params.id);
+    const { laneId, name, kind, startPeriod, periodCount } = parsed.data;
+    const lane = await prisma.roadmapLane.findUnique({ where: { id: laneId } });
+    if (!lane || lane.projectId !== projectId) {
+      return res.status(400).json({ error: 'laneId must reference a roadmap lane in the same project' });
+    }
+    const agg = await prisma.roadmapItem.aggregate({ where: { laneId }, _max: { displayOrder: true } });
+    const item = await prisma.roadmapItem.create({
+      data: {
+        name,
+        kind: kind ?? 'bar',
+        startPeriod,
+        periodCount,
+        laneId,
+        projectId,
+        displayOrder: (agg._max.displayOrder ?? -1) + 1,
+      },
+    });
+    res.status(201).json({ ...item, wbsItemIds: [] });
+  } catch (error) {
+    console.error('Error creating roadmap item:', error);
+    res.status(500).json({ error: 'Failed to create roadmap item' });
+  }
+});
+
+// PATCH /api/roadmap-items/:id — periodCount rule is re-checked against the MERGED
+// row here, since the schema alone cannot see a field the payload didn't touch.
+app.patch('/api/roadmap-items/:id', async (req, res) => {
+  try {
+    const parsed = roadmapItemUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const id = parseInt(req.params.id);
+    const existing = await prisma.roadmapItem.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: 'Roadmap item not found' });
+    }
+
+    const { laneId, kind, periodCount, startPeriod } = parsed.data;
+    if (laneId !== undefined) {
+      const lane = await prisma.roadmapLane.findUnique({ where: { id: laneId } });
+      if (!lane || lane.projectId !== existing.projectId) {
+        return res.status(400).json({ error: 'laneId must reference a roadmap lane in the same project' });
+      }
+    }
+
+    const finalKind = kind ?? existing.kind;
+    const finalPeriodCount = periodCount ?? existing.periodCount;
+    if (finalKind === 'bar' && finalPeriodCount < 1) {
+      return res.status(400).json({ error: 'periodCount must be >= 1 for a bar' });
+    }
+    if (finalKind === 'milestone' && finalPeriodCount !== 0) {
+      return res.status(400).json({ error: 'periodCount must be 0 for a milestone' });
+    }
+    // Turning a scoped bar into a milestone would leave it carrying scope — refuse.
+    if (kind === 'milestone' && existing.kind !== 'milestone') {
+      const linkCount = await prisma.roadmapLink.count({ where: { roadmapItemId: id } });
+      if (linkCount > 0) {
+        return res.status(400).json({ error: 'A milestone cannot carry scope; unlink it first' });
+      }
+    }
+    void startPeriod; // validated by the schema; no extra cross-field rule needed
+
+    const item = await prisma.roadmapItem.update({
+      where: { id },
+      data: parsed.data,
+      include: { links: true },
+    });
+    res.json({ ...item, wbsItemIds: item.links.map((l) => l.wbsItemId) });
+  } catch (error) {
+    console.error('Error updating roadmap item:', error);
+    res.status(500).json({ error: 'Failed to update roadmap item' });
+  }
+});
+
+// DELETE /api/roadmap-items/:id — cascades (DB-level onDelete: Cascade) to its links;
+// the affected WBS scope simply becomes unplaced (or falls back to an ancestor link).
+app.delete('/api/roadmap-items/:id', async (req, res) => {
+  try {
+    await prisma.roadmapItem.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ message: 'Roadmap item deleted' });
+  } catch (error) {
+    console.error('Error deleting roadmap item:', error);
+    res.status(500).json({ error: 'Failed to delete roadmap item' });
+  }
+});
+
+// PUT /api/roadmap-items/:id/links — replace this item's DIRECT links. A listed
+// wbsItemId currently linked to a DIFFERENT item moves here (mirrors
+// `replaceWbsEstimates`'s delete-then-recreate convention).
+app.put('/api/roadmap-items/:id/links', async (req, res) => {
+  try {
+    const parsed = roadmapLinksReplaceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const roadmapItemId = parseInt(req.params.id);
+    const item = await prisma.roadmapItem.findUnique({ where: { id: roadmapItemId } });
+    if (!item) {
+      return res.status(404).json({ error: 'Roadmap item not found' });
+    }
+    const { wbsItemIds } = parsed.data;
+    if (item.kind === 'milestone' && wbsItemIds.length > 0) {
+      return res.status(400).json({ error: 'A milestone cannot carry scope' });
+    }
+    if (wbsItemIds.length > 0) {
+      const wbsRows = await prisma.wbsItem.findMany({ where: { id: { in: wbsItemIds } } });
+      const foundIds = new Set(wbsRows.map((w) => w.id));
+      const allBelong = wbsRows.every((w) => w.projectId === item.projectId) && wbsItemIds.every((id) => foundIds.has(id));
+      if (!allBelong) {
+        return res.status(400).json({ error: 'wbsItemIds must reference WBS items in the same project' });
+      }
+    }
+
+    await prisma.roadmapLink.deleteMany({ where: { roadmapItemId } });
+    if (wbsItemIds.length > 0) {
+      // Drop any existing link row for these nodes first — `wbsItemId` is @unique,
+      // so a node currently linked elsewhere must be freed before it can move here.
+      await prisma.roadmapLink.deleteMany({ where: { wbsItemId: { in: wbsItemIds } } });
+      await prisma.roadmapLink.createMany({
+        data: wbsItemIds.map((wbsItemId) => ({ wbsItemId, roadmapItemId })),
+      });
+    }
+
+    const links = await prisma.roadmapLink.findMany({ where: { roadmapItemId } });
+    res.json({ wbsItemIds: links.map((l) => l.wbsItemId) });
+  } catch (error) {
+    console.error('Error replacing roadmap item links:', error);
+    res.status(500).json({ error: 'Failed to replace roadmap item links' });
+  }
+});
+
+// PUT /api/wbs-items/:id/roadmap-link — the WBS-side edit; `roadmapItemId: null` unlinks.
+app.put('/api/wbs-items/:id/roadmap-link', async (req, res) => {
+  try {
+    const parsed = wbsRoadmapLinkSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const wbsItemId = parseInt(req.params.id);
+    const wbsItemRow = await prisma.wbsItem.findUnique({ where: { id: wbsItemId } });
+    if (!wbsItemRow) {
+      return res.status(404).json({ error: 'WBS item not found' });
+    }
+    const { roadmapItemId } = parsed.data;
+
+    if (roadmapItemId === null) {
+      await prisma.roadmapLink.deleteMany({ where: { wbsItemId } });
+      return res.json({ wbsItemId, roadmapItemId: null });
+    }
+
+    const roadmapItem = await prisma.roadmapItem.findUnique({ where: { id: roadmapItemId } });
+    if (!roadmapItem || roadmapItem.projectId !== wbsItemRow.projectId) {
+      return res.status(400).json({ error: 'roadmapItemId must reference a roadmap item in the same project' });
+    }
+    if (roadmapItem.kind === 'milestone') {
+      return res.status(400).json({ error: 'A milestone cannot carry scope' });
+    }
+
+    await prisma.roadmapLink.deleteMany({ where: { wbsItemId } });
+    await prisma.roadmapLink.create({ data: { wbsItemId, roadmapItemId } });
+    res.json({ wbsItemId, roadmapItemId });
+  } catch (error) {
+    console.error('Error updating WBS roadmap link:', error);
+    res.status(500).json({ error: 'Failed to update WBS roadmap link' });
+  }
+});
+
+// POST /api/projects/:id/roadmap/bulk — the bootstrapRoadmap preview, written transactionally.
+// Refused with 409 unless the roadmap is currently empty (no lanes).
+app.post('/api/projects/:id/roadmap/bulk', async (req, res) => {
+  try {
+    const parsed = bootstrapRoadmapSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const projectId = parseInt(req.params.id);
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const laneCount = await prisma.roadmapLane.count({ where: { projectId } });
+    if (laneCount > 0) {
+      return res.status(409).json({ error: 'Roadmap must be empty to bootstrap' });
+    }
+
+    const allWbsItemIds = parsed.data.lanes.flatMap((lane) => lane.items.flatMap((item) => item.wbsItemIds));
+    if (allWbsItemIds.length > 0) {
+      const wbsRows = await prisma.wbsItem.findMany({ where: { id: { in: allWbsItemIds } } });
+      const foundIds = new Set(wbsRows.map((w) => w.id));
+      const allBelong =
+        wbsRows.every((w) => w.projectId === projectId) && allWbsItemIds.every((id) => foundIds.has(id));
+      if (!allBelong) {
+        return res.status(400).json({ error: 'wbsItemIds must reference WBS items in this project' });
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (let laneIndex = 0; laneIndex < parsed.data.lanes.length; laneIndex++) {
+        const laneInput = parsed.data.lanes[laneIndex];
+        const lane = await tx.roadmapLane.create({
+          data: { name: laneInput.name, projectId, displayOrder: laneIndex },
+        });
+        for (let itemIndex = 0; itemIndex < laneInput.items.length; itemIndex++) {
+          const itemInput = laneInput.items[itemIndex];
+          const item = await tx.roadmapItem.create({
+            data: {
+              name: itemInput.name,
+              kind: 'bar',
+              startPeriod: itemInput.startPeriod,
+              periodCount: itemInput.periodCount,
+              laneId: lane.id,
+              projectId,
+              displayOrder: itemIndex,
+            },
+          });
+          if (itemInput.wbsItemIds.length > 0) {
+            await tx.roadmapLink.createMany({
+              data: itemInput.wbsItemIds.map((wbsItemId) => ({ wbsItemId, roadmapItemId: item.id })),
+            });
+          }
+        }
+      }
+    });
+
+    res.status(201).json(await fetchRoadmapPayload(projectId));
+  } catch (error) {
+    console.error('Error bootstrapping roadmap:', error);
+    res.status(500).json({ error: 'Failed to bootstrap roadmap' });
   }
 });
 

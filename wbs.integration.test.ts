@@ -576,7 +576,7 @@ describe('WBS API integration', () => {
 
       const exportRes = await request(app).get(`/api/projects/${srcId}/export`);
       expect(exportRes.status).toBe(200);
-      expect(exportRes.body.schemaVersion).toBe(3);
+      expect(exportRes.body.schemaVersion).toBe(4);
       expect(exportRes.body.data.wbsItems).toHaveLength(2);
 
       const importRes = await request(app).post('/api/projects/import').send(exportRes.body);
@@ -616,13 +616,13 @@ describe('WBS API integration', () => {
       await deleteProject(newId);
     });
 
-    it('exports empty wbsItems and schemaVersion 3 when the project has no WBS', async () => {
+    it('exports empty wbsItems and schemaVersion 4 when the project has no WBS', async () => {
       const proj = await request(app).post('/api/projects').send({ name: 'WBS-4 empty source' });
       const srcId = proj.body.id;
 
       const exportRes = await request(app).get(`/api/projects/${srcId}/export`);
       expect(exportRes.status).toBe(200);
-      expect(exportRes.body.schemaVersion).toBe(3);
+      expect(exportRes.body.schemaVersion).toBe(4);
       expect(exportRes.body.data.wbsItems).toEqual([]);
 
       const importRes = await request(app).post('/api/projects/import').send(exportRes.body);

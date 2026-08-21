@@ -173,6 +173,18 @@
   - `DELETE /wbs-items/:id` - Delete a WBS item (cascades to its subtree and their estimates)
   - `PUT /wbs-items/:id/estimates` - Replace all estimates for a WBS item (delete-then-recreate)
 
+  #### Roadmap
+  - `GET /projects/:id/roadmap` - Get the roadmap (lanes, each with its items and their linked WBS node ids)
+  - `POST /projects/:id/roadmap/lanes` - Create a lane, appended at the end
+  - `PATCH /roadmap-lanes/:id` - Update a lane's name/displayOrder
+  - `DELETE /roadmap-lanes/:id` - Delete a lane (cascades to its items and their links)
+  - `POST /projects/:id/roadmap/items` - Create a bar or milestone in a lane
+  - `PATCH /roadmap-items/:id` - Update an item's name/lane/kind/window/displayOrder
+  - `DELETE /roadmap-items/:id` - Delete an item (cascades its links)
+  - `PUT /roadmap-items/:id/links` - Replace an item's direct WBS links
+  - `PUT /wbs-items/:id/roadmap-link` - Set or clear a WBS node's direct roadmap link
+  - `POST /projects/:id/roadmap/bulk` - Bootstrap a roadmap from the WBS (refused with 409 unless the roadmap is empty)
+
   ## Development
 
   ### Project Structure
