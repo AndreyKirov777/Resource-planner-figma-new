@@ -11,6 +11,13 @@ import {
   allocationSchema,
   allocationUpdateSchema,
   convertPlanningModeSchema,
+  roadmapLaneCreateSchema,
+  roadmapLaneUpdateSchema,
+  roadmapItemCreateSchema,
+  roadmapItemUpdateSchema,
+  roadmapLinksReplaceSchema,
+  wbsRoadmapLinkSchema,
+  bootstrapRoadmapSchema,
 } from './server-validation';
 
 describe('server-validation Zod schemas', () => {
@@ -268,6 +275,196 @@ describe('server-validation Zod schemas', () => {
         applyProposedPhases: true,
       });
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('projectCreateSchema / projectUpdateSchema startDate', () => {
+    it('accepts a valid ISO date', () => {
+      expect(projectCreateSchema.safeParse({ name: 'P', startDate: '2026-01-05' }).success).toBe(true);
+      expect(projectUpdateSchema.safeParse({ startDate: '2026-01-05T00:00:00.000Z' }).success).toBe(true);
+    });
+
+    it('accepts null (unset)', () => {
+      expect(projectUpdateSchema.safeParse({ startDate: null }).success).toBe(true);
+    });
+
+    it('rejects an unparseable date string', () => {
+      expect(projectUpdateSchema.safeParse({ startDate: 'not-a-date' }).success).toBe(false);
+    });
+  });
+
+  describe('roadmapLaneCreateSchema / roadmapLaneUpdateSchema', () => {
+    it('accepts a valid create payload', () => {
+      expect(roadmapLaneCreateSchema.safeParse({ name: 'Backend' }).success).toBe(true);
+    });
+
+    it('rejects an unlisted field (strict)', () => {
+      const result = roadmapLaneCreateSchema.safeParse({ name: 'Backend', id: 1 });
+      expect(result.success).toBe(false);
+    });
+
+    it('update accepts a partial payload', () => {
+      expect(roadmapLaneUpdateSchema.safeParse({ displayOrder: 2 }).success).toBe(true);
+    });
+
+    it('update rejects an unlisted field (strict)', () => {
+      expect(roadmapLaneUpdateSchema.safeParse({ projectId: 1 }).success).toBe(false);
+    });
+  });
+
+  describe('roadmapItemCreateSchema — periodCount rule', () => {
+    it('accepts a bar with periodCount >= 1', () => {
+      const result = roadmapItemCreateSchema.safeParse({
+        laneId: 1,
+        name: 'Build',
+        kind: 'bar',
+        startPeriod: 1,
+        periodCount: 3,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('defaults to a bar when kind is omitted, so periodCount 0 is rejected', () => {
+      const result = roadmapItemCreateSchema.safeParse({
+        laneId: 1,
+        name: 'Build',
+        startPeriod: 1,
+        periodCount: 0,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a bar with periodCount 0', () => {
+      const result = roadmapItemCreateSchema.safeParse({
+        laneId: 1,
+        name: 'Build',
+        kind: 'bar',
+        startPeriod: 1,
+        periodCount: 0,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts a milestone with periodCount exactly 0', () => {
+      const result = roadmapItemCreateSchema.safeParse({
+        laneId: 1,
+        name: 'Launch',
+        kind: 'milestone',
+        startPeriod: 5,
+        periodCount: 0,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects a milestone with a non-zero periodCount', () => {
+      const result = roadmapItemCreateSchema.safeParse({
+        laneId: 1,
+        name: 'Launch',
+        kind: 'milestone',
+        startPeriod: 5,
+        periodCount: 2,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects an unlisted field (strict)', () => {
+      const result = roadmapItemCreateSchema.safeParse({
+        laneId: 1,
+        name: 'Build',
+        startPeriod: 1,
+        periodCount: 1,
+        projectId: 1,
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('roadmapItemUpdateSchema — periodCount rule', () => {
+    it('accepts a partial payload touching only one field', () => {
+      expect(roadmapItemUpdateSchema.safeParse({ startPeriod: 4 }).success).toBe(true);
+      expect(roadmapItemUpdateSchema.safeParse({ periodCount: 0 }).success).toBe(true);
+    });
+
+    it('when both kind and periodCount arrive together, enforces the pairing', () => {
+      expect(
+        roadmapItemUpdateSchema.safeParse({ kind: 'bar', periodCount: 0 }).success
+      ).toBe(false);
+      expect(
+        roadmapItemUpdateSchema.safeParse({ kind: 'milestone', periodCount: 0 }).success
+      ).toBe(true);
+      expect(
+        roadmapItemUpdateSchema.safeParse({ kind: 'milestone', periodCount: 3 }).success
+      ).toBe(false);
+    });
+
+    it('rejects an unlisted field (strict)', () => {
+      expect(roadmapItemUpdateSchema.safeParse({ id: 1 }).success).toBe(false);
+    });
+  });
+
+  describe('roadmapLinksReplaceSchema', () => {
+    it('accepts an empty wbsItemIds array', () => {
+      const result = roadmapLinksReplaceSchema.safeParse({ wbsItemIds: [] });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts a populated array', () => {
+      expect(roadmapLinksReplaceSchema.safeParse({ wbsItemIds: [1, 2, 3] }).success).toBe(true);
+    });
+
+    it('rejects a non-positive id', () => {
+      expect(roadmapLinksReplaceSchema.safeParse({ wbsItemIds: [0] }).success).toBe(false);
+    });
+
+    it('rejects an unlisted field (strict)', () => {
+      expect(roadmapLinksReplaceSchema.safeParse({ wbsItemIds: [], roadmapItemId: 1 }).success).toBe(false);
+    });
+  });
+
+  describe('wbsRoadmapLinkSchema', () => {
+    it('accepts a positive id', () => {
+      expect(wbsRoadmapLinkSchema.safeParse({ roadmapItemId: 5 }).success).toBe(true);
+    });
+
+    it('accepts null (unlink)', () => {
+      expect(wbsRoadmapLinkSchema.safeParse({ roadmapItemId: null }).success).toBe(true);
+    });
+
+    it('rejects a missing field (not optional)', () => {
+      expect(wbsRoadmapLinkSchema.safeParse({}).success).toBe(false);
+    });
+  });
+
+  describe('bootstrapRoadmapSchema', () => {
+    it('accepts a valid bootstrap preview payload', () => {
+      const result = bootstrapRoadmapSchema.safeParse({
+        lanes: [
+          {
+            name: 'Platform',
+            items: [{ name: 'Backend', startPeriod: 1, periodCount: 4, wbsItemIds: [2] }],
+          },
+        ],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts a lane with zero items', () => {
+      const result = bootstrapRoadmapSchema.safeParse({ lanes: [{ name: 'Platform', items: [] }] });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects an item with an empty wbsItemIds array', () => {
+      const result = bootstrapRoadmapSchema.safeParse({
+        lanes: [{ name: 'Platform', items: [{ name: 'Backend', startPeriod: 1, periodCount: 4, wbsItemIds: [] }] }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects an unlisted field (strict)', () => {
+      const result = bootstrapRoadmapSchema.safeParse({
+        lanes: [{ name: 'Platform', items: [], id: 1 }],
+      });
+      expect(result.success).toBe(false);
     });
   });
 });

@@ -32,6 +32,16 @@ const phasesStringSchema = z
     { message: 'phases must be a JSON array of { name, periodCount }' }
   );
 
+// ISO date (or null) anchoring period 1 for the roadmap's calendar labels.
+const startDateSchema = z
+  .string()
+  .max(40)
+  .nullable()
+  .optional()
+  .refine((val) => val == null || val === '' || !Number.isNaN(new Date(val).getTime()), {
+    message: 'startDate must be a valid date or null',
+  });
+
 export const projectCreateSchema = z.object({
   name: z.string().min(1).max(500),
   description: z.string().max(2000).optional().nullable(),
@@ -42,6 +52,7 @@ export const projectCreateSchema = z.object({
   planningMode: z.enum(['weekly', 'monthly']).optional(),
   defaultLocation: z.string().max(50).optional().nullable(),
   phases: phasesStringSchema,
+  startDate: startDateSchema,
 }).strict();
 
 export const projectUpdateSchema = z.object({
@@ -54,6 +65,7 @@ export const projectUpdateSchema = z.object({
   planningMode: z.enum(['weekly', 'monthly']).optional(),
   defaultLocation: z.string().max(50).optional().nullable(),
   phases: phasesStringSchema,
+  startDate: startDateSchema,
 }).strict();
 
 export const rateCardUpdateSchema = z.object({
@@ -229,3 +241,103 @@ export const wbsEstimatesReplaceSchema = z.array(wbsEstimateSchema).superRefine(
 export type WbsEstimateInput = z.infer<typeof wbsEstimateSchema>;
 export type WbsItemCreateInput = z.infer<typeof wbsItemCreateSchema>;
 export type WbsItemUpdateInput = z.infer<typeof wbsItemUpdateSchema>;
+
+// ---------------------------------------------------------------------------
+// Project Roadmap (Slice A) — see _bmad-output/specs/spec-roadmap/data-model.md
+// ---------------------------------------------------------------------------
+
+export const roadmapLaneCreateSchema = z.object({
+  name: z.string().min(1).max(500),
+}).strict();
+
+export const roadmapLaneUpdateSchema = z.object({
+  name: z.string().min(1).max(500).optional(),
+  displayOrder: z.number().int().min(0).optional(),
+}).strict();
+
+const roadmapItemKindSchema = z.enum(['bar', 'milestone']);
+
+// periodCount must be >= 1 for a bar, exactly 0 for a milestone.
+function refineRoadmapItemPeriodCount(
+  kind: 'bar' | 'milestone',
+  periodCount: number,
+  ctx: z.RefinementCtx,
+) {
+  if (kind === 'bar' && periodCount < 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'periodCount must be >= 1 for a bar',
+      path: ['periodCount'],
+    });
+  }
+  if (kind === 'milestone' && periodCount !== 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'periodCount must be 0 for a milestone',
+      path: ['periodCount'],
+    });
+  }
+}
+
+export const roadmapItemCreateSchema = z.object({
+  laneId: z.number().int().positive(),
+  name: z.string().min(1).max(500),
+  kind: roadmapItemKindSchema.optional(),
+  startPeriod: z.number().int().min(1),
+  periodCount: z.number().int().min(0),
+}).strict().superRefine((data, ctx) => {
+  refineRoadmapItemPeriodCount(data.kind ?? 'bar', data.periodCount, ctx);
+});
+
+// Partial update: the kind/periodCount pairing is only checkable here when BOTH
+// arrive in the same payload. A patch that changes only one of the two is
+// re-validated by the server against the merged (existing + patch) row —
+// the schema alone cannot see the row's current kind.
+export const roadmapItemUpdateSchema = z.object({
+  name: z.string().min(1).max(500).optional(),
+  laneId: z.number().int().positive().optional(),
+  kind: roadmapItemKindSchema.optional(),
+  startPeriod: z.number().int().min(1).optional(),
+  periodCount: z.number().int().min(0).optional(),
+  displayOrder: z.number().int().min(0).optional(),
+}).strict().superRefine((data, ctx) => {
+  if (data.kind !== undefined && data.periodCount !== undefined) {
+    refineRoadmapItemPeriodCount(data.kind, data.periodCount, ctx);
+  }
+});
+
+// PUT /api/roadmap-items/:id/links — replace an item's DIRECT links. An empty
+// array is a valid "unlink everything" request.
+export const roadmapLinksReplaceSchema = z.object({
+  wbsItemIds: z.array(z.number().int().positive()),
+}).strict();
+
+// PUT /api/wbs-items/:id/roadmap-link — the WBS-side edit; null unlinks.
+export const wbsRoadmapLinkSchema = z.object({
+  roadmapItemId: z.number().int().positive().nullable(),
+}).strict();
+
+// POST /api/projects/:id/roadmap/bulk — the bootstrapRoadmap preview shape.
+export const bootstrapRoadmapItemSchema = z.object({
+  name: z.string().min(1).max(500),
+  startPeriod: z.number().int().min(1),
+  periodCount: z.number().int().min(1), // bootstrap only ever creates bars
+  wbsItemIds: z.array(z.number().int().positive()).min(1),
+}).strict();
+
+export const bootstrapRoadmapLaneSchema = z.object({
+  name: z.string().min(1).max(500),
+  items: z.array(bootstrapRoadmapItemSchema),
+}).strict();
+
+export const bootstrapRoadmapSchema = z.object({
+  lanes: z.array(bootstrapRoadmapLaneSchema),
+}).strict();
+
+export type RoadmapLaneCreateInput = z.infer<typeof roadmapLaneCreateSchema>;
+export type RoadmapLaneUpdateInput = z.infer<typeof roadmapLaneUpdateSchema>;
+export type RoadmapItemCreateInput = z.infer<typeof roadmapItemCreateSchema>;
+export type RoadmapItemUpdateInput = z.infer<typeof roadmapItemUpdateSchema>;
+export type RoadmapLinksReplaceInput = z.infer<typeof roadmapLinksReplaceSchema>;
+export type WbsRoadmapLinkInput = z.infer<typeof wbsRoadmapLinkSchema>;
+export type BootstrapRoadmapInput = z.infer<typeof bootstrapRoadmapSchema>;
