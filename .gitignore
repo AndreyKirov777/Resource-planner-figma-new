@@ -3,3 +3,6 @@ node_modules
 .env
 
 /src/generated/prisma
+
+# Transient isolated worktrees created by background agent tooling
+/.claude/worktrees/
