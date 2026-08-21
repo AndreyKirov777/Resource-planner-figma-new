@@ -573,3 +573,61 @@ export function PhaseEditor({ value, phaseOptions, onCommit, onClose }: PhaseEdi
     </div>
   );
 }
+
+// Radix Select items cannot carry an empty-string value; the domain value
+// for "no link" is `null`, not `''`.
+export const NO_ROADMAP_LINK_VALUE = '__none__';
+
+/** The WBS-side Roadmap cell's overlay editor (CAP-5): the project's roadmap bars plus None. */
+export interface RoadmapLinkEditorProps {
+  /** This node's OWN direct link, or `null` — never an inherited one (that isn't this node's to clear). */
+  value: number | null;
+  options: { id: number; name: string }[];
+  onCommit: (roadmapItemId: number | null) => void;
+  onClose: () => void;
+}
+
+export function RoadmapLinkEditor({ value, options, onCommit, onClose }: RoadmapLinkEditorProps) {
+  const doneRef = useRef(false);
+
+  return (
+    <div
+      className="min-w-[14rem] p-2"
+      data-testid="roadmap-link-editor"
+      onKeyDown={(event) => {
+        if (isInsidePortaledMenu(event.target)) {
+          event.stopPropagation();
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          doneRef.current = true;
+          onClose();
+        }
+      }}
+    >
+      <Select
+        defaultOpen
+        value={value == null ? NO_ROADMAP_LINK_VALUE : String(value)}
+        onValueChange={(selected) => {
+          if (doneRef.current) return;
+          doneRef.current = true;
+          onCommit(selected === NO_ROADMAP_LINK_VALUE ? null : Number.parseInt(selected, 10));
+        }}
+      >
+        <SelectTrigger className="h-8 w-full" aria-label="Roadmap">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className={OVERLAY_MENU_CLASS}>
+          <SelectItem value={NO_ROADMAP_LINK_VALUE}>None</SelectItem>
+          {options.map((item) => (
+            <SelectItem key={item.id} value={String(item.id)}>
+              {item.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}

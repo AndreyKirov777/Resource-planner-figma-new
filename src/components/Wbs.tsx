@@ -25,11 +25,19 @@ import {
   ResourceList as ResourceListType,
   WbsItem,
   WbsEstimate,
+  RoadmapLaneWithItems,
 } from '../services/api';
 import { parsePhases } from '../utils/phases';
 import { hoursPerPeriod } from '../utils/calculations';
 import { buildReconciliationReport } from '../utils/wbs';
-import { withEffectivePhases } from '../utils/wbsTree';
+import { buildWbsTree, withEffectivePhases } from '../utils/wbsTree';
+import { effectiveRoadmapItems, coverage as buildCoverage, RoadmapLinkRecord } from '../utils/roadmap';
+import {
+  WbsColumnId,
+  getVisibleWbsColumns,
+  loadHiddenWbsColumns,
+  saveHiddenWbsColumns,
+} from './wbsColumns';
 import {
   CELL_PAD,
   CHEVRON_SIZE,
@@ -70,10 +78,17 @@ import {
 import { wouldCreateCycle } from '../utils/wbsTree';
 import { GRID_THEME } from './gridTheme';
 import { ReconciliationPanel, reconciliationSummary } from './ReconciliationPanel';
-import { NameEditor, PhaseEditor, RolesEditor, isInsidePortaledMenu } from './RolesEditor';
+import { NameEditor, PhaseEditor, RolesEditor, RoadmapLinkEditor, isInsidePortaledMenu } from './RolesEditor';
 import { WbsRowMenu } from './WbsRowMenu';
 import { Button } from './ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { cn } from './ui/utils';
 
 /** Mounted overlay editors increment this so structure keys can no-op. */
@@ -105,6 +120,9 @@ interface WbsProps {
   onUpdateWbsItem: (id: number, data: Partial<WbsItem>) => Promise<void>;
   onDeleteWbsItem: (id: number) => Promise<void>;
   onReplaceWbsEstimates: (wbsItemId: number, estimates: Partial<WbsEstimate>[]) => Promise<void>;
+  /** Optional: absent renders the grid exactly as before the roadmap feature (no Roadmap column, no coverage cards). */
+  roadmapLanes?: RoadmapLaneWithItems[];
+  onSetWbsRoadmapLink?: (wbsItemId: number, roadmapItemId: number | null) => Promise<void>;
 }
 
 const HEADER_HEIGHT = 36;
@@ -155,6 +173,17 @@ interface PhaseCellData {
   readonly phaseOptions: string[];
 }
 
+interface RoadmapLinkCellData {
+  readonly kind: 'wbs-roadmap-link';
+  readonly itemId: number;
+  /** This node's OWN direct link (what the picker's current value is), or null. */
+  readonly ownRoadmapItemId: number | null;
+  /** The effective (own or inherited) roadmap item's name, or null when unlinked. */
+  readonly label: string | null;
+  readonly inherited: boolean;
+  readonly options: { id: number; name: string }[];
+}
+
 interface RolesCellData {
   readonly kind: 'wbs-roles';
   readonly itemId: number;
@@ -167,6 +196,7 @@ interface RolesCellData {
 type TaskCell = CustomCell<TaskCellData>;
 type PhaseCell = CustomCell<PhaseCellData>;
 type RolesCell = CustomCell<RolesCellData>;
+type RoadmapLinkCell = CustomCell<RoadmapLinkCellData>;
 
 /**
  * Clip every draw to its own cell so wide text and chips can never paint over a
@@ -330,6 +360,50 @@ const PhaseCellRenderer: CustomRenderer<PhaseCell> = {
   }),
 };
 
+/**
+ * The optional `Roadmap` column (CAP-5), hidden by default. Normal weight
+ * when this node is linked directly; muted with an `↑` prefix when the link
+ * is inherited from an ancestor. A dropdown of the project's bars plus
+ * `None` writes `PUT /api/wbs-items/:id/roadmap-link`.
+ */
+const RoadmapLinkCellRenderer: CustomRenderer<RoadmapLinkCell> = {
+  kind: GridCellKind.Custom,
+  isMatch: (cell: CustomCell): cell is RoadmapLinkCell =>
+    (cell.data as { kind?: string })?.kind === 'wbs-roadmap-link',
+  draw: (args, cell) => {
+    const { ctx, rect, theme } = args;
+    clipToCell(ctx, rect, () => {
+      ctx.font = theme.baseFontFull;
+      const bias = getMiddleCenterBias(ctx, theme.baseFontFull);
+      const { label, inherited } = cell.data;
+      const text = label === null ? '—' : `${inherited ? '↑ ' : ''}${label}`;
+      ctx.fillStyle = label === null || inherited ? theme.textLight : theme.textDark;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(text, rect.x + CELL_PAD, rect.y + rect.height / 2 + bias);
+    });
+    return true;
+  },
+  provideEditor: () => ({
+    disablePadding: true,
+    editor: (p) => {
+      const cell = p.value;
+      return (
+        <OverlayTracker>
+          <RoadmapLinkEditor
+            value={cell.data.ownRoadmapItemId}
+            options={cell.data.options}
+            onCommit={(roadmapItemId) =>
+              p.onFinishedEditing({ ...cell, data: { ...cell.data, ownRoadmapItemId: roadmapItemId } }, [0, 0])
+            }
+            onClose={() => p.onFinishedEditing(undefined, [0, 0])}
+          />
+        </OverlayTracker>
+      );
+    },
+  }),
+};
+
 const RolesCellRenderer: CustomRenderer<RolesCell> = {
   kind: GridCellKind.Custom,
   isMatch: (cell: CustomCell): cell is RolesCell =>
@@ -411,6 +485,7 @@ const CUSTOM_RENDERERS = [
   TaskCellRenderer,
   PhaseCellRenderer,
   RolesCellRenderer,
+  RoadmapLinkCellRenderer,
 ] as unknown as readonly CustomRenderer[];
 
 /** Depth-0 rows read as document sections. */
@@ -428,7 +503,6 @@ const EMPTY_SELECTION: GridSelection = {
 /** Task Description — the cell a newly created row should land on. */
 const NAME_COL = 1;
 const OUTLINE_COL = 0;
-const COLUMN_COUNT = 5;
 const DRAG_THRESHOLD_PX = 4;
 const NEST_HIGHLIGHT: string = 'rgba(143, 79, 143, 0.22)';
 
@@ -471,11 +545,14 @@ export function Wbs({
   onUpdateWbsItem,
   onDeleteWbsItem,
   onReplaceWbsEstimates,
+  roadmapLanes = [],
+  onSetWbsRoadmapLink,
 }: WbsProps) {
   const [collapsedIds, setCollapsedIds] = useState<Set<number>>(new Set());
   const [gridSelection, setGridSelection] = useState<GridSelection>(EMPTY_SELECTION);
   const [reconciliationOpen, setReconciliationOpen] = useState(false);
   const [rowMenu, setRowMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  const [hiddenColumns, setHiddenColumns] = useState<WbsColumnId[]>(() => loadHiddenWbsColumns(project.id));
   const isMac = useMemo(() => isMacPlatform(), []);
   const gridRef = useRef<DataEditorRef | null>(null);
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
@@ -521,6 +598,71 @@ export function Wbs({
     () => buildGridRows(wbsItems, collapsedIds, phaseNames),
     [wbsItems, collapsedIds, phaseNames]
   );
+
+  // Roadmap link data (CAP-5, CAP-7) for the optional Roadmap column and the
+  // coverage cards. `roadmapLanes` defaults to [] so every derivation below
+  // degenerates to "no links anywhere" when the prop is omitted.
+  const roadmapTree = useMemo(() => buildWbsTree(wbsItems), [wbsItems]);
+  const roadmapAllItems = useMemo(() => roadmapLanes.flatMap((lane) => lane.items), [roadmapLanes]);
+  const roadmapLinks: RoadmapLinkRecord[] = useMemo(
+    () => roadmapAllItems.flatMap((item) => item.wbsItemIds.map((wbsItemId) => ({ wbsItemId, roadmapItemId: item.id }))),
+    [roadmapAllItems]
+  );
+  const roadmapEffective = useMemo(
+    () => effectiveRoadmapItems(roadmapTree, roadmapLinks),
+    [roadmapTree, roadmapLinks]
+  );
+  const roadmapOwnLinkByWbsId = useMemo(
+    () => new Map(roadmapLinks.map((l) => [l.wbsItemId, l.roadmapItemId])),
+    [roadmapLinks]
+  );
+  const roadmapItemNameById = useMemo(
+    () => new Map(roadmapAllItems.map((i) => [i.id, i.name])),
+    [roadmapAllItems]
+  );
+  const roadmapBarOptions = useMemo(
+    () => roadmapAllItems.filter((i) => i.kind === 'bar').map((i) => ({ id: i.id, name: i.name })),
+    [roadmapAllItems]
+  );
+
+  const visibleColumns = useMemo(() => getVisibleWbsColumns(hiddenColumns), [hiddenColumns]);
+  const columnCount = visibleColumns.length;
+  const roadmapColumnVisible = visibleColumns.some((c) => c.id === 'roadmap');
+
+  function toggleRoadmapColumn(show: boolean) {
+    setHiddenColumns((prev) => {
+      const next = show ? prev.filter((id) => id !== 'roadmap') : [...new Set([...prev, 'roadmap' as WbsColumnId])];
+      saveHiddenWbsColumns(project.id, next);
+      return next;
+    });
+  }
+
+  // CAP-7 coverage cards — undefined (no cards rendered) when the roadmap
+  // hasn't loaded at all, distinct from "loaded and empty" (roadmapLanes: []),
+  // which legitimately reports every WBS hour as unplaced.
+  const roadmapCoverage = useMemo(() => {
+    if (roadmapLanes.length === 0) return undefined;
+    const report = buildCoverage(
+      wbsItems,
+      roadmapLinks,
+      roadmapAllItems.map((i) => ({ id: i.id, kind: i.kind, startPeriod: i.startPeriod, periodCount: i.periodCount })),
+      phases
+    );
+    const nameOf = (id: number) => wbsItems.find((w) => w.id === id)?.name ?? `#${id}`;
+    return {
+      unplaced: report.unplaced.map((row) => ({ wbsItemId: row.wbsItemId, name: nameOf(row.wbsItemId), hours: row.hours })),
+      unplacedHours: report.unplacedHours,
+      unplacedShare: report.unplacedShare,
+      empty: report.empty.map((id) => ({ roadmapItemId: id, name: roadmapItemNameById.get(id) ?? `#${id}` })),
+      phaseMismatch: report.phaseMismatch.map((row) => ({
+        roadmapItemId: row.roadmapItemId,
+        itemName: roadmapItemNameById.get(row.roadmapItemId) ?? `#${row.roadmapItemId}`,
+        wbsItemId: row.wbsItemId,
+        leafName: nameOf(row.wbsItemId),
+        phaseName: row.phaseName,
+      })),
+    };
+  }, [roadmapLanes.length, wbsItems, roadmapLinks, roadmapAllItems, phases, roadmapItemNameById]);
 
   // The committer must outlive the overlay: `provideEditor` mounts and
   // unmounts `RolesEditor` on every open/close, so an editor-owned committer
@@ -637,14 +779,14 @@ export function Wbs({
   );
 
   const columns = useMemo(
-    (): GridColumn[] => [
-      { title: 'WBS', id: 'wbs', width: 80 },
-      { title: 'Task Description', id: 'name', width: 360, grow: 1 },
-      { title: 'Phase', id: 'phase', width: 160 },
-      { title: 'Roles', id: 'roles', width: 320 },
-      { title: 'Hours', id: 'hours', width: 100 },
-    ],
-    []
+    (): GridColumn[] =>
+      visibleColumns.map((c) => ({
+        title: c.title,
+        id: c.id === 'outline' ? 'wbs' : c.id, // 'wbs' matches the grid id every prior snapshot/test expects
+        width: c.width,
+        ...(c.grow !== undefined ? { grow: c.grow } : {}),
+      })),
+    [visibleColumns]
   );
 
   const getCellContent = useCallback(
@@ -653,9 +795,13 @@ export function Wbs({
       if (gridRow === undefined) {
         return { kind: GridCellKind.Loading, allowOverlay: false };
       }
+      const columnDef = visibleColumns[col];
+      if (columnDef === undefined) {
+        return { kind: GridCellKind.Loading, allowOverlay: false };
+      }
 
-      switch (col) {
-        case 0:
+      switch (columnDef.id) {
+        case 'outline':
           return {
             kind: GridCellKind.Text,
             data: gridRow.outline,
@@ -664,7 +810,7 @@ export function Wbs({
             readonly: true,
             cursor: 'grab',
           };
-        case 1: {
+        case 'name': {
           const cell: TaskCell = {
             kind: GridCellKind.Custom,
             allowOverlay: true,
@@ -683,7 +829,7 @@ export function Wbs({
           };
           return cell;
         }
-        case 2: {
+        case 'phase': {
           const cell: PhaseCell = {
             kind: GridCellKind.Custom,
             allowOverlay: true,
@@ -699,7 +845,7 @@ export function Wbs({
           };
           return cell;
         }
-        case 3: {
+        case 'roles': {
           const cell: RolesCell = {
             kind: GridCellKind.Custom,
             allowOverlay: true,
@@ -715,6 +861,26 @@ export function Wbs({
           };
           return cell;
         }
+        case 'roadmap': {
+          const effective = roadmapEffective.get(gridRow.id);
+          const effectiveId = effective?.roadmapItemId ?? null;
+          const label = effectiveId != null ? (roadmapItemNameById.get(effectiveId) ?? null) : null;
+          const cell: RoadmapLinkCell = {
+            kind: GridCellKind.Custom,
+            allowOverlay: true,
+            copyData: label ? `${effective?.inherited ? '↑ ' : ''}${label}` : '',
+            data: {
+              kind: 'wbs-roadmap-link',
+              itemId: gridRow.id,
+              ownRoadmapItemId: roadmapOwnLinkByWbsId.get(gridRow.id) ?? null,
+              label,
+              inherited: effective?.inherited ?? false,
+              options: roadmapBarOptions,
+            },
+          };
+          return cell;
+        }
+        case 'hours':
         default: {
           const hours = formatHours(gridRow.totalHours);
           return {
@@ -728,7 +894,20 @@ export function Wbs({
         }
       }
     },
-    [rows, phaseNames, resourceLists, rateCards, committer, toggleCollapse, openRowMenu]
+    [
+      rows,
+      visibleColumns,
+      phaseNames,
+      resourceLists,
+      rateCards,
+      committer,
+      toggleCollapse,
+      openRowMenu,
+      roadmapEffective,
+      roadmapOwnLinkByWbsId,
+      roadmapItemNameById,
+      roadmapBarOptions,
+    ]
   );
 
   /**
@@ -755,7 +934,7 @@ export function Wbs({
   const onCellEdited = useCallback(
     ([, row]: Item, newValue: EditableGridCell) => {
       if (newValue.kind !== GridCellKind.Custom) return;
-      const data = newValue.data as TaskCellData | PhaseCellData | RolesCellData;
+      const data = newValue.data as TaskCellData | PhaseCellData | RolesCellData | RoadmapLinkCellData;
 
       // The cell carries the id it was opened on. The row INDEX does not
       // survive a shifting row set — a `+ Child` or delete round-trip landing
@@ -774,10 +953,15 @@ export function Wbs({
       } else if (data.kind === 'wbs-phase') {
         const edit = phaseEditFor(gridRow, data.ownPhaseName);
         if (edit !== null) issueUpdate(gridRow.id, edit);
+      } else if (data.kind === 'wbs-roadmap-link') {
+        const previousOwn = roadmapOwnLinkByWbsId.get(gridRow.id) ?? null;
+        if (data.ownRoadmapItemId !== previousOwn && onSetWbsRoadmapLink !== undefined) {
+          onSetWbsRoadmapLink(gridRow.id, data.ownRoadmapItemId).catch(() => {});
+        }
       }
       // Roles persist through the committer, never through a cell edit.
     },
-    [rows, issueUpdate]
+    [rows, issueUpdate, roadmapOwnLinkByWbsId, onSetWbsRoadmapLink]
   );
 
   const getRowThemeOverride = useCallback(
@@ -926,7 +1110,7 @@ export function Wbs({
       if (outline === undefined) continue;
       if (clientY < outline.y || clientY >= outline.y + outline.height) continue;
       const yInRow = clientY - outline.y;
-      for (let c = 0; c < COLUMN_COUNT; c++) {
+      for (let c = 0; c < columnCount; c++) {
         const cell = c === OUTLINE_COL ? outline : api.getBounds(c, r);
         if (cell !== undefined && clientX >= cell.x && clientX < cell.x + cell.width) {
           return { rowIndex: r, col: c, yInRow };
@@ -1016,7 +1200,7 @@ export function Wbs({
     return [
       {
         color: NEST_HIGHLIGHT,
-        range: { x: 0, y: dropPreview.rowIndex, width: COLUMN_COUNT, height: 1 },
+        range: { x: 0, y: dropPreview.rowIndex, width: columnCount, height: 1 },
       },
     ];
   }, [dropPreview]);
@@ -1097,7 +1281,22 @@ export function Wbs({
             </p>
           )}
         </div>
-        {wbsItems.length === 0 && <Button onClick={handleAddRootItem}>Add root item</Button>}
+        <div className="flex shrink-0 items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                Columns
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Columns</DropdownMenuLabel>
+              <DropdownMenuCheckboxItem checked={roadmapColumnVisible} onCheckedChange={toggleRoadmapColumn}>
+                Roadmap
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {wbsItems.length === 0 && <Button onClick={handleAddRootItem}>Add root item</Button>}
+        </div>
       </div>
 
       {wbsItems.length === 0 ? (
@@ -1193,7 +1392,7 @@ export function Wbs({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="mt-4">
-              <ReconciliationPanel report={reconciliationReport} />
+              <ReconciliationPanel report={reconciliationReport} coverage={roadmapCoverage} />
             </div>
           </CollapsibleContent>
         </Collapsible>

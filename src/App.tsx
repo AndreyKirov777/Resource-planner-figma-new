@@ -1443,6 +1443,8 @@ export default function App() {
             onUpdateWbsItem={handleUpdateWbsItem}
             onDeleteWbsItem={handleDeleteWbsItem}
             onReplaceWbsEstimates={handleReplaceWbsEstimates}
+            roadmapLanes={roadmapLanes}
+            onSetWbsRoadmapLink={handleSetWbsRoadmapLink}
           />
         </TabsContent>
 
