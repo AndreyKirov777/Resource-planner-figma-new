@@ -557,4 +557,130 @@ export const api = {
     }
     return response.json();
   },
+
+  // Roadmap endpoints (Slice A)
+  async getRoadmap(projectId: number): Promise<RoadmapPayload> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/roadmap`);
+    if (!response.ok) throw new Error('Failed to fetch roadmap');
+    return response.json();
+  },
+
+  async createRoadmapLane(projectId: number, name: string): Promise<RoadmapLaneWithItems> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/roadmap/lanes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to create lane');
+    }
+    return response.json();
+  },
+
+  async updateRoadmapLane(id: number, data: { name?: string; displayOrder?: number }): Promise<RoadmapLane> {
+    const response = await fetch(`${API_BASE_URL}/roadmap-lanes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pickDefined(data, ['name', 'displayOrder'])),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to update lane');
+    }
+    return response.json();
+  },
+
+  async deleteRoadmapLane(id: number): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/roadmap-lanes/${id}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to delete lane');
+  },
+
+  async createRoadmapItem(
+    projectId: number,
+    data: { laneId: number; name: string; kind?: RoadmapItemKind; startPeriod: number; periodCount: number }
+  ): Promise<RoadmapItem> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/roadmap/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to create roadmap item');
+    }
+    return response.json();
+  },
+
+  async updateRoadmapItem(
+    id: number,
+    data: Partial<{
+      name: string;
+      laneId: number;
+      kind: RoadmapItemKind;
+      startPeriod: number;
+      periodCount: number;
+      displayOrder: number;
+    }>
+  ): Promise<RoadmapItem> {
+    const response = await fetch(`${API_BASE_URL}/roadmap-items/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        pickDefined(data, ['name', 'laneId', 'kind', 'startPeriod', 'periodCount', 'displayOrder'])
+      ),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to update roadmap item');
+    }
+    return response.json();
+  },
+
+  async deleteRoadmapItem(id: number): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/roadmap-items/${id}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to delete roadmap item');
+  },
+
+  async replaceRoadmapItemLinks(id: number, wbsItemIds: number[]): Promise<{ wbsItemIds: number[] }> {
+    const response = await fetch(`${API_BASE_URL}/roadmap-items/${id}/links`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wbsItemIds }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to replace roadmap item links');
+    }
+    return response.json();
+  },
+
+  async setWbsRoadmapLink(
+    wbsItemId: number,
+    roadmapItemId: number | null
+  ): Promise<{ wbsItemId: number; roadmapItemId: number | null }> {
+    const response = await fetch(`${API_BASE_URL}/wbs-items/${wbsItemId}/roadmap-link`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roadmapItemId }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to update WBS roadmap link');
+    }
+    return response.json();
+  },
+
+  async bootstrapRoadmap(projectId: number, payload: BootstrapRoadmapPayload): Promise<RoadmapPayload> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/roadmap/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to bootstrap roadmap');
+    }
+    return response.json();
+  },
 };
