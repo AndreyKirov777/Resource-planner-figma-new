@@ -24,9 +24,10 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2, GripVertical, SplitSquareHorizontal, Columns3 } from 'lucide-react';
-import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft } from '../services/api';
+import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft, RoadmapItem } from '../services/api';
 import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod, phaseStartOffset, reorderPhases, remapPeriodNumber, splitPhase, uniquePhaseName } from '../utils/phases';
+import { remapRoadmapItemsForPhaseChange } from '../utils/roadmap';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
 import { canonicalLocationLabel, locationAbbr } from '../utils/regions';
 import { findResourceForPlan } from '../utils/resourceMatching';
@@ -62,6 +63,15 @@ interface ResourcePlanProps {
   projectDescription: string;
   onProjectNameChange: (name: string) => void;
   onProjectDescriptionChange: (description: string) => void;
+  /**
+   * Optional (roadmap Slice A): when a phase is reordered or deleted, every
+   * roadmap item's `startPeriod` is remapped through the same `periodMap`
+   * allocations already travel through, so a bar keeps the phase it was
+   * dragged into. Absent entirely, this component behaves exactly as before
+   * — no roadmap dependency, no behavior change.
+   */
+  roadmapItems?: RoadmapItem[];
+  onUpdateRoadmapItem?: (id: number, data: { startPeriod: number }) => Promise<void>;
 }
 
 // Compute a background color for a percentage value between 0 and 100.
@@ -208,7 +218,9 @@ export function ResourcePlan({
   projectName,
   projectDescription,
   onProjectNameChange,
-  onProjectDescriptionChange
+  onProjectDescriptionChange,
+  roadmapItems,
+  onUpdateRoadmapItem,
 }: ResourcePlanProps) {
   const planningMode = (project.planningMode || 'weekly') as 'weekly' | 'monthly';
   const isMonthly = planningMode === 'monthly';
@@ -282,6 +294,29 @@ export function ResourcePlan({
       onProjectSettingsChange({ phases: JSON.stringify(nextPhases) });
     },
     [onProjectSettingsChange]
+  );
+
+  // Roadmap items travel with the phase they were placed under, exactly like
+  // allocations: `startPeriod` is remapped through the same `periodMap`
+  // `reorderPhases`/the delete-phase handler already build; `periodCount` is
+  // untouched. An item whose window falls in periods the map doesn't cover
+  // (e.g. a deleted phase) is left as-is — kept, not clamped or dropped — and
+  // surfaces later in the roadmap's own Phase mismatch coverage card.
+  const remapRoadmapAfterPhaseChange = useCallback(
+    (periodMap: Map<number, number>) => {
+      if (!roadmapItems || !onUpdateRoadmapItem || periodMap.size === 0) return;
+      const remapped = remapRoadmapItemsForPhaseChange(
+        roadmapItems.map((item) => ({ id: item.id, startPeriod: item.startPeriod })),
+        periodMap
+      );
+      remapped.forEach((next, index) => {
+        const original = roadmapItems[index];
+        if (next.startPeriod !== original.startPeriod) {
+          void onUpdateRoadmapItem(original.id, { startPeriod: next.startPeriod }).catch(() => {});
+        }
+      });
+    },
+    [roadmapItems, onUpdateRoadmapItem]
   );
 
   const currencySymbol = project.clientCurrency === 'EUR' ? '€' : 
@@ -807,8 +842,15 @@ export function ResourcePlan({
         return { ...plan, allocations: newAllocations };
       });
       onResourcePlansChange(updatedResourcePlans);
+      // Only the SURVIVING periods get a mapping — a roadmap item whose
+      // startPeriod fell inside the deleted phase is deliberately left
+      // unmapped (kept, not clamped), per remapRoadmapItemsForPhaseChange.
+      const periodMap = new Map<number, number>(
+        remainingWeekNumbers.map((w, i) => [w, renumberedWeeks[i]])
+      );
+      remapRoadmapAfterPhaseChange(periodMap);
     },
-    [phases, periodNumbers, resourcePlans, persistPhases, onResourcePlansChange]
+    [phases, periodNumbers, resourcePlans, persistPhases, onResourcePlansChange, remapRoadmapAfterPhaseChange]
   );
 
   const renamePhase = useCallback(
@@ -857,8 +899,9 @@ export function ResourcePlan({
           .sort((a, b) => a.periodNumber - b.periodNumber),
       }));
       onResourcePlansChange(updatedResourcePlans);
+      remapRoadmapAfterPhaseChange(periodMap);
     },
-    [phases, resourcePlans, persistPhases, onResourcePlansChange]
+    [phases, resourcePlans, persistPhases, onResourcePlansChange, remapRoadmapAfterPhaseChange]
   );
 
   const openSplitDialog = useCallback(

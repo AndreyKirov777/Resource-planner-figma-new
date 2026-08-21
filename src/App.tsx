@@ -1402,9 +1402,11 @@ export default function App() {
               setEditableProjectDescription(description);
               handleProjectSettingsChange({ description });
             }}
+            roadmapItems={roadmapLanes.flatMap(lane => lane.items)}
+            onUpdateRoadmapItem={handleUpdateRoadmapItem}
           />
         </TabsContent>
-        
+
         <TabsContent value="resource-list" className="mt-6">
 <ResourceList
             resourceLists={resourceLists}

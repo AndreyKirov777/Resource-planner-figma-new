@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ResourcePlan } from './ResourcePlan';
-import type { Project, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Phase } from '../services/api';
+import type { Project, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Phase, RoadmapItem } from '../services/api';
 
 vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
   const actual = await importOriginal() as object;
@@ -57,7 +57,10 @@ type PlansChange = (plans: ResourcePlanType[]) => void;
 let onProjectSettingsChange: Mock<SettingsChange>;
 let onResourcePlansChange: Mock<PlansChange>;
 
-function renderPlan() {
+function renderPlan(
+  roadmapItems?: RoadmapItem[],
+  onUpdateRoadmapItem?: (id: number, data: { startPeriod: number }) => Promise<void>
+) {
   onProjectSettingsChange = vi.fn<SettingsChange>();
   onResourcePlansChange = vi.fn<PlansChange>();
   return render(
@@ -75,8 +78,25 @@ function renderPlan() {
       projectDescription=""
       onProjectNameChange={vi.fn()}
       onProjectDescriptionChange={vi.fn()}
+      roadmapItems={roadmapItems}
+      onUpdateRoadmapItem={onUpdateRoadmapItem}
     />
   );
+}
+
+function roadmapItem(overrides: Partial<RoadmapItem> & { id: number; startPeriod: number }): RoadmapItem {
+  return {
+    name: 'Bar',
+    kind: 'bar',
+    periodCount: 1,
+    displayOrder: 0,
+    laneId: 1,
+    projectId: 1,
+    createdAt: '',
+    updatedAt: '',
+    wbsItemIds: [],
+    ...overrides,
+  };
 }
 
 /** The draggable phase chips, in render order. */
@@ -260,5 +280,92 @@ describe('phase split', () => {
     fireEvent.pointerDown(within(chips[0]).getByRole('button'), { ctrlKey: false, button: 0 });
     const splitItem = await screen.findByText('Split');
     expect(splitItem.closest('[role="menuitem"]')).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+/**
+ * Decision (kickoff prompt, "Phase edits"): a roadmap item's `startPeriod`
+ * travels with the phase it was placed under, remapped through the SAME
+ * `periodMap` allocations already use — `periodCount` is untouched, and an
+ * item whose window falls entirely outside the surviving periods (e.g. a
+ * deleted phase) is left as-is rather than clamped or dropped.
+ */
+describe('roadmap items remap with phase changes', () => {
+  it('reorder: a roadmap item in the moved phase gets the same new startPeriod as its allocations', () => {
+    const onUpdateRoadmapItem = vi.fn().mockResolvedValue(undefined);
+    // Build owns periods 3-8; this bar starts at period 3.
+    renderPlan([roadmapItem({ id: 501, startPeriod: 3, periodCount: 2 })], onUpdateRoadmapItem);
+    const chips = phaseChips();
+    const dt = dataTransfer();
+
+    // Drag "Build" onto "Discovery" -> order becomes Build, Discovery, UAT.
+    fireEvent.dragStart(chips[1], { dataTransfer: dt });
+    fireEvent.dragOver(chips[0], { dataTransfer: dt });
+    fireEvent.drop(chips[0], { dataTransfer: dt });
+
+    // Old period 3 (start of Build) maps to new period 1, same as allocations above.
+    expect(onUpdateRoadmapItem).toHaveBeenCalledWith(501, { startPeriod: 1 });
+  });
+
+  it('reorder: an item whose startPeriod does not move issues no write', () => {
+    const onUpdateRoadmapItem = vi.fn().mockResolvedValue(undefined);
+    // UAT (periods 9-10) is untouched by moving Build before Discovery.
+    renderPlan([roadmapItem({ id: 502, startPeriod: 9, periodCount: 2 })], onUpdateRoadmapItem);
+    const chips = phaseChips();
+    const dt = dataTransfer();
+
+    fireEvent.dragStart(chips[1], { dataTransfer: dt });
+    fireEvent.dragOver(chips[0], { dataTransfer: dt });
+    fireEvent.drop(chips[0], { dataTransfer: dt });
+
+    expect(onUpdateRoadmapItem).not.toHaveBeenCalled();
+  });
+
+  it('delete: a roadmap item in a SURVIVING phase is renumbered like its allocations', async () => {
+    const onUpdateRoadmapItem = vi.fn().mockResolvedValue(undefined);
+    // UAT (periods 9-10) survives deleting Build; period 9 -> 3 after the gap closes.
+    renderPlan([roadmapItem({ id: 601, startPeriod: 9, periodCount: 1 })], onUpdateRoadmapItem);
+    const chips = phaseChips();
+
+    fireEvent.pointerDown(within(chips[1]).getByRole('button'), { ctrlKey: false, button: 0 });
+    fireEvent.click(await screen.findByText('Delete Phase'));
+
+    expect(onUpdateRoadmapItem).toHaveBeenCalledWith(601, { startPeriod: 3 });
+  });
+
+  it('delete: a roadmap item INSIDE the deleted phase is kept unmapped, not clamped or dropped', async () => {
+    const onUpdateRoadmapItem = vi.fn().mockResolvedValue(undefined);
+    // Build owns periods 3-8; this bar starts at period 5, squarely inside it.
+    renderPlan([roadmapItem({ id: 602, startPeriod: 5, periodCount: 1 })], onUpdateRoadmapItem);
+    const chips = phaseChips();
+
+    fireEvent.pointerDown(within(chips[1]).getByRole('button'), { ctrlKey: false, button: 0 });
+    fireEvent.click(await screen.findByText('Delete Phase'));
+
+    expect(onUpdateRoadmapItem).not.toHaveBeenCalled();
+  });
+
+  it('split: never issues a roadmap write (total timeline length is unchanged)', async () => {
+    const onUpdateRoadmapItem = vi.fn().mockResolvedValue(undefined);
+    renderPlan([roadmapItem({ id: 701, startPeriod: 5, periodCount: 1 })], onUpdateRoadmapItem);
+    const chips = phaseChips();
+
+    fireEvent.pointerDown(within(chips[1]).getByRole('button'), { ctrlKey: false, button: 0 });
+    fireEvent.click(await screen.findByText('Split'));
+    fireEvent.click(screen.getByRole('button', { name: 'Split' }));
+
+    expect(onUpdateRoadmapItem).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op entirely when roadmapItems/onUpdateRoadmapItem are omitted (backward compatible)', () => {
+    renderPlan(); // no roadmap props at all
+    const chips = phaseChips();
+    const dt = dataTransfer();
+    // Must not throw with the props absent.
+    expect(() => {
+      fireEvent.dragStart(chips[1], { dataTransfer: dt });
+      fireEvent.dragOver(chips[0], { dataTransfer: dt });
+      fireEvent.drop(chips[0], { dataTransfer: dt });
+    }).not.toThrow();
   });
 });
