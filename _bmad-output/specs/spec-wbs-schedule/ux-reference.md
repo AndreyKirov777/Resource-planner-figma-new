@@ -6,7 +6,7 @@ Companion to `SPEC.md`. The binding interaction and visual decisions behind CAP-
 
 1. **One tree, two modes.** The WBS is the single source of truth about scope. Estimate and Schedule are two jobs over the same rows, not two datasets.
 2. **Three layers, one reconciliation.** Effort × time yields demand; the Resource Plan yields supply; their per-period difference is the point of the screen, not the bars.
-3. **Time in the app's units.** Phases and periods lead; calendar dates explain. Dragging snaps to period boundaries.
+3. **Time in the app's units.** Phases and periods lead; calendar dates explain. Dragging snaps to period boundaries, and so does every shift a dependency causes.
 4. **Planning only.** No progress, no baselines, no actuals. Nothing on screen may imply tracking.
 
 ## Tab header
@@ -60,6 +60,14 @@ No Save button; fields commit on blur, as the tables already do. A failed write 
 
 Advice in a conflict message must be verifiable, not plausible: do not suggest a specific period unless the engine confirms it is free.
 
+## Dependencies
+
+Arrows in the app's ink (`#030213` at reduced opacity) so they read as structure, not as another data series. Link handles appear on a bar only on hover, and a drag between two bars creates the link; a drag that would form a cycle is refused with a toast naming the two items, not a silent no-op.
+
+A **violated** link — the successor starts earlier than its type and lag allow — is drawn in amber and the successor's bar carries an amber marker at its start edge, with the shortfall in the tooltip (*"starts 2 weeks before Tech audit finishes"*). Violations also list in reconciliation.
+
+Until auto-scheduling ships (CAP-13), nothing in this may suggest that moving a predecessor will move anything else: no ghost preview of a cascade, no "will shift N tasks" hint. A flagged violation is an honest statement; an implied movement that does not happen is not. When CAP-13 lands, the cascade becomes one undoable operation with a single toast reporting how many items moved.
+
 ## Deliberately absent
 
-Progress handles and fills; dependency link handles; SVAR's own task editor, toolbar and vertical markers; free calendar zoom by day as a default; row drag-to-restructure in Schedule mode (SVAR issue #20); a second resource picker beside `RolesEditor`.
+Progress handles and fills; SVAR's own task editor, toolbar and vertical markers; free calendar zoom by day as a default; row drag-to-restructure in Schedule mode (SVAR issue #20); a second resource picker beside `RolesEditor`.

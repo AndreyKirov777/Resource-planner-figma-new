@@ -11,6 +11,8 @@ companions:
 sources: []
 ---
 
+> **SUPERSEDED (2026-08-21)** by [`../spec-roadmap/SPEC.md`](../spec-roadmap/SPEC.md). The "schedule on WBS items" model was rejected: a WBS leaf is the unit of estimation, not of time. The replacement keeps the WBS unchanged and adds a separate, flat project roadmap linked N:1 to WBS subtrees. This file is retained for rationale and traceability only; do not implement from it.
+
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability — consult them only if you need narrative rationale or prose color this contract intentionally omits.
 
 # WBS Schedule Mode
@@ -19,7 +21,7 @@ sources: []
 
 A pain to solve. The Resource Planner already estimates work two ways — bottom-up in the WBS (hours per role per work package) and top-down in the Resource Plan (roles × periods × allocation %) — and WBS-3 reconciles them by total, by discipline and by phase. What no view answers is **when**: the WBS knows how much work exists but not the weeks it lands in, so a planner cannot see that two Backend packages collide in one week while the plan staffs two engineers, or that a designer sits idle for a month. Phase assignment is the only time signal today, and it is too coarse to expose either problem.
 
-Adding a schedule turns two layers into three — effort, time, capacity — and makes the reconciliation *per period* rather than per phase. That is the point of this feature; the Gantt bars are how a planner manipulates it, not the deliverable. Consequently this is a **planning** instrument and not project management: nothing here tracks progress or records what actually happened.
+Adding a schedule turns two layers into three — effort, time, capacity — and makes the reconciliation *per period* rather than per phase. Sequence belongs to the same problem: while work is placed by hand the project end date is *asserted*, and only once tasks constrain each other is it **computed**. So dependencies and the scheduling pass that honours them are part of this feature, not an extra. What stays out is everything about execution — this is a **planning** instrument: nothing here tracks progress or records what actually happened.
 
 ## Capabilities
 
@@ -67,6 +69,14 @@ Adding a schedule turns two layers into three — effort, time, capacity — and
   - **intent:** A planner restructures the WBS from either mode with the same gestures.
   - **success:** Add sibling, add child, indent, outdent and delete work identically from the row context menu and the keyboard in both modes; the keyboard hint line is present in both.
 
+- **CAP-12 — Dependencies between tasks**
+  - **intent:** A planner can record that one item must follow another, with a type and a lag, and see when the current schedule violates that.
+  - **success:** A link is created by dragging between two scheduled bars, persists with `type` and `lag`, and is drawn on the timeline; a link that would form a cycle is rejected at the API with a clear reason; a link whose constraint the schedule violates is flagged on the bar and listed in reconciliation. **Nothing moves automatically at this stage, and nothing in the UI implies it will.**
+
+- **CAP-13 — Auto-scheduling from dependencies**
+  - **intent:** Moving or resizing an item pulls its dependent work along, so the project's end date follows from the network rather than from where bars were dropped.
+  - **success:** A predecessor's change shifts its successors in topological order to satisfy every link type and lag, snapped to period boundaries; the resulting project end date and the critical path are derived and displayed; a shift that cannot be satisfied is reported rather than silently dropped; the whole cascade is one undoable operation.
+
 ## Constraints
 
 - **Hours are the source of truth.** SVAR expresses an assignment as a percentage (`units`); this app stores absolute hours in `WbsEstimate`. Any `units` handed to SVAR is derived for display and never written back as truth.
@@ -84,7 +94,7 @@ Adding a schedule turns two layers into three — effort, time, capacity — and
 
 ## Non-goals
 
-- Task dependencies, auto-scheduling, critical path and slack. Without PRO auto-scheduling, links would be drawn but inert — worse than absent. They return only with an in-house shift-on-change rule.
+- Slack, resource levelling, and any scheduling mode beyond a forward pass (no backward planning, no constraint solving). CAP-13 shifts successors forward to satisfy links; it does not optimise, level or reverse-plan.
 - Progress, baselines, actuals and task status. The mode plans; it does not track.
 - A capacity view with people or roles as rows and assignments as bars. That is a separate later feature, and if built it belongs on a resource-timeline library rather than on SVAR.
 - Multiple activities per WBS item, or several what-if schedule scenarios per project. `WbsSchedule` stays 1:1 until a real need appears.
@@ -107,4 +117,6 @@ A planner opens the WBS tab of a real project, switches to Schedule, drags the w
 - What happens to `WbsSchedule` rows when the planning mode is converted weekly ↔ monthly? `modeConversion.ts` remaps allocations; schedule rows need an equivalent rule, and that conversion is already documented as lossy.
 - What happens to `WbsSchedule` rows when phases are reordered, split or deleted in Resource Plan? `phases.ts` has `remapPeriodNumber` for allocations; schedule rows likely need the same remap.
 - Should the JSON project export/import carry `WbsSchedule` and `Project.startDate`? WBS-4 shipped export/import for `WbsItem` and `WbsEstimate`; omitting schedule would silently drop it on round-trip.
+- When CAP-13 shifts a successor out of its assigned phase, does it reassign `phaseName`, stop at the phase boundary, or move and flag? Same question for a shift past the last phase.
+- Do links participate in the JSON project export/import, alongside `WbsSchedule` and `Project.startDate`?
 - Should an unscheduled item contribute derived demand — spread across its phase — to the load strip and by-period reconciliation, or count as zero until explicitly scheduled? The mockup shows a derived ghost bar; whether it also feeds demand is undecided.

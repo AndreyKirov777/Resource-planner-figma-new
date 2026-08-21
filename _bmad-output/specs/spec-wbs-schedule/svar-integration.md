@@ -27,7 +27,9 @@ On 2026-08-21 the vendor's API page for `resources` carried a "PRO Edition only"
 
 **Verified free and used by this spec:** `columns` with React `cell` and `editor` components, `highlightTime(date, unit) → cssClass`, `taskTemplate`, `Toolbar`, `ContextMenu`, `Tooltip`, `Fullscreen`, `api.on` / `api.intercept` / `api.exec`, `RestDataProvider`.
 
-**Present in the build but unverified at implementation level:** `markers`, `baselines`, `undo`, `criticalPath` — the config keys exist despite the docs calling them PRO. This spec does not depend on any of them.
+**Links are free too**, verified the same way: `ILink` is `{ id?, type: TLinkType, source, target, lag? }`; `add-link`, `update-link` and `delete-link` actions ship in the React dist; `_linksIndex` is a `Map` for successor lookup; `wx-link` styling and a links field for the editor are present. So drawing links, creating them by dragging and carrying a lag cost us nothing — **only the scheduling engine behind them is ours to write** (`scheduleLinks.ts` in `data-model.md`). This is why CAP-12 and CAP-13 split the way they do: the library gives the notation, we supply the meaning.
+
+**Present in the build but unverified at implementation level:** `markers`, `baselines`, `undo`, `criticalPath` — the config keys exist despite the docs calling them PRO. This spec does not depend on any of them; note in particular that CAP-13 computes the critical path itself rather than trusting SVAR's, because we need it over *our* period model.
 
 **Rule that follows:** settle every feature you intend to depend on by running it. The vendor comparison table is not evidence in either direction.
 
@@ -59,7 +61,7 @@ Roughly half of the project's 29 issues are open and maintainer response is slow
 
 - **Phase bands** come from `highlightTime(date, unit)` returning a per-phase CSS class; SVAR's own vertical `markers` are not relied on. Today's date, if wanted, uses the same mechanism.
 - **Editing form:** cancel SVAR's own editor with `api.intercept("show-editor", () => false)` and render the app's side panel instead (CAP-9). A modal Sheet would contradict "the timeline stays visible".
-- **Persistence:** subscribe to `add-task`, `update-task`, `delete-task`, `move-task`, `indent-task`, `outdent-task` and forward to `src/services/api.ts`. Do not use `RestDataProvider`'s automatic endpoints — this app's API shape is its own.
+- **Persistence:** subscribe to `add-task`, `update-task`, `delete-task`, `move-task`, `indent-task`, `outdent-task`, `add-link`, `update-link`, `delete-link` and forward to `src/services/api.ts`. Intercept `add-link` to run the DAG check before it reaches the store, so a rejected link never renders. Do not use `RestDataProvider`'s automatic endpoints — this app's API shape is its own.
 - **Theming:** `Willow` / `WillowDark` with `fonts={false}`, then override `--wx-*` variables from the app's tokens. Internal class names are hashed; only the semantic `.wx-bar.wx-task.<type>` selectors are stable enough to target.
 - **Container:** SVAR needs an explicit height. Schedule mode uses a fixed viewport with internal scrolling plus `Fullscreen`, unlike Estimate mode's content-sized grid capped at `MAX_GRID_HEIGHT`.
 - **Undo:** the app owns it. A single-operation revert through `onUpdateWbsItem` plus a `sonner` toast is what CAP-4 needs; SVAR's own undo is not part of the design.
