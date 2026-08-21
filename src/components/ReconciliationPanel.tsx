@@ -5,8 +5,31 @@ import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { cn } from './ui/utils';
 
+/**
+ * Display-ready shape for the three roadmap coverage cards (CAP-7) — names
+ * already resolved, so this file stays presentational (per its own doc
+ * comment below: no reconciliation logic of its own). The caller derives
+ * this from `coverage()` in `utils/roadmap.ts` plus a WBS/roadmap-item name
+ * lookup; `Wbs.tsx` is the current caller.
+ */
+export interface RoadmapCoverageDisplay {
+  unplaced: { wbsItemId: number; name: string; hours: number }[];
+  unplacedHours: number;
+  unplacedShare: number;
+  empty: { roadmapItemId: number; name: string }[];
+  phaseMismatch: {
+    roadmapItemId: number;
+    itemName: string;
+    wbsItemId: number;
+    leafName: string;
+    phaseName: string;
+  }[];
+}
+
 interface ReconciliationPanelProps {
   report: ReconciliationReport;
+  /** Roadmap coverage cards (CAP-7) — omitted entirely when the roadmap payload isn't loaded yet. */
+  coverage?: RoadmapCoverageDisplay;
 }
 
 // Hour figures are sums of many floating-point terms; treat anything below this as
@@ -42,7 +65,7 @@ export function reconciliationSummary(report: ReconciliationReport): string {
  * All hour figures are computed upstream by `buildReconciliationReport` —
  * this component contains no reconciliation logic of its own.
  */
-export function ReconciliationPanel({ report }: ReconciliationPanelProps) {
+export function ReconciliationPanel({ report, coverage }: ReconciliationPanelProps) {
   const { projectTotal, byDiscipline, byPhaseDiscipline, phaseLevelAvailable, unassignedWbs, unmappedPlan } = report;
 
   return (
@@ -199,6 +222,77 @@ export function ReconciliationPanel({ report }: ReconciliationPanelProps) {
           </CardContent>
         </Card>
       </div>
+
+      {coverage && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle>Unplaced (WBS)</CardTitle>
+              <Badge variant={coverage.unplacedHours > 0 ? 'outline' : 'secondary'}>
+                {formatHours(coverage.unplacedHours)} h · {(coverage.unplacedShare * 100).toFixed(0)}%
+              </Badge>
+            </CardHeader>
+            <CardContent>
+              {coverage.unplaced.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  No unplaced WBS hours. Every estimated node has an effective roadmap item.
+                </p>
+              ) : (
+                <ul className="space-y-1 text-sm">
+                  {coverage.unplaced.map((row) => (
+                    <li key={row.wbsItemId} className="flex justify-between">
+                      <span className="truncate">{row.name}</span>
+                      <span className="font-medium">{formatHours(row.hours)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle>Empty (roadmap)</CardTitle>
+              <Badge variant={coverage.empty.length > 0 ? 'outline' : 'secondary'}>{coverage.empty.length}</Badge>
+            </CardHeader>
+            <CardContent>
+              {coverage.empty.length === 0 ? (
+                <p className="text-muted-foreground text-sm">No bars without scope.</p>
+              ) : (
+                <ul className="space-y-1 text-sm">
+                  {coverage.empty.map((row) => (
+                    <li key={row.roadmapItemId} className="truncate">
+                      {row.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle>Phase mismatch</CardTitle>
+              <Badge variant={coverage.phaseMismatch.length > 0 ? 'outline' : 'secondary'}>
+                {coverage.phaseMismatch.length}
+              </Badge>
+            </CardHeader>
+            <CardContent>
+              {coverage.phaseMismatch.length === 0 ? (
+                <p className="text-muted-foreground text-sm">Every linked leaf's phase overlaps its item's window.</p>
+              ) : (
+                <ul className="space-y-1 text-sm">
+                  {coverage.phaseMismatch.map((row, index) => (
+                    <li key={`${index}-${row.roadmapItemId}-${row.wbsItemId}`} className="truncate">
+                      <span className="font-medium">{row.itemName}</span> · {row.leafName} · {row.phaseName}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -93,4 +93,58 @@ describe('ReconciliationPanel', () => {
     expect(screen.getByText('0')).toBeInTheDocument();
     expect(screen.queryByText(/^[+-]/)).not.toBeInTheDocument();
   });
+
+  describe('coverage prop (CAP-7 roadmap cards)', () => {
+    it('renders exactly as before when the coverage prop is absent (no roadmap cards)', () => {
+      const r = report({});
+      render(<ReconciliationPanel report={r} />);
+
+      expect(screen.queryByText('Unplaced (WBS)')).not.toBeInTheDocument();
+      expect(screen.queryByText('Empty (roadmap)')).not.toBeInTheDocument();
+      expect(screen.queryByText('Phase mismatch')).not.toBeInTheDocument();
+    });
+
+    it('renders the three coverage cards when coverage is provided', () => {
+      const r = report({});
+      render(
+        <ReconciliationPanel
+          report={r}
+          coverage={{
+            unplaced: [{ wbsItemId: 1, name: 'Contingency', hours: 40 }],
+            unplacedHours: 40,
+            unplacedShare: 0.25,
+            empty: [{ roadmapItemId: 10, name: 'Frontend' }],
+            phaseMismatch: [
+              { roadmapItemId: 10, itemName: 'Backend', wbsItemId: 2, leafName: 'Auth', phaseName: 'Launch' },
+            ],
+          }}
+        />
+      );
+
+      expect(screen.getByText('Unplaced (WBS)')).toBeInTheDocument();
+      expect(screen.getByText('Contingency')).toBeInTheDocument();
+      expect(screen.getByText('25%', { exact: false })).toBeInTheDocument();
+
+      expect(screen.getByText('Empty (roadmap)')).toBeInTheDocument();
+      expect(screen.getByText('Frontend', { exact: false })).toBeInTheDocument();
+
+      expect(screen.getByText('Phase mismatch')).toBeInTheDocument();
+      expect(screen.getByText(/Auth/)).toBeInTheDocument();
+      expect(screen.getByText(/Launch/)).toBeInTheDocument();
+    });
+
+    it('shows the zero-state text in each card when its list is empty', () => {
+      const r = report({});
+      render(
+        <ReconciliationPanel
+          report={r}
+          coverage={{ unplaced: [], unplacedHours: 0, unplacedShare: 0, empty: [], phaseMismatch: [] }}
+        />
+      );
+
+      expect(screen.getByText(/no unplaced wbs hours/i)).toBeInTheDocument();
+      expect(screen.getByText(/no bars without scope/i)).toBeInTheDocument();
+      expect(screen.getByText(/every linked leaf's phase overlaps/i)).toBeInTheDocument();
+    });
+  });
 });
