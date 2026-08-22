@@ -78,7 +78,7 @@ export function marginPct(
  */
 export function hoursPerPeriod(
   mode: 'weekly' | 'monthly',
-  daysInFTE: number = 20,
+  daysInFTE: number,
 ): number {
   return mode === 'monthly' ? daysInFTE * 8 : 40;
 }
@@ -90,7 +90,7 @@ export function hoursPerPeriod(
  */
 export function estimatedEffortHours(
   totalPeriodsEquivalent: number,
-  hoursPerPeriodValue: number = 40
+  hoursPerPeriodValue: number
 ): number {
   return totalPeriodsEquivalent * hoursPerPeriodValue;
 }

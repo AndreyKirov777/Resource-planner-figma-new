@@ -726,13 +726,6 @@ export default function App() {
         const result = await api.importProject(json);
         alert(`Import completed. New project ID: ${result.projectId}`);
         await loadProjectData(result.projectId);
-        
-        // Force recalculation of all calculated values by triggering a re-render
-        // This ensures that all calculated fields are updated after import
-        setTimeout(() => {
-          // Force a state update to trigger recalculation
-          setResourcePlans(prev => [...prev]);
-        }, 100);
       };
       input.click();
     } catch (err) {

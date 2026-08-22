@@ -78,13 +78,16 @@
 
 ## Phase 3 — Точечная гигиена
 
-- [ ] Убрать доступ к приватному инстансу AG Grid через `document.querySelector('.ag-theme-alpine')` + `__agGridReact` + `setTimeout`: завести `gridRef = useRef<AgGridReact>(null)` (в RateCard его сейчас нет) и звать `gridRef.current?.api.sizeColumnsToFit()` — `src/components/RateCard.tsx:105-119`
-- [ ] Убрать `setTimeout(() => setResourcePlans(prev => [...prev]), 100)` — no-op, `loadProjectData` уже делает `setResourcePlans` (`src/App.tsx:126`) — `src/App.tsx:730-735`
-- [ ] Убрать неиспользуемые дефолтные параметры (все реальные вызовы передают оба аргумента явно) — `src/utils/calculations.ts:79,91` (`hoursPerPeriod`, `estimatedEffortHours`)
+- [x] Убрать доступ к приватному инстансу AG Grid через `document.querySelector('.ag-theme-alpine')` + `__agGridReact` + `setTimeout`: завести `gridRef = useRef<AgGridReact>(null)` (в RateCard его сейчас нет) и звать `gridRef.current?.api.sizeColumnsToFit()` — `src/components/RateCard.tsx:105-119`. `setTimeout` тоже убран целиком (не только доступ к приватному API) — `gridRef.current` доступен сразу, задержка была не нужна.
+- [x] Убрать `setTimeout(() => setResourcePlans(prev => [...prev]), 100)` — no-op, `loadProjectData` уже делает `setResourcePlans` (`src/App.tsx:126`) — `src/App.tsx:730-735`
+- [x] Убрать неиспользуемые дефолтные параметры (все реальные вызовы передают оба аргумента явно) — `src/utils/calculations.ts:79,91` (`hoursPerPeriod`, `estimatedEffortHours`). Два теста, проверявших сами дефолты ("defaults daysInFTE to 20", "defaults to 40 hours per week"), удалены вместе с ними — тестировали фичу, которая перестала существовать.
 
 ~~Убрать `document.execCommand('copy')` fallback (`ResourcePlan.tsx:1174-1191`)~~ — **не делать**: `navigator.clipboard` есть только в secure context (HTTPS/localhost). По `docs/deployment-guide.md` TLS не гарантирован («поставьте nginx»); при открытии по LAN-IP fallback — единственное, что работает. 10 строк, оставить.
 
-**Проверка Phase 3:** проверка ресайза колонок RateCard при переключении региональных табов, импорт проекта в App (кейс, который раньше полагался на `setTimeout`).
+**Проверка Phase 3:** оба сценария проверены живым браузером через Playwright (`npx playwright`, headless, дев-сервер уже запущен) поверх одноразовых тестовых проектов — реальные данные не тронуты:
+- Ресайз колонок RateCard при переключении по всем 9 регионам (включая Ukraine → Eastern Europe → Asia (ARM,KZ) → London → Ukraine, скриншот сразу после клика, без искусственной задержки) — колонки развёрнуты корректно каждый раз, без `setTimeout`. Заодно проверил кнопку Add на вкладке London — новая запись в Resource List получила верный дневной рейт ($480 = $60×8) и Location "LDN".
+- Импорт проекта (`Load file` → выбор JSON, экспортированный из реального проекта 9) — сразу после импорта, без ожидания, Total Estimated Efforts показал 2994h и все остальные totals/phase breakdown совпали с бейзлайном из Phase 2 — подтверждает, что убранный `setTimeout` действительно был no-op.
+`npm run typecheck`/`npm test` — зелёные (718/730 passed, те же 12 pre-existing localStorage-failures).
 
 ---
 

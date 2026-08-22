@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import { Button } from './ui/button';
@@ -100,6 +100,8 @@ export function RateCard({
     defaultLocation ?? APP_DEFAULTS.defaultLocation
   );
 
+  const gridRef = useRef<AgGridReact<RateCardType>>(null);
+
   useEffect(() => {
     if (defaultLocation) {
       setActiveRegionTab(defaultLocation);
@@ -118,18 +120,7 @@ export function RateCard({
   
   // Auto-resize columns when regional tab changes
   React.useEffect(() => {
-    // Small delay to ensure AG Grid has updated the column visibility
-    const timer = setTimeout(() => {
-      const gridElement = document.querySelector('.ag-theme-alpine');
-      if (gridElement && (gridElement as any).__agGridReact) {
-        const gridApi = (gridElement as any).__agGridReact.api;
-        if (gridApi && gridApi.sizeColumnsToFit) {
-          gridApi.sizeColumnsToFit();
-        }
-      }
-    }, 100);
-    
-    return () => clearTimeout(timer);
+    gridRef.current?.api?.sizeColumnsToFit();
   }, [activeRegionTab]);
   
   // Filtered data based on external filters
@@ -516,6 +507,7 @@ export function RateCard({
       </div>
       <div className="ag-theme-alpine" style={{ height: 600, width: '100%' }}>
         <AgGridReact
+          ref={gridRef}
           theme="legacy"
           context={{ addRateCard: handleAddRateCard }}
           rowData={filteredRateCards}

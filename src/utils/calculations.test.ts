@@ -91,20 +91,12 @@ describe('calculations', () => {
       expect(hoursPerPeriod('monthly', 20)).toBe(160);
       expect(hoursPerPeriod('monthly', 21)).toBe(168);
     });
-
-    it('defaults daysInFTE to 20 for monthly', () => {
-      expect(hoursPerPeriod('monthly')).toBe(160);
-    });
   });
 
   describe('estimatedEffortHours', () => {
     it('returns totalWeeksEquivalent * hoursPerWeek', () => {
       expect(estimatedEffortHours(1, 40)).toBe(40);
       expect(estimatedEffortHours(2.5, 40)).toBe(100);
-    });
-
-    it('defaults to 40 hours per week', () => {
-      expect(estimatedEffortHours(1)).toBe(40);
     });
   });
 
