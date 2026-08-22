@@ -74,115 +74,58 @@ export function ResourceList({
       filter: false
     };
 
-    const otherColumns: ColDef<ResourceListType>[] = [
-      {
-        headerName: 'Rate card role',
-        field: 'role',
-        width: 200,
-        editable: true,
-        onCellValueChanged: (params: any) => {
-          const updatedResources = resourceLists.map(resource =>
-            resource.id === params.data.id
-              ? { ...resource, role: params.newValue }
-              : resource
-          );
-          onResourceListsChange(updatedResources);
-          const updatedRow = updatedResources.find(r => r.id === params.data.id);
-          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'Client Role',
-        field: 'clientRole',
-        width: 200,
-        editable: true,
-        onCellValueChanged: (params: any) => {
-          const updatedResources = resourceLists.map(resource =>
-            resource.id === params.data.id
-              ? { ...resource, clientRole: params.newValue }
-              : resource
-          );
-          onResourceListsChange(updatedResources);
-          const updatedRow = updatedResources.find(r => r.id === params.data.id);
-          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'Name',
-        field: 'name',
+    // Builds an editable column that writes a single field back through
+    // onResourceListsChange/onResourceListUpdate. `transform` adapts the raw
+    // grid value before it's stored (e.g. parseFloat, canonicalLocationLabel);
+    // any other ColDef options (width, formatters, cell editor) pass through.
+    function makeFieldColumn(
+      field: keyof ResourceListType,
+      headerName: string,
+      { transform = (v: any) => v, ...colDefOverrides }: Partial<ColDef<ResourceListType>> & { transform?: (newValue: any) => any } = {},
+    ): ColDef<ResourceListType> {
+      return {
+        headerName,
+        field,
         width: 150,
         editable: true,
         onCellValueChanged: (params: any) => {
           const updatedResources = resourceLists.map(resource =>
             resource.id === params.data.id
-              ? { ...resource, name: params.newValue }
+              ? { ...resource, [field]: transform(params.newValue) }
               : resource
           );
           onResourceListsChange(updatedResources);
           const updatedRow = updatedResources.find(r => r.id === params.data.id);
           if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'Location',
-        field: 'location',
+        },
+        ...colDefOverrides,
+      };
+    }
+
+    const otherColumns: ColDef<ResourceListType>[] = [
+      makeFieldColumn('role', 'Rate card role', { width: 200 }),
+      makeFieldColumn('clientRole', 'Client Role', { width: 200 }),
+      makeFieldColumn('name', 'Name', { width: 150 }),
+      makeFieldColumn('location', 'Location', {
         width: 110,
-        editable: true,
         cellEditor: 'agSelectCellEditor',
         cellEditorParams: { values: LOCATION_LABELS },
         valueFormatter: (params: any) => locationAbbr(params.value),
         tooltipValueGetter: (params: any) => canonicalLocationLabel(params.value),
-        onCellValueChanged: (params: any) => {
-          const updatedResources = resourceLists.map(resource =>
-            resource.id === params.data.id
-              ? { ...resource, location: canonicalLocationLabel(params.newValue) || undefined }
-              : resource
-          );
-          onResourceListsChange(updatedResources);
-          const updatedRow = updatedResources.find(r => r.id === params.data.id);
-          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'Hourly cost',
-        field: 'intRate',
+        transform: (newValue: any) => canonicalLocationLabel(newValue) || undefined,
+      }),
+      makeFieldColumn('intRate', 'Hourly cost', {
         width: 150,
-        editable: true,
         valueFormatter: (params: any) => `$${params.value.toFixed(2)}`,
-        onCellValueChanged: (params: any) => {
-          const updatedResources = resourceLists.map(resource =>
-            resource.id === params.data.id
-              ? { ...resource, intRate: parseFloat(params.newValue) || 0 }
-              : resource
-          );
-          onResourceListsChange(updatedResources);
-          const updatedRow = updatedResources.find(r => r.id === params.data.id);
-          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
-        }
-      },
-
+        transform: (newValue: any) => parseFloat(newValue) || 0,
+      }),
       {
         headerName: 'Daily cost',
         width: 140,
         valueGetter: (params: any) => params.data.intRate * 8,
         valueFormatter: (params: any) => `$${params.value.toFixed(2)}`
       },
-      {
-        headerName: 'Description',
-        field: 'description',
-        width: 360,
-        editable: true,
-        onCellValueChanged: (params: any) => {
-          const updatedResources = resourceLists.map(resource =>
-            resource.id === params.data.id
-              ? { ...resource, description: params.newValue }
-              : resource
-          );
-          onResourceListsChange(updatedResources);
-          const updatedRow = updatedResources.find(r => r.id === params.data.id);
-          if (updatedRow?.id != null && onResourceListUpdate) onResourceListUpdate(updatedRow.id, updatedRow);
-        }
-      }
+      makeFieldColumn('description', 'Description', { width: 360 }),
     ];
 
     return [actionsColumn, ...otherColumns];
