@@ -88,9 +88,10 @@ This is a **planning** instrument. Nothing here tracks progress or records what 
   - **intent:** A planner gets a first roadmap in one action instead of retyping the top of the tree.
   - **success:** From an empty roadmap, a bootstrap turns depth-0 WBS nodes into lanes and depth-1 nodes into items linked to their subtrees, each windowed to its effective phase (a one-level tree yields one lane with depth-0 items); the result is previewed before anything is written; after apply every leaf with an effective phase is placed and coverage reports zero unplaced hours.
 
-- **CAP-13 — Draft a Resource Plan from the roadmap**
+- **CAP-13 — Draft a Resource Plan from the roadmap** — **frozen 2026-08-22**, see `deferred-work.md`
   - **intent:** A planner turns bottom-up, time-placed demand into a top-down plan without retyping it.
   - **success:** Per-period demand becomes draft plan rows and allocations through the existing `GeneratePlanSheet` draft → preview → apply flow; nothing is written until the planner accepts.
+  - **status:** Implementation is complete and unchanged (`buildDraftFromRoadmapLoad` in `roadmapDraftPlan.ts`, wired through `Roadmap.tsx`'s `openDraftPlan`), but the entry point is frozen at product's request: the "Draft plan from roadmap" button in the roadmap toolbar is unconditionally `disabled` (no longer keyed to `totalDemandHours(roadmapLoad) > 0`) with a title tooltip explaining it's temporarily disabled. Unfreezing is a one-line revert in `Roadmap.tsx`.
 
 ## Constraints
 

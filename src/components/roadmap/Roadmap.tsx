@@ -37,7 +37,6 @@ import {
   buildRoadmapLoad,
   overDemandPeriodsInWindow,
   roadmapLoadKeys,
-  totalDemandHours,
   RoadmapLoadDimension,
   RoadmapLoadItemInput,
 } from '../../utils/roadmapLoad';
@@ -601,7 +600,14 @@ export function Roadmap({
           </SelectContent>
         </Select>
         <div className="flex-1" />
-        <Button variant="outline" size="sm" onClick={openDraftPlan} disabled={totalDemandHours(roadmapLoad) <= 0}>
+        {/* CAP-13 frozen 2026-08-22 (deferred-work.md) — unconditionally disabled, not state-derived. */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={openDraftPlan}
+          disabled
+          title="Draft plan from roadmap is temporarily disabled."
+        >
           Draft plan from roadmap
         </Button>
         <Button variant="outline" size="sm" onClick={handleAddLane}>

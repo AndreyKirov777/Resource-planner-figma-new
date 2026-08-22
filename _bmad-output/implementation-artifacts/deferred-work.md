@@ -62,6 +62,16 @@ Goal 2's "Accept" should route through this rather than the non-atomic per-row C
 - `src/components/AIAssistant.tsx` / `ResourcePlan.tsx` — "Plan applied — Undo" toast + History list.
 - Note for `mode: "new"`: Undo is just `deleteProject` — handle in UI, don't route through `apply-plan`.
 
+## CAP-13 — Draft plan from roadmap (frozen 2026-08-22)
+
+Feature ships and works (`_bmad-output/specs/spec-roadmap/SPEC.md` CAP-13), but is frozen at
+product's request — not a bug, not a technical blocker. The "Draft plan from roadmap" button in
+the roadmap toolbar (`src/components/roadmap/Roadmap.tsx`, `openDraftPlan`) is unconditionally
+`disabled` with an explanatory `title`, in place of its old `totalDemandHours(roadmapLoad) > 0`
+condition. `buildDraftFromRoadmapLoad` (`src/utils/roadmapDraftPlan.ts`) and its unit tests are
+untouched. To unfreeze: restore the demand-based `disabled` condition (and drop the `title`) on
+the button in `Roadmap.tsx`.
+
 ## Deferred from spec-2-generate-plan-ui review (2026-06-30)
 
 Minor issues surfaced during the Goal 2 step-04 review; not blocking, deferred for focused attention.
