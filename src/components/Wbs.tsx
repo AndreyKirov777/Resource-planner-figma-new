@@ -32,6 +32,7 @@ import { hoursPerPeriod } from '../utils/calculations';
 import { buildReconciliationReport } from '../utils/wbs';
 import { buildWbsTree, withEffectivePhases } from '../utils/wbsTree';
 import { effectiveRoadmapItems, coverage as buildCoverage, RoadmapLinkRecord } from '../utils/roadmap';
+import { buildRoadmapLoad, buildByPeriodMatrix, RoadmapLoadItemInput } from '../utils/roadmapLoad';
 import {
   WbsColumnId,
   getVisibleWbsColumns,
@@ -663,6 +664,32 @@ export function Wbs({
       })),
     };
   }, [roadmapLanes.length, wbsItems, roadmapLinks, roadmapAllItems, phases, roadmapItemNameById]);
+
+  // CAP-10 by-period matrix — ALWAYS computed (unlike the coverage cards
+  // above): it renders from the phase baseline even when the roadmap is
+  // empty, per `ux-reference.md`. An empty `roadmapLanes` yields an empty
+  // `loadItems`/`roadmapLinks`, so every leaf falls back to its own phase
+  // baseline in `buildRoadmapLoad` — the same engine, not a special case.
+  const roadmapLoadItems: RoadmapLoadItemInput[] = useMemo(
+    () => roadmapAllItems.map((i) => ({ id: i.id, name: i.name, kind: i.kind, startPeriod: i.startPeriod, periodCount: i.periodCount })),
+    [roadmapAllItems]
+  );
+  const roadmapLoad = useMemo(
+    () =>
+      buildRoadmapLoad({
+        wbsItems,
+        roadmapItems: roadmapLoadItems,
+        links: roadmapLinks,
+        resourcePlans,
+        rateCards,
+        phases,
+        planningMode: (project.planningMode || 'weekly') as 'weekly' | 'monthly',
+        daysInFTE: project.daysInFTE,
+      }),
+    [wbsItems, roadmapLoadItems, roadmapLinks, resourcePlans, rateCards, phases, project.planningMode, project.daysInFTE]
+  );
+  const byPeriodRoleMatrix = useMemo(() => buildByPeriodMatrix(roadmapLoad, 'role'), [roadmapLoad]);
+  const byPeriodDisciplineMatrix = useMemo(() => buildByPeriodMatrix(roadmapLoad, 'discipline'), [roadmapLoad]);
 
   // The committer must outlive the overlay: `provideEditor` mounts and
   // unmounts `RolesEditor` on every open/close, so an editor-owned committer
@@ -1392,7 +1419,13 @@ export function Wbs({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="mt-4">
-              <ReconciliationPanel report={reconciliationReport} coverage={roadmapCoverage} />
+              <ReconciliationPanel
+                report={reconciliationReport}
+                coverage={roadmapCoverage}
+                byPeriodRoleMatrix={byPeriodRoleMatrix}
+                byPeriodDisciplineMatrix={byPeriodDisciplineMatrix}
+                byPeriodPhaseBaselineOnly={roadmapLanes.length === 0}
+              />
             </div>
           </CollapsibleContent>
         </Collapsible>

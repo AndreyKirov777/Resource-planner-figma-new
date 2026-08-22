@@ -12,6 +12,7 @@ import {
   totalDemandHours,
   spreadDistribution,
   contributorsForPeriod,
+  buildByPeriodMatrix,
   RoadmapLoadInput,
   RoadmapLoadItemInput,
 } from './roadmapLoad';
@@ -380,5 +381,64 @@ describe('contributorsForPeriod — load strip popover', () => {
     const l = load({ wbsItems: [leaf], roadmapItems: items, links });
     const contributors = contributorsForPeriod(l, items, 'discipline', 'Engineering', 1);
     expect(contributors).toEqual([{ source: 'item', id: 100, name: 'API', hours: 40 }]);
+  });
+});
+
+describe('buildByPeriodMatrix — CAP-10', () => {
+  it('renders from the phase baseline alone when there are no roadmap items at all', () => {
+    const leaf = wbsItem({
+      id: 1,
+      phaseName: 'Discovery',
+      estimates: [estimate({ wbsItemId: 1, role: 'Backend Developer', hours: 100 })],
+    });
+    const l = load({ wbsItems: [leaf] }); // no roadmapItems, no links -> empty roadmap
+    const matrix = buildByPeriodMatrix(l, 'role');
+    expect(matrix.periods).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    const row = matrix.rows.find((r) => r.key === 'Backend Developer')!;
+    expect(row.cells[0].demand).toBe(50); // Discovery periods 1-2, 100h/2
+    expect(row.cells[1].demand).toBe(50);
+    expect(row.cells[2].demand).toBe(0);
+    expect(row.total.demand).toBe(100);
+  });
+
+  it('the total row/column sum every displayed row cell-for-cell', () => {
+    const leafA = wbsItem({ id: 1, estimates: [estimate({ wbsItemId: 1, role: 'Backend Developer', hours: 80 })] });
+    const leafB = wbsItem({ id: 2, estimates: [estimate({ wbsItemId: 2, role: 'Frontend Developer', hours: 40 })] });
+    const items: RoadmapLoadItemInput[] = [
+      roadmapItem({ id: 100, startPeriod: 1, periodCount: 4 }),
+      roadmapItem({ id: 101, startPeriod: 1, periodCount: 4 }),
+    ];
+    const links: RoadmapLinkRecord[] = [
+      { wbsItemId: 1, roadmapItemId: 100 },
+      { wbsItemId: 2, roadmapItemId: 101 },
+    ];
+    const l = load({ wbsItems: [leafA, leafB], roadmapItems: items, links });
+    const matrix = buildByPeriodMatrix(l, 'role');
+
+    const period1Sum = matrix.rows.reduce((sum, row) => sum + row.cells[0].demand, 0);
+    expect(matrix.totalRow.cells[0].demand).toBe(period1Sum);
+    expect(matrix.totalRow.cells[0].demand).toBe(30); // 20 (Backend) + 10 (Frontend)
+
+    const grandTotal = matrix.rows.reduce((sum, row) => sum + row.total.demand, 0);
+    expect(matrix.totalRow.total.demand).toBe(grandTotal);
+    expect(matrix.totalRow.total.demand).toBe(120); // 80 + 40
+  });
+
+  it('numbers match direct demandHours/supplyHours calls for the same key and period', () => {
+    const leaf = wbsItem({ id: 1, estimates: [estimate({ wbsItemId: 1, role: 'Backend Developer', hours: 80 })] });
+    const items: RoadmapLoadItemInput[] = [roadmapItem({ id: 100, startPeriod: 1, periodCount: 4 })];
+    const links: RoadmapLinkRecord[] = [{ wbsItemId: 1, roadmapItemId: 100 }];
+    const l = load({
+      wbsItems: [leaf],
+      roadmapItems: items,
+      links,
+      resourcePlans: [resourcePlan({ role: 'Backend Developer', allocations: [allocation({ periodNumber: 2, allocation: 100 })] })],
+      rateCards: [rateCard({ role: 'Backend Developer', discipline: 'Engineering' })],
+    });
+    const matrix = buildByPeriodMatrix(l, 'role');
+    const row = matrix.rows.find((r) => r.key === 'Backend Developer')!;
+    expect(row.cells[1].demand).toBe(demandHours(l, 'role', 'Backend Developer', 2));
+    expect(row.cells[1].supply).toBe(supplyHours(l, 'role', 'Backend Developer', 2));
+    expect(row.cells[1].variance).toBe(variance(l, 'role', 'Backend Developer', 2));
   });
 });

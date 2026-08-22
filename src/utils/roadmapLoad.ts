@@ -447,3 +447,70 @@ export function contributorsForPeriod(
 
   return contributors.sort((a, b) => b.hours - a.hours);
 }
+
+// ---------------------------------------------------------------------------
+// By-period matrix (CAP-10) — ReconciliationPanel's roles/disciplines x
+// periods section. Pure aggregation over the same engine output the load
+// strip and bar stripe read, so the three can never disagree.
+// ---------------------------------------------------------------------------
+
+export interface ByPeriodCell {
+  demand: number;
+  supply: number;
+  variance: number;
+}
+
+export interface ByPeriodMatrixRow {
+  key: string;
+  cells: ByPeriodCell[]; // aligned with ByPeriodMatrix.periods
+  total: ByPeriodCell;
+}
+
+export interface ByPeriodMatrix {
+  periods: number[];
+  rows: ByPeriodMatrixRow[];
+  /** Column sums per period AND the grand total — note its `supply` figure is
+   * a sum of whatever rows are shown, so it can legitimately differ between
+   * role and discipline dimension (see the module doc comment's supply-matching
+   * simplification): role mode's discipline-fallback can lend the same pool
+   * of hours to more than one role, discipline mode never does. */
+  totalRow: ByPeriodMatrixRow;
+}
+
+function cellVariance(demand: number, supply: number): ByPeriodCell {
+  return { demand, supply, variance: demand - supply };
+}
+
+export function buildByPeriodMatrix(load: RoadmapLoad, dimension: RoadmapLoadDimension): ByPeriodMatrix {
+  const periods = Array.from({ length: load.np }, (_, i) => i + 1);
+  const keys = roadmapLoadKeys(load, dimension);
+
+  const rows: ByPeriodMatrixRow[] = keys.map((key) => {
+    let totalDemand = 0;
+    let totalSupply = 0;
+    const cells = periods.map((p) => {
+      const demand = demandHours(load, dimension, key, p);
+      const supply = supplyHours(load, dimension, key, p);
+      totalDemand += demand;
+      totalSupply += supply;
+      return cellVariance(demand, supply);
+    });
+    return { key, cells, total: cellVariance(totalDemand, totalSupply) };
+  });
+
+  const totalCells = periods.map((_, i) => {
+    const demand = rows.reduce((sum, row) => sum + row.cells[i].demand, 0);
+    const supply = rows.reduce((sum, row) => sum + row.cells[i].supply, 0);
+    return cellVariance(demand, supply);
+  });
+  const totalRow: ByPeriodMatrixRow = {
+    key: 'Total',
+    cells: totalCells,
+    total: cellVariance(
+      rows.reduce((sum, row) => sum + row.total.demand, 0),
+      rows.reduce((sum, row) => sum + row.total.supply, 0)
+    ),
+  };
+
+  return { periods, rows, totalRow };
+}
