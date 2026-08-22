@@ -244,6 +244,18 @@ export function Roadmap({
     setZoomIndex(fitZoom(1, width)); // keep the ladder in sync so +/- steps from here
   }
 
+  // While in fit mode, re-fit as the viewport is resized. A manual zoom
+  // in/out clears fitWidth (see applyZoom), which stops this until Fit
+  // is clicked again.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || fitWidth === null || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => applyFit());
+    observer.observe(el);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitWidth, np]);
+
   function applyShowLaneBars(next: boolean) {
     setShowLaneBars(next);
     saveShowLaneBars(project.id, next);
