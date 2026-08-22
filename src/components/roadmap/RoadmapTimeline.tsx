@@ -6,7 +6,7 @@
  */
 import React, { useMemo, useRef } from 'react';
 import { Phase } from '../../services/api';
-import { RoadmapRow, periodToDate } from '../../utils/roadmap';
+import { RoadmapRow, periodToDate, recomputeLaneSpans } from '../../utils/roadmap';
 import { RoadmapLoad, avgSupplyFteOverWindow } from '../../utils/roadmapLoad';
 import {
   periodX,
@@ -16,11 +16,17 @@ import {
   rowAt,
   snapDrag,
   stripeSegments,
+  laneBarRect,
+  laneSummaryPath,
+  laneMilestoneXs,
   ROW_HEIGHT,
   HEADER_HEIGHT,
   BAR_HEIGHT,
   MILESTONE_SIZE,
   MILESTONE_HIT,
+  LANE_BAR_HEIGHT,
+  LANE_CAP_DROP,
+  LANE_MILESTONE_SIZE,
 } from '../../utils/roadmapGeometry';
 import { RoadmapDragCommit, useRoadmapDrag } from './useRoadmapDrag';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
@@ -28,6 +34,9 @@ import { cn } from '../ui/utils';
 
 const ACCENT = '#8f4f8f';
 const AMBER = '#d97706';
+/** The lane summary bar's colour, one place for both themes — a neutral slate that is
+ * deliberately not `ACCENT`, so a lane bar is never misread as something schedulable. */
+const LANE_BAR_CLASS = 'text-[#33627D] dark:text-[#7FA8C0]';
 const STRIPE_EPSILON = 1e-6;
 
 interface RoadmapTimelineProps {
@@ -47,6 +56,9 @@ interface RoadmapTimelineProps {
   onCommit: (commit: RoadmapDragCommit) => void;
   onScroll: (scrollLeft: number) => void;
   viewportRef: React.MutableRefObject<HTMLDivElement | null>;
+  /** Governs the whole lane summary layer — bar, caps, ticks, stripe, label and chip. Off is an early return, not hidden DOM. */
+  showLaneBars: boolean;
+  onToggleLane: (laneId: number) => void;
 }
 
 
@@ -67,6 +79,8 @@ export function RoadmapTimeline({
   onCommit,
   onScroll,
   viewportRef,
+  showLaneBars,
+  onToggleLane,
 }: RoadmapTimelineProps) {
   const rowsWrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -84,6 +98,15 @@ export function RoadmapTimeline({
     onCommit,
     onSelect: onSelectItem,
   });
+
+  // The summary never lags its children: while a drag ghost is live, the
+  // affected lane(s)' span is recomputed from the ghosted window in the same
+  // pass rows are consumed — one scan, not a per-row check. Off costs
+  // nothing: skipped entirely when the layer is off.
+  const displayRows = useMemo(
+    () => (showLaneBars ? recomputeLaneSpans(rows, ghost) : rows),
+    [rows, ghost, showLaneBars]
+  );
 
   const bands = useMemo(
     () =>
@@ -232,15 +255,136 @@ export function RoadmapTimeline({
 
           {/* Rows */}
           <div ref={rowsWrapRef}>
-            {rows.map((row, rowIndex) => {
+            {displayRows.map((row, rowIndex) => {
               if (row.kind === 'lane') {
+                if (!showLaneBars) {
+                  return (
+                    <div
+                      key={`lane-${row.id}`}
+                      className="border-b bg-[#f6f6f6] dark:bg-[#1f1f1f]"
+                      style={{ height: ROW_HEIGHT, boxSizing: 'border-box' }}
+                      data-testid={`roadmap-row-lane-${row.id}`}
+                    />
+                  );
+                }
+
+                const hasBar = row.periodCount > 0;
+                const rect = hasBar ? laneBarRect(row.startPeriod, row.periodCount, periodWidth) : null;
+                const svgHeight = LANE_BAR_HEIGHT + LANE_CAP_DROP;
+                const svgTop = (ROW_HEIGHT - svgHeight) / 2;
+                const milestoneXs =
+                  rect && row.collapsed ? laneMilestoneXs(row.milestonePeriods, periodWidth) : [];
+                const laneStripeRects =
+                  rect && row.collapsed && row.overDemandPeriods.length > 0
+                    ? stripeSegments({ startPeriod: row.startPeriod, periodCount: row.periodCount }, row.overDemandPeriods, periodWidth)
+                    : [];
+                const laneWindowLabel = (() => {
+                  const base = `W${row.startPeriod}${row.periodCount > 1 ? `–${row.startPeriod + row.periodCount - 1}` : ''}`;
+                  const from = periodToDate(row.startPeriod, planningMode, startDate);
+                  if (!from) return base;
+                  const to = periodToDate(row.startPeriod + row.periodCount - 1, planningMode, startDate);
+                  const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                  return `${base} · ${fmt(from)}${to && row.periodCount > 1 ? ` – ${fmt(to)}` : ''}`;
+                })();
+
                 return (
                   <div
                     key={`lane-${row.id}`}
-                    className="border-b bg-[#f6f6f6] dark:bg-[#1f1f1f]"
+                    className="relative border-b bg-[#f6f6f6] dark:bg-[#1f1f1f]"
                     style={{ height: ROW_HEIGHT, boxSizing: 'border-box' }}
                     data-testid={`roadmap-row-lane-${row.id}`}
-                  />
+                  >
+                    {rect && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-label={row.name}
+                            data-testid={`roadmap-lane-bar-${row.id}`}
+                            className={cn(
+                              'absolute cursor-pointer select-none outline-none',
+                              LANE_BAR_CLASS
+                            )}
+                            style={{ left: rect.left, top: svgTop, width: rect.width, height: svgHeight }}
+                            onClick={() => onToggleLane(row.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                                e.preventDefault();
+                                onToggleLane(row.id);
+                              }
+                            }}
+                          >
+                            <svg width={rect.width} height={svgHeight} style={{ display: 'block', overflow: 'visible' }}>
+                              <path d={laneSummaryPath(rect)} fill="currentColor" />
+                              {row.collapsed &&
+                                milestoneXs.map((x, i) => (
+                                  <rect
+                                    key={i}
+                                    data-testid={`roadmap-lane-milestone-${row.id}`}
+                                    x={x - rect.left - LANE_MILESTONE_SIZE / 2}
+                                    y={LANE_BAR_HEIGHT / 2 - LANE_MILESTONE_SIZE / 2}
+                                    width={LANE_MILESTONE_SIZE}
+                                    height={LANE_MILESTONE_SIZE}
+                                    fill="currentColor"
+                                    transform={`rotate(45 ${x - rect.left} ${LANE_BAR_HEIGHT / 2})`}
+                                  />
+                                ))}
+                            </svg>
+                            {row.collapsed &&
+                              laneStripeRects.map((r2, i) => (
+                                <div
+                                  key={i}
+                                  className="pointer-events-none absolute rounded-b"
+                                  data-testid={`roadmap-lane-stripe-${row.id}`}
+                                  style={{
+                                    left: r2.left - rect.left,
+                                    width: r2.width,
+                                    top: svgHeight,
+                                    height: 3,
+                                    background: AMBER,
+                                  }}
+                                />
+                              ))}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          <div className="font-medium">{row.name}</div>
+                          <div>{laneWindowLabel}</div>
+                          <div>
+                            {row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h ·{' '}
+                            {row.fte.toFixed(1)} FTE
+                          </div>
+                          <div>
+                            {row.itemCount} item{row.itemCount === 1 ? '' : 's'}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                    {rect && (
+                      <span
+                        data-testid={`roadmap-lane-label-${row.id}`}
+                        className="pointer-events-none absolute select-none overflow-hidden whitespace-nowrap text-[11px] text-ellipsis text-muted-foreground"
+                        style={{
+                          left: rect.left + rect.width + 6,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          maxWidth: Math.max(0, timelineWidth - (rect.left + rect.width + 6)),
+                        }}
+                      >
+                        {row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h · {row.fte.toFixed(1)} FTE
+                      </span>
+                    )}
+                    {row.spreadItemCount > 0 && (
+                      <span
+                        data-testid={`roadmap-lane-spread-chip-${row.id}`}
+                        title={`Spread across the whole project: ${row.spreadItemNames.join(', ')}`}
+                        className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 select-none whitespace-nowrap text-[11px] text-muted-foreground"
+                      >
+                        {'»'} {row.spreadItemCount} spread
+                      </span>
+                    )}
+                  </div>
                 );
               }
 

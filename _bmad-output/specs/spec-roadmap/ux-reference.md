@@ -27,13 +27,13 @@ A shadcn `Dialog` with a preview table: `Lane · Item · Hours · Window · Phas
 
 A single bordered container (`rounded-lg`, `border-gray-200`) holding, top to bottom:
 
-**Toolbar strip, 44px.** Left: `Start <date>` (or `Set start date` when null), planning unit, zoom −/+, `Fit`, separator, `Load <role>`. Right: `Add lane`, `Add item`, fullscreen. All shadcn `outline`/`sm` buttons so the strip reads as app chrome, not as a library's toolbar.
+**Toolbar strip, 44px.** Left: `Start <date>` (or `Set start date` when null), planning unit, zoom −/+, `Fit`, `Lane bars` toggle, separator, `Load <role>`. Right: `Add lane`, `Add item`, fullscreen. All shadcn `outline`/`sm` buttons so the strip reads as app chrome, not as a library's toolbar.
 
 **Body**, a row of: left grid 320px — columns `Lane / Item` 200, `Hours` 64, `FTE` 56 — then the timeline, then the editor panel when open (360px, compressing the timeline rather than covering it).
 
 **Header, 44px on both sides.** Timeline header is two rows inside it — 22px phase bands over 21px period columns, the odd pixel going to the container's own bottom border: phase bands with WBS hour totals over period columns labelled `W4 · 28 Sep` (or `W4` alone without a start date). The left grid's header is one line vertically centred in the same 44px.
 
-**Rows, 34px,** matching `ROW_HEIGHT`. Lane rows use `#f6f6f6` / `#1f1f1f` / 600 as `SECTION_ROW_THEME` already does for WBS section rows; they carry no bar, and their `Hours` / `FTE` cells sum their items. Item rows sit under their lane, one row per item. Lanes collapse and expand; collapse state is per project in localStorage like `loadHiddenColumns`.
+**Rows, 34px,** matching `ROW_HEIGHT`. Lane rows use `#f6f6f6` / `#1f1f1f` / 600 as `SECTION_ROW_THEME` already does for WBS section rows; their `Hours` / `FTE` cells sum their items. When the `Lane bars` toggle is on (the default), a lane row also draws a summary bar — see "Bar visual language" below; off, the row is exactly the tinted band it always was, no bar. Item rows sit under their lane, one row per item. Lanes collapse and expand; collapse state is per project in localStorage like `loadHiddenColumns`, and the `Lane bars` toggle is a second, independent per-project localStorage preference alongside it.
 
 **Load strip, 64px,** below the rows, its label in the left-grid column and its cells in the timeline's column grid.
 
@@ -51,6 +51,9 @@ Colour encodes kind and state only; the phase already colours the background, so
 | Demand above supply | 3px amber stripe along the bar's bottom **over the affected periods only** |
 | Phase mismatch | small amber marker at the bar's start edge; tooltip names the leaf and its phase |
 | Selected | 2px `#030213` ring plus a tinted row |
+| Lane summary bar | bracket-with-end-caps silhouette (flat slab + short downward tab at each end), a neutral slate `LANE_BAR` (`#33627D`, dark `#7FA8C0`) — deliberately not the item accent, so it is never misread as schedulable; spans the union window of the lane's window-bearing items (a spread item never widens it — see the chip below); read-out only, click toggles collapse |
+| Lane bar, collapsed | additionally carries the lane's rolled-up milestone ticks and the union of its children's over-demand periods as the same amber stripe |
+| Lane spans-project chip | `» N spread`, pinned at the timeline's left edge, for a lane owning one or more spread items — the bar's window is unaffected |
 
 Amber for over-demand and red for idle capacity, matching `varianceClass` in `ReconciliationPanel.tsx`. Two colour languages for one concept is a defect.
 

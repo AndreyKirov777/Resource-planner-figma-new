@@ -22,6 +22,17 @@ export const MILESTONE_SIZE = 9;
 /** Transparent square that catches the pointer — the diamond alone is too small to grab. */
 export const MILESTONE_HIT = 18;
 
+/** Height of a lane summary bar's flat slab. */
+export const LANE_BAR_HEIGHT = 8;
+/** Width of each of the summary bar's end caps. */
+export const LANE_CAP_WIDTH = 6;
+/** How far each end cap drops below the slab. */
+export const LANE_CAP_DROP = 5;
+/** Corner radius on the slab's two top corners. */
+export const LANE_BAR_RADIUS = 2;
+/** Side of the rolled-up milestone tick (rotated 45° to a diamond), before rotation. */
+export const LANE_MILESTONE_SIZE = 5;
+
 /** Fixed zoom ladder for `periodWidth`, in pixels per period. No free-pixel zoom. */
 export const ZOOM_LADDER: readonly number[] = [8, 12, 16, 24, 32, 40, 56, 72];
 export const DEFAULT_ZOOM_INDEX = 3; // periodWidth = 24
@@ -68,6 +79,53 @@ export function barRect(startPeriod: number, periodCount: number, periodWidth: n
 /** X of the boundary at the end of `startPeriod` — where a milestone diamond centres. */
 export function milestoneX(startPeriod: number, periodWidth: number): number {
   return periodX(startPeriod, periodWidth) + periodWidth;
+}
+
+/**
+ * A lane summary bar's rect. Delegates to `barRect` so the inset rule lives
+ * in exactly one place — a lane bar's edges therefore agree, by
+ * construction, with its earliest/latest child's bar edges.
+ */
+export function laneBarRect(startPeriod: number, periodCount: number, periodWidth: number): Rect {
+  return barRect(startPeriod, periodCount, periodWidth);
+}
+
+/**
+ * The bracket-with-end-caps silhouette as one SVG path, relative to `rect`'s
+ * own local coordinate space (x=0 at `rect.left`): a flat slab of height
+ * `LANE_BAR_HEIGHT` with a short downward tab at each end, flush with the
+ * rect's outer edges. When the rect is narrower than `2 * LANE_CAP_WIDTH`
+ * the caps shrink to half the rect each, so they meet in the middle but
+ * never cross.
+ */
+export function laneSummaryPath(rect: Rect): string {
+  const w = Math.max(0, rect.width);
+  const h = LANE_BAR_HEIGHT;
+  const drop = LANE_CAP_DROP;
+  const cap = w < 2 * LANE_CAP_WIDTH ? w / 2 : LANE_CAP_WIDTH;
+  const r = Math.min(LANE_BAR_RADIUS, w / 2, h);
+  const right = w;
+
+  return [
+    `M ${r} 0`,
+    `L ${right - r} 0`,
+    `A ${r} ${r} 0 0 1 ${right} ${r}`,
+    `L ${right} ${h}`,
+    `L ${right} ${h + drop}`,
+    `L ${right - cap} ${h + drop}`,
+    `L ${right - cap} ${h}`,
+    `L ${cap} ${h}`,
+    `L ${cap} ${h + drop}`,
+    `L 0 ${h + drop}`,
+    `L 0 ${r}`,
+    `A ${r} ${r} 0 0 1 ${r} 0`,
+    'Z',
+  ].join(' ');
+}
+
+/** Rolled-up milestone tick centres for a collapsed lane's summary bar, reusing `milestoneX`. */
+export function laneMilestoneXs(periods: readonly number[], periodWidth: number): number[] {
+  return periods.map((p) => milestoneX(p, periodWidth));
 }
 
 export interface PhaseBandInput {

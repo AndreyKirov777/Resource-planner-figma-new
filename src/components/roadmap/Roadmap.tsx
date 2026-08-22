@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Minus, Plus, Maximize2, Minimize2 } from 'lucide-react';
+import { Minus, Plus, Maximize2, Minimize2, Brackets } from 'lucide-react';
 import {
   Project,
   WbsItem,
@@ -137,6 +137,27 @@ function saveZoomIndex(projectId: number, index: number) {
   }
 }
 
+function laneBarsStorageKey(projectId: number) {
+  return `roadmap-lane-bars:${projectId}`;
+}
+
+function loadShowLaneBars(projectId: number): boolean {
+  try {
+    const raw = window.localStorage.getItem(laneBarsStorageKey(projectId));
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function saveShowLaneBars(projectId: number, value: boolean) {
+  try {
+    window.localStorage.setItem(laneBarsStorageKey(projectId), String(value));
+  } catch {
+    /* private mode / quota — the choice simply won't survive a reload */
+  }
+}
+
 export function Roadmap({
   project,
   wbsItems,
@@ -164,6 +185,7 @@ export function Roadmap({
 
   const [zoomIndex, setZoomIndex] = useState(() => loadZoomIndex(project.id));
   const periodWidth = ZOOM_LADDER[zoomIndex];
+  const [showLaneBars, setShowLaneBars] = useState(() => loadShowLaneBars(project.id));
   const [collapsed, setCollapsed] = useState<Set<number>>(() => loadCollapsedLanes(project.id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [editorItemId, setEditorItemId] = useState<number | null>(null);
@@ -186,6 +208,7 @@ export function Roadmap({
   useEffect(() => {
     setCollapsed(loadCollapsedLanes(project.id));
     setZoomIndex(loadZoomIndex(project.id));
+    setShowLaneBars(loadShowLaneBars(project.id));
     setSelectedItemId(null);
     setEditorItemId(null);
   }, [project.id]);
@@ -193,6 +216,11 @@ export function Roadmap({
   function applyZoom(next: number) {
     setZoomIndex(next);
     saveZoomIndex(project.id, next);
+  }
+
+  function applyShowLaneBars(next: boolean) {
+    setShowLaneBars(next);
+    saveShowLaneBars(project.id, next);
   }
 
   const tree = useMemo(() => buildWbsTree(wbsItems), [wbsItems]);
@@ -560,6 +588,16 @@ export function Roadmap({
         >
           Fit
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-pressed={showLaneBars}
+          onClick={() => applyShowLaneBars(!showLaneBars)}
+          className={showLaneBars ? 'bg-accent text-accent-foreground' : undefined}
+        >
+          <Brackets className="h-3.5 w-3.5" />
+          Lane bars
+        </Button>
         <div className="mx-1 h-5 w-px bg-border" aria-hidden />
         <Select
           value={effectiveLoadSelection ? `${effectiveLoadSelection.dimension}:${effectiveLoadSelection.key}` : undefined}
@@ -660,6 +698,8 @@ export function Roadmap({
                 if (loadStripScrollRef.current) loadStripScrollRef.current.scrollLeft = scrollLeft;
               }}
               viewportRef={viewportRef}
+              showLaneBars={showLaneBars}
+              onToggleLane={toggleLane}
             />
           </div>
           <RoadmapLoadStrip

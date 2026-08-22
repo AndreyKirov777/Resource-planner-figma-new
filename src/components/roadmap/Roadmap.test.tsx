@@ -782,3 +782,282 @@ describe('zoom persistence', () => {
     expect(screen.getByTestId('roadmap-period-col-1').style.width).toBe(`${zoomedWidth}px`);
   });
 });
+
+function makeLanesWithTwoBars(): RoadmapLaneWithItems[] {
+  return [
+    {
+      id: 1,
+      name: 'Backend',
+      displayOrder: 0,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+      items: [
+        {
+          id: 10,
+          name: 'API',
+          kind: 'bar',
+          startPeriod: 3,
+          periodCount: 4, // W3-6
+          displayOrder: 0,
+          laneId: 1,
+          projectId: 1,
+          createdAt: '',
+          updatedAt: '',
+          wbsItemIds: [],
+        },
+        {
+          id: 11,
+          name: 'Rollout',
+          kind: 'bar',
+          startPeriod: 9,
+          periodCount: 4, // W9-12
+          displayOrder: 1,
+          laneId: 1,
+          projectId: 1,
+          createdAt: '',
+          updatedAt: '',
+          wbsItemIds: [],
+        },
+      ],
+    },
+    { id: 2, name: 'Frontend', displayOrder: 1, projectId: 1, createdAt: '', updatedAt: '', items: [] },
+  ];
+}
+
+describe('lane summary bars', () => {
+  it('draws one summary bar spanning the union window, edges matching the first/last item bars to the pixel', () => {
+    renderRoadmap(makeLanesWithTwoBars());
+    const laneBar = screen.getByTestId('roadmap-lane-bar-1');
+    const item10 = screen.getByTestId('roadmap-bar-10');
+    const item11 = screen.getByTestId('roadmap-bar-11');
+    expect(laneBar.style.left).toBe(item10.style.left);
+    const laneRight = parseFloat(laneBar.style.left) + parseFloat(laneBar.style.width);
+    const item11Right = parseFloat(item11.style.left) + parseFloat(item11.style.width);
+    expect(laneRight).toBe(item11Right);
+  });
+
+  it('an empty lane draws no bar and no label', () => {
+    renderRoadmap(makeLanesWithTwoBars());
+    expect(screen.queryByTestId('roadmap-lane-bar-2')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-lane-label-2')).not.toBeInTheDocument();
+  });
+
+  it('a lane with only spread items draws no bar — the chip alone marks the row', () => {
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'PMO',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 12,
+            name: 'PM',
+            kind: 'spread',
+            startPeriod: 1,
+            periodCount: 0,
+            displayOrder: 0,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+    renderRoadmap(lanes);
+    expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('roadmap-lane-spread-chip-1')).toBeInTheDocument();
+  });
+
+  it('a spread item never widens the lane bar; the chip appears alongside it', () => {
+    const lanes = makeLanesWithTwoBars();
+    lanes[0].items.push({
+      id: 12,
+      name: 'PM',
+      kind: 'spread',
+      startPeriod: 1,
+      periodCount: 0,
+      displayOrder: 2,
+      laneId: 1,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+      wbsItemIds: [],
+    });
+    renderRoadmap(lanes);
+    const laneBar = screen.getByTestId('roadmap-lane-bar-1');
+    const item10 = screen.getByTestId('roadmap-bar-10');
+    expect(laneBar.style.left).toBe(item10.style.left);
+    expect(screen.getByTestId('roadmap-lane-spread-chip-1')).toBeInTheDocument();
+  });
+
+  it('clicking the lane bar toggles collapse and issues no request', () => {
+    const handlers = renderRoadmap(makeLanesWithTwoBars());
+    const laneBar = screen.getByTestId('roadmap-lane-bar-1');
+    fireEvent.click(laneBar);
+    expect(screen.queryByTestId('roadmap-bar-10')).not.toBeInTheDocument(); // items now hidden
+    expect(screen.getByTestId('roadmap-lane-bar-1')).toBeInTheDocument(); // the bar itself is still drawn
+    expect(handlers.onUpdateItem).not.toHaveBeenCalled();
+    expect(handlers.onUpdateLane).not.toHaveBeenCalled();
+  });
+
+  it('a drag attempt on the lane bar does nothing — no ghost, no request', () => {
+    const handlers = renderRoadmap(makeLanesWithTwoBars());
+    const laneBar = screen.getByTestId('roadmap-lane-bar-1');
+    expect(laneBar).toHaveClass('cursor-pointer');
+    expect(laneBar).not.toHaveClass('cursor-grab');
+    fireEvent.pointerDown(laneBar, { clientX: 0, clientY: 0, button: 0 });
+    fireEvent.pointerMove(laneBar, { clientX: 100, clientY: 0 });
+    fireEvent.pointerUp(laneBar, { clientX: 100, clientY: 0 });
+    expect(handlers.onUpdateItem).not.toHaveBeenCalled();
+  });
+
+  it('Enter/Space on a focused lane bar toggles collapse, matching the pointer behaviour', () => {
+    renderRoadmap(makeLanesWithTwoBars());
+    const laneBar = screen.getByTestId('roadmap-lane-bar-1');
+    fireEvent.keyDown(laneBar, { key: 'Enter' });
+    expect(screen.queryByTestId('roadmap-bar-10')).not.toBeInTheDocument();
+    fireEvent.keyDown(laneBar, { key: ' ' });
+    expect(screen.getByTestId('roadmap-bar-10')).toBeInTheDocument();
+  });
+});
+
+describe('collapsed lane rollups', () => {
+  it('shows a rolled-up milestone tick and the union over-demand stripe only while collapsed', () => {
+    const overDemandWbsItems: WbsItem[] = [
+      {
+        id: 500,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 1, discipline: 'Engineering', role: 'Backend Developer', hours: 400, wbsItemId: 500, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'Backend',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 10,
+            name: 'API',
+            kind: 'bar',
+            startPeriod: 5,
+            periodCount: 4, // W5-8, over-demand: zero resource-plan supply anywhere
+            displayOrder: 0,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [500],
+          },
+          {
+            id: 11,
+            name: 'Launch',
+            kind: 'milestone',
+            startPeriod: 8,
+            periodCount: 0,
+            displayOrder: 1,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={overDemandWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={[]}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn()}
+      />
+    );
+
+    // Expanded: the item rows own the tick and stripe, the lane bar draws neither.
+    expect(screen.queryByTestId('roadmap-lane-milestone-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-lane-stripe-1')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('roadmap-lane-bar-1'));
+
+    // Collapsed: item rows are gone, the lane bar carries the rollups instead.
+    expect(screen.queryByTestId('roadmap-bar-10')).not.toBeInTheDocument();
+    expect(screen.getByTestId('roadmap-lane-milestone-1')).toBeInTheDocument();
+    expect(screen.getByTestId('roadmap-lane-stripe-1')).toBeInTheDocument();
+  });
+});
+
+describe('Lane bars toggle', () => {
+  it('is on by default, so the feature is discoverable', () => {
+    renderRoadmap(makeLanesWithTwoBars());
+    expect(screen.getByTestId('roadmap-lane-bar-1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Lane bars/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('pressing the toggle hides the whole summary layer in one render; item rows, grid and load strip are untouched', () => {
+    renderRoadmap(makeLanesWithTwoBars());
+    fireEvent.click(screen.getByRole('button', { name: /Lane bars/ }));
+
+    expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-lane-label-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-lane-spread-chip-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('roadmap-row-lane-1')).toBeInTheDocument(); // the plain tinted row remains
+    expect(screen.getByTestId('roadmap-bar-10')).toBeInTheDocument(); // item rows untouched
+    expect(screen.getByTestId('roadmap-grid-lane-1')).toBeInTheDocument(); // left grid untouched
+  });
+
+  it('persists to localStorage and restores across unmount/remount for the same project', () => {
+    const first = renderRoadmap(makeLanesWithTwoBars());
+    fireEvent.click(screen.getByRole('button', { name: /Lane bars/ }));
+    expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
+    first.unmount();
+
+    renderRoadmap(makeLanesWithTwoBars());
+    expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Lane bars/ })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('defaults to on when localStorage throws, with nothing surfaced to the user', () => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('blocked');
+      },
+    });
+    try {
+      renderRoadmap(makeLanesWithTwoBars());
+      expect(screen.getByTestId('roadmap-lane-bar-1')).toBeInTheDocument();
+    } finally {
+      installMemoryLocalStorage();
+    }
+  });
+});

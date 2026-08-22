@@ -13,7 +13,11 @@ import {
   convertRoadmapItemsToMonthly,
   convertRoadmapItemsToWeekly,
   remapRoadmapItemsForPhaseChange,
+  laneSpan,
+  recomputeLaneSpans,
   RoadmapLinkRecord,
+  RoadmapRow,
+  RoadmapRowItem,
 } from './roadmap';
 
 let nextId = 1;
@@ -421,6 +425,213 @@ describe('toRoadmapRows', () => {
     ];
     const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
     expect(rows.find((r) => r.id === 13)?.emptyScope).toBe(true);
+  });
+
+  it('a lane with two bars and a gap draws one span, not two — min/max over the gap', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [
+      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0 }, // W3-6
+      { id: 11, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 9, periodCount: 4, displayOrder: 1 }, // W9-12
+    ];
+    const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
+    const lane = rows.find((r) => r.kind === 'lane')!;
+    expect(lane.startPeriod).toBe(3);
+    expect(lane.periodCount).toBe(10); // covers through W12
+  });
+
+  it('a trailing milestone extends the lane span', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [
+      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0 }, // W3-6
+      { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 14, periodCount: 0, displayOrder: 1 },
+    ];
+    const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
+    const lane = rows.find((r) => r.kind === 'lane')!;
+    expect(lane.startPeriod).toBe(3);
+    expect(lane.periodCount).toBe(12); // W3..W14
+  });
+
+  it('a milestone-only lane spans one period', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [{ id: 10, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 7, periodCount: 0, displayOrder: 0 }];
+    const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
+    const lane = rows.find((r) => r.kind === 'lane')!;
+    expect(lane.startPeriod).toBe(7);
+    expect(lane.periodCount).toBe(1);
+  });
+
+  it('a spread item never widens the span, but is reported via spreadItemCount/spreadItemNames', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [
+      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0 }, // W3-6
+      { id: 11, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 9, periodCount: 4, displayOrder: 1 }, // W9-12
+      { id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 2 },
+    ];
+    const withSpread = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20).find((r) => r.kind === 'lane')!;
+    const withoutSpread = toRoadmapRows(lanes, items.slice(0, 2), new Map(), new Set(), 40, 20).find(
+      (r) => r.kind === 'lane'
+    )!;
+    expect(withSpread.startPeriod).toBe(withoutSpread.startPeriod);
+    expect(withSpread.periodCount).toBe(withoutSpread.periodCount);
+    expect(withSpread.spreadItemCount).toBe(1);
+    expect(withSpread.spreadItemNames).toEqual(['PM']);
+  });
+
+  it('a lane with only spread items has no span (periodCount 0), chip alone marks it', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [{ id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0 }];
+    const lane = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20).find((r) => r.kind === 'lane')!;
+    expect(lane.periodCount).toBe(0);
+    expect(lane.spreadItemCount).toBe(1);
+  });
+
+  it('an empty lane has no span and no items', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const lane = toRoadmapRows(lanes, [], new Map(), new Set(), 40, 20).find((r) => r.kind === 'lane')!;
+    expect(lane.periodCount).toBe(0);
+    expect(lane.itemCount).toBe(0);
+    expect(lane.spreadItemCount).toBe(0);
+  });
+
+  it('rolls up milestone periods and the union of over-demand periods onto the lane row', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [
+      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0 }, // W3-6
+      { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 5, periodCount: 0, displayOrder: 1 },
+      { id: 12, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 8, periodCount: 3, displayOrder: 2 }, // W8-10
+    ];
+    const overDemandByItemId = new Map<number, number[]>([
+      [10, [4]],
+      [12, [9, 10]],
+    ]);
+    const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20, overDemandByItemId);
+    const lane = rows.find((r) => r.kind === 'lane')!;
+    expect(lane.milestonePeriods).toEqual([5]);
+    expect(lane.overDemandPeriods).toEqual([4, 9, 10]);
+  });
+});
+
+describe('laneSpan', () => {
+  function item(overrides: Partial<RoadmapRowItem> & Pick<RoadmapRowItem, 'kind' | 'startPeriod' | 'periodCount'>): RoadmapRowItem {
+    return { id: 0, laneId: 1, name: '', displayOrder: 0, ...overrides };
+  }
+
+  it('returns null for an empty item list', () => {
+    expect(laneSpan([])).toBeNull();
+  });
+
+  it('returns null when every item is a spread item', () => {
+    const items = [item({ kind: 'spread', startPeriod: 1, periodCount: 0 })];
+    expect(laneSpan(items)).toBeNull();
+  });
+
+  it('excludes a spread item from the min/max even alongside window-bearing items', () => {
+    const items = [
+      item({ kind: 'bar', startPeriod: 3, periodCount: 4 }),
+      item({ kind: 'spread', startPeriod: 1, periodCount: 0 }),
+    ];
+    expect(laneSpan(items)).toEqual({ startPeriod: 3, periodCount: 4 });
+  });
+
+  it('a milestone contributes its own single period to the span', () => {
+    const items = [item({ kind: 'milestone', startPeriod: 7, periodCount: 0 })];
+    expect(laneSpan(items)).toEqual({ startPeriod: 7, periodCount: 1 });
+  });
+});
+
+describe('recomputeLaneSpans', () => {
+  function laneRow(overrides: Partial<RoadmapRow> & { id: number }): RoadmapRow {
+    return {
+      kind: 'lane',
+      laneId: null,
+      name: 'Lane',
+      startPeriod: 1,
+      periodCount: 0,
+      hours: 0,
+      fte: 0,
+      emptyScope: false,
+      overDemandPeriods: [],
+      collapsed: false,
+      milestonePeriods: [],
+      spreadItemCount: 0,
+      spreadItemNames: [],
+      itemCount: 0,
+      ...overrides,
+    };
+  }
+  function itemRow(overrides: Partial<RoadmapRow> & { id: number; laneId: number }): RoadmapRow {
+    return {
+      kind: 'bar',
+      name: 'Item',
+      startPeriod: 1,
+      periodCount: 1,
+      hours: 0,
+      fte: 0,
+      emptyScope: false,
+      overDemandPeriods: [],
+      collapsed: false,
+      milestonePeriods: [],
+      spreadItemCount: 0,
+      spreadItemNames: [],
+      itemCount: 0,
+      ...overrides,
+    };
+  }
+
+  it('a null ghost returns the rows unchanged', () => {
+    const rows = [laneRow({ id: 1, startPeriod: 3, periodCount: 4 })];
+    expect(recomputeLaneSpans(rows, null)).toEqual(rows);
+  });
+
+  it('previews the ghosted window on the item’s own lane', () => {
+    const rows = [
+      laneRow({ id: 1, startPeriod: 3, periodCount: 4 }),
+      itemRow({ id: 10, laneId: 1, kind: 'bar', startPeriod: 3, periodCount: 4 }),
+    ];
+    const next = recomputeLaneSpans(rows, { itemId: 10, laneId: 1, startPeriod: 6, periodCount: 4 });
+    const lane = next.find((r) => r.kind === 'lane')!;
+    expect(lane.startPeriod).toBe(6);
+    expect(lane.periodCount).toBe(4);
+  });
+
+  it('a cross-lane drag recomputes both the source and destination lane', () => {
+    const rows = [
+      laneRow({ id: 1, startPeriod: 3, periodCount: 4 }),
+      itemRow({ id: 10, laneId: 1, kind: 'bar', startPeriod: 3, periodCount: 4 }),
+      laneRow({ id: 2, startPeriod: 10, periodCount: 2 }),
+      itemRow({ id: 20, laneId: 2, kind: 'bar', startPeriod: 10, periodCount: 2 }),
+    ];
+    const next = recomputeLaneSpans(rows, { itemId: 10, laneId: 2, startPeriod: 15, periodCount: 4 });
+    const laneA = next.find((r) => r.id === 1 && r.kind === 'lane')!;
+    const laneB = next.find((r) => r.id === 2 && r.kind === 'lane')!;
+    // Source lane is now empty of window-bearing items -> no span.
+    expect(laneA.periodCount).toBe(0);
+    // Destination lane covers both its own item and the ghosted one.
+    expect(laneB.startPeriod).toBe(10);
+    expect(laneB.periodCount).toBe(9); // W10..W18
+  });
+
+  it('rolls up the ghosted item into milestonePeriods when it is a milestone', () => {
+    const rows = [
+      laneRow({ id: 1, startPeriod: 3, periodCount: 4 }),
+      itemRow({ id: 10, laneId: 1, kind: 'milestone', startPeriod: 5, periodCount: 0 }),
+    ];
+    const next = recomputeLaneSpans(rows, { itemId: 10, laneId: 1, startPeriod: 8, periodCount: 0 });
+    const lane = next.find((r) => r.kind === 'lane')!;
+    expect(lane.milestonePeriods).toEqual([8]);
+    expect(lane.periodCount).toBe(1);
+  });
+
+  it('leaves unaffected lanes untouched', () => {
+    const rows = [
+      laneRow({ id: 1, startPeriod: 3, periodCount: 4 }),
+      itemRow({ id: 10, laneId: 1, kind: 'bar', startPeriod: 3, periodCount: 4 }),
+      laneRow({ id: 2, startPeriod: 10, periodCount: 2 }),
+      itemRow({ id: 20, laneId: 2, kind: 'bar', startPeriod: 10, periodCount: 2 }),
+    ];
+    const next = recomputeLaneSpans(rows, { itemId: 10, laneId: 1, startPeriod: 6, periodCount: 4 });
+    const laneB = next.find((r) => r.id === 2 && r.kind === 'lane')!;
+    expect(laneB).toEqual(rows[2]);
   });
 });
 
