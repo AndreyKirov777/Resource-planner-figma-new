@@ -27,6 +27,7 @@ import {
   RoadmapItem,
   RoadmapItemKind,
   BootstrapRoadmapPayload,
+  RoadmapReorderPayload,
 } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
@@ -39,6 +40,7 @@ import { getClientRoleFromRole } from './utils/clientRoleMapping';
 import { canonicalLocationLabel, locationAbbr, resolveLocationLabel } from './utils/regions';
 import { findResourceForPlan } from './utils/resourceMatching';
 import { descendantIds } from './utils/wbsTree';
+import { applyRoadmapReorder } from './utils/roadmapOrder';
 import { APP_DEFAULTS } from './config/defaults';
 import { describeError } from './utils/apiErrors';
 
@@ -514,6 +516,18 @@ export default function App() {
     setRoadmapLanes(prev => patchRoadmapItemInLanes(prev, id, data));
     try {
       await api.updateRoadmapItem(id, data);
+    } catch (err) {
+      setRoadmapLanes(previous);
+      throw err;
+    }
+  };
+
+  const handleReorderRoadmap = async (payload: RoadmapReorderPayload): Promise<void> => {
+    if (!currentProject) return;
+    const previous = roadmapLanes;
+    setRoadmapLanes(prev => applyRoadmapReorder(prev, payload));
+    try {
+      await api.reorderRoadmap(currentProject.id, payload);
     } catch (err) {
       setRoadmapLanes(previous);
       throw err;
@@ -1431,6 +1445,7 @@ export default function App() {
             onAddItem={handleAddRoadmapItem}
             onUpdateItem={handleUpdateRoadmapItem}
             onDeleteItem={handleDeleteRoadmapItem}
+            onReorderRoadmap={handleReorderRoadmap}
             onReplaceItemLinks={handleReplaceRoadmapItemLinks}
             onBootstrap={handleBootstrapRoadmap}
             onSetStartDate={handleSetProjectStartDate}

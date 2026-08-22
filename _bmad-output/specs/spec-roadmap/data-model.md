@@ -137,6 +137,11 @@ Follow the existing WBS endpoint shape in `server.ts`, and add the matching `.st
 | `PUT` | `/api/wbs-items/:id/roadmap-link` | `{ roadmapItemId: number \| null }` | the WBS-side edit; `null` unlinks |
 | `POST` | `/api/projects/:id/roadmap/bulk` | the `bootstrapRoadmap` output | transactional; refused with 409 unless the roadmap is empty |
 | `PATCH` | `/api/projects/:id` | `{ startDate }` | extend the existing project-settings schema; ISO date or `null` |
+| `PATCH` | `/api/projects/:id/roadmap/reorder` | `{ lanes?: [{id, displayOrder}], items?: [{id, laneId, displayOrder, startPeriod?, periodCount?}] }` | vertical drag (`spec-roadmap-vertical-drag.md`): one `prisma.$transaction`; every id verified to belong to the project first; responds with the full roadmap payload |
+
+### Vertical drag reorder — the one exception to "single-item PATCH only"
+
+`PATCH /api/projects/:id/roadmap/reorder` is the sole batch-write endpoint on the roadmap surface, added for reorder-within-a-lane, cross-lane move (optionally combined with a window move in the same gesture), and lane reorder. Every lane and item id it touches gets `displayOrder` renumbered **contiguously `0…n-1`** within its lane — no fractional ranks, no gaps — because a cross-lane drop can renumber two lanes and move a window in one user gesture, and the product decision is that this commits atomically or not at all (partial writes are unacceptable). `startPeriod`/`periodCount` are optional per item and are sent ONLY for a bar whose window the same gesture moved; the same `kind`/`periodCount` refinement the single-item `PATCH` enforces applies here too (a spread item's window write is still refused). This is a scoped exception to the WBS reorder precedent (`spec-wbs-drag-drop.md`), which forbade a batch endpoint because WBS placement only ever rewrites one row plus independently-failable sibling bumps — the roadmap case is different, and the exception does not generalize elsewhere.
 
 Every link write runs the project and milestone invariants above. `GET /api/projects/:projectId/wbs` is unchanged; the WBS tab learns its `Roadmap` column from the roadmap payload, not from a new field on `WbsItem`.
 

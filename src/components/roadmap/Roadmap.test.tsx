@@ -142,6 +142,7 @@ function renderRoadmap(lanes = makeLanes()) {
     ),
     onUpdateItem: vi.fn(() => Promise.resolve()),
     onDeleteItem: vi.fn(() => Promise.resolve()),
+    onReorderRoadmap: vi.fn(() => Promise.resolve()),
     onReplaceItemLinks: vi.fn(() => Promise.resolve()),
     onBootstrap: vi.fn(() => Promise.resolve()),
     onSetStartDate: vi.fn(() => Promise.resolve()),
@@ -160,6 +161,7 @@ function renderRoadmap(lanes = makeLanes()) {
       onAddItem={handlers.onAddItem}
       onUpdateItem={handlers.onUpdateItem}
       onDeleteItem={handlers.onDeleteItem}
+      onReorderRoadmap={handlers.onReorderRoadmap}
       onReplaceItemLinks={handlers.onReplaceItemLinks}
       onBootstrap={handlers.onBootstrap}
       onSetStartDate={handlers.onSetStartDate}
@@ -224,15 +226,48 @@ describe('Roadmap keyboard parity (CAP-4)', () => {
     expect(finish).toBe(ORIGIN.startPeriod + ORIGIN.periodCount - 1);
   });
 
-  it('Ctrl+ArrowDown moves the item to the next lane, window unchanged', () => {
+  it('Ctrl+ArrowDown moves the item to the next lane at an explicit tail index, window unchanged, via ONE atomic reorder request', () => {
     const handlers = renderRoadmap();
     const bar = screen.getByTestId('roadmap-bar-10');
     fireEvent.keyDown(bar, { key: 'ArrowDown', ctrlKey: true });
 
-    expect(handlers.onUpdateItem).toHaveBeenCalledWith(10, {
+    // The vertical placement changed -> routes through the atomic reorder
+    // endpoint, not the single-item PATCH (spec-roadmap-vertical-drag.md).
+    expect(handlers.onUpdateItem).not.toHaveBeenCalled();
+    expect(handlers.onReorderRoadmap).toHaveBeenCalledTimes(1);
+    // Lane 2 (Frontend) is empty -> tail index 0, matching server append semantics.
+    expect(handlers.onReorderRoadmap).toHaveBeenCalledWith({
+      items: [{ id: 10, laneId: 2, displayOrder: 0 }],
+    });
+  });
+
+  it('Ctrl+ArrowDown appends after the destination lane\'s EXISTING items, not always at index 0', () => {
+    // Regression guard: the empty-lane-2 fixture above can't distinguish
+    // "append at the destination's current item count" from "always insert
+    // at index 0" -- give lane 2 an item first.
+    const lanes = makeLanes();
+    lanes[1].items.push({
+      id: 20,
+      name: 'Design',
+      kind: 'bar',
+      startPeriod: 1,
+      periodCount: 2,
+      displayOrder: 0,
       laneId: 2,
-      startPeriod: ORIGIN.startPeriod,
-      periodCount: ORIGIN.periodCount,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+      wbsItemIds: [],
+    });
+    const handlers = renderRoadmap(lanes);
+    const bar = screen.getByTestId('roadmap-bar-10');
+    fireEvent.keyDown(bar, { key: 'ArrowDown', ctrlKey: true });
+
+    expect(handlers.onReorderRoadmap).toHaveBeenCalledWith({
+      items: [
+        { id: 20, laneId: 2, displayOrder: 0 },
+        { id: 10, laneId: 2, displayOrder: 1 }, // appended AFTER item 20, not at index 0
+      ],
     });
   });
 
@@ -241,6 +276,58 @@ describe('Roadmap keyboard parity (CAP-4)', () => {
     const bar = screen.getByTestId('roadmap-bar-10');
     fireEvent.keyDown(bar, { key: 'ArrowUp', ctrlKey: true });
     expect(handlers.onUpdateItem).not.toHaveBeenCalled();
+    expect(handlers.onReorderRoadmap).not.toHaveBeenCalled();
+  });
+
+  it('Alt+ArrowDown reorders within the lane through the same atomic commit path', () => {
+    const handlers = renderRoadmap();
+    handlers.unmount();
+    const lanes = makeLanes();
+    lanes[0].items.push({
+      id: 11,
+      name: 'Design',
+      kind: 'bar',
+      startPeriod: 1,
+      periodCount: 2,
+      displayOrder: 1,
+      laneId: 1,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+      wbsItemIds: [],
+    });
+    // renderRoadmap already rendered once above; render fresh with the two-item lane.
+    const utils2 = render(
+      <Roadmap
+        project={project}
+        wbsItems={wbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={[]}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReorderRoadmap={handlers.onReorderRoadmap}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn()}
+      />
+    );
+    handlers.onReorderRoadmap.mockClear();
+    const firstBar = utils2.getByTestId('roadmap-bar-10');
+    fireEvent.keyDown(firstBar, { key: 'ArrowDown', altKey: true });
+
+    expect(handlers.onReorderRoadmap).toHaveBeenCalledTimes(1);
+    expect(handlers.onReorderRoadmap).toHaveBeenCalledWith({
+      items: [
+        { id: 11, laneId: 1, displayOrder: 0 },
+        { id: 10, laneId: 1, displayOrder: 1 },
+      ],
+    });
   });
 
   it('Space opens the editor panel for the focused item', () => {
@@ -266,6 +353,103 @@ describe('Roadmap keyboard parity (CAP-4)', () => {
     fireEvent.keyDown(bar, { key: 'ArrowRight' });
     const call = handlers.onUpdateItem.mock.calls[0] as unknown as [number, { periodCount: number }];
     expect(call[1].periodCount).toBe(ORIGIN.periodCount); // move never changes duration
+  });
+});
+
+describe('RoadmapGrid keyboard parity (grid rows take the same bindings as bars)', () => {
+  it('a plain ArrowRight on a grid row moves the window, same as a bar', () => {
+    const handlers = renderRoadmap();
+    const row = screen.getByTestId('roadmap-grid-item-10');
+    fireEvent.keyDown(row, { key: 'ArrowRight' });
+
+    const expected = snapDrag('move', ORIGIN, PERIOD_WIDTH, PERIOD_WIDTH, NP);
+    expect(handlers.onUpdateItem).toHaveBeenCalledWith(10, {
+      startPeriod: expected.startPeriod,
+      periodCount: expected.periodCount,
+    });
+  });
+
+  it('Alt+ArrowDown on a grid row reorders within the lane through the same atomic commit path as a bar', () => {
+    const lanes = makeLanes();
+    lanes[0].items.push({
+      id: 11,
+      name: 'Design',
+      kind: 'bar',
+      startPeriod: 1,
+      periodCount: 2,
+      displayOrder: 1,
+      laneId: 1,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+      wbsItemIds: [],
+    });
+    const handlers = renderRoadmap(lanes);
+    const row = screen.getByTestId('roadmap-grid-item-10');
+    fireEvent.keyDown(row, { key: 'ArrowDown', altKey: true });
+
+    expect(handlers.onReorderRoadmap).toHaveBeenCalledWith({
+      items: [
+        { id: 11, laneId: 1, displayOrder: 0 },
+        { id: 10, laneId: 1, displayOrder: 1 },
+      ],
+    });
+  });
+
+  it('Enter on a focused (collapsed) lane row toggles it, same as a click', () => {
+    renderRoadmap();
+    const laneRow = screen.getByTestId('roadmap-grid-lane-1');
+    expect(laneRow).toHaveTextContent('▾');
+    fireEvent.keyDown(laneRow, { key: 'Enter' });
+    expect(laneRow).toHaveTextContent('▸');
+  });
+});
+
+describe('Row menu Move up / Move down route through the same atomic reorder path', () => {
+  it('lane menu "Move down" calls onReorderRoadmap with the swapped lane order, not onUpdateLane', async () => {
+    const user = userEvent.setup();
+    const handlers = renderRoadmap();
+
+    await user.click(screen.getByRole('button', { name: 'Backend lane menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Move down' }));
+
+    expect(handlers.onUpdateLane).not.toHaveBeenCalled();
+    expect(handlers.onReorderRoadmap).toHaveBeenCalledWith({
+      lanes: [
+        { id: 2, displayOrder: 0 },
+        { id: 1, displayOrder: 1 },
+      ],
+    });
+  });
+
+  it('item menu "Move down" calls onReorderRoadmap with the renumbered lane, not onUpdateItem', async () => {
+    const user = userEvent.setup();
+    const lanes = makeLanes();
+    lanes[0].items.push({
+      id: 11,
+      name: 'Design',
+      kind: 'bar',
+      startPeriod: 1,
+      periodCount: 2,
+      displayOrder: 1,
+      laneId: 1,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+      wbsItemIds: [],
+    });
+    const handlers = renderRoadmap(lanes);
+
+    await user.click(screen.getByRole('button', { name: 'API item menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Move down' }));
+
+    expect(handlers.onUpdateItem).not.toHaveBeenCalled();
+    expect(handlers.onReorderRoadmap).toHaveBeenCalledWith({
+      items: [
+        { id: 11, laneId: 1, displayOrder: 0 },
+        { id: 10, laneId: 1, displayOrder: 1 },
+      ],
+    });
   });
 });
 
@@ -340,6 +524,7 @@ describe('CAP-9 over-demand stripe (roadmapLoad wiring)', () => {
         onAddItem={vi.fn()}
         onUpdateItem={vi.fn(() => Promise.resolve())}
         onDeleteItem={vi.fn()}
+        onReorderRoadmap={vi.fn(() => Promise.resolve())}
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}
@@ -404,6 +589,7 @@ describe('CAP-9 over-demand stripe (roadmapLoad wiring)', () => {
         onAddItem={vi.fn()}
         onUpdateItem={vi.fn(() => Promise.resolve())}
         onDeleteItem={vi.fn()}
+        onReorderRoadmap={vi.fn(() => Promise.resolve())}
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}
@@ -461,6 +647,7 @@ describe('CAP-9 load strip', () => {
         onAddItem={vi.fn()}
         onUpdateItem={vi.fn(() => Promise.resolve())}
         onDeleteItem={vi.fn()}
+        onReorderRoadmap={vi.fn(() => Promise.resolve())}
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}
@@ -523,6 +710,7 @@ describe('CAP-13 draft plan from the roadmap (feature frozen)', () => {
         onAddItem={vi.fn()}
         onUpdateItem={vi.fn(() => Promise.resolve())}
         onDeleteItem={vi.fn()}
+        onReorderRoadmap={vi.fn(() => Promise.resolve())}
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}
@@ -606,6 +794,7 @@ describe('Done-means cross-check: stripe, load strip and by-period matrix agree 
         onAddItem={vi.fn()}
         onUpdateItem={vi.fn(() => Promise.resolve())}
         onDeleteItem={vi.fn()}
+        onReorderRoadmap={vi.fn(() => Promise.resolve())}
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}
@@ -996,6 +1185,7 @@ describe('collapsed lane rollups', () => {
         onAddItem={vi.fn()}
         onUpdateItem={vi.fn(() => Promise.resolve())}
         onDeleteItem={vi.fn()}
+        onReorderRoadmap={vi.fn(() => Promise.resolve())}
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}

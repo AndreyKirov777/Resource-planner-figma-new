@@ -2,7 +2,7 @@
 title: 'Roadmap vertical drag: reorder, cross-lane move, and drag from the left grid'
 type: 'feature'
 created: '2026-08-22'
-status: 'planned'
+status: 'done'
 baseline_commit: '3a0949e9729f31d1b0d2c353c0da4843c4f45b7d'
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -211,7 +211,7 @@ This is a scoped exception, not a reversal of that rule.
 - `src/App.tsx` — `patchRoadmapItemInLanes` (`:481`), `handleUpdateRoadmapItem` (`:502`),
   `handleUpdateRoadmapLane` (`:442`). Add `applyRoadmapReorder(lanes, payload)` beside the
   existing patch helper and `handleReorderRoadmap` with the same optimistic-then-rollback shape,
-  wired at the `Roadmap` call site (`:1429-1432`).
+  wired at the `Roadmap` call site (`:1421`, `onUpdateLane`/`onUpdateItem` props at `:1429`/`:1432`).
 
 **Docs**
 
@@ -224,29 +224,31 @@ This is a scoped exception, not a reversal of that rule.
 
 **Execution:**
 
-- [ ] `src/utils/roadmapGeometry.ts`, `src/utils/roadmapGeometry.test.ts` -- `RowDescriptor`,
+- [x] `src/utils/roadmapGeometry.ts`, `src/utils/roadmapGeometry.test.ts` -- `RowDescriptor`,
       `dropTargetAt`, `laneDropIndexAt`, `reorderWithin`, `indicatorY` -- pointer hit geometry is
       untestable from the component, so the math must be pure first
-- [ ] `src/utils/roadmapOrder.ts`, `src/utils/roadmapOrder.test.ts` -- `buildReorder`,
+- [x] `src/utils/roadmapOrder.ts`, `src/utils/roadmapOrder.test.ts` -- `buildReorder`,
       `orderSnapshot` -- renumbering and the undo payload are the part most likely to be silently
       wrong
-- [ ] `server-validation.ts`, `server-validation.test.ts` -- `roadmapReorderSchema`
-- [ ] `server.ts` -- `PATCH /api/projects/:id/roadmap/reorder` in one transaction, project-scoped
+- [x] `server-validation.ts`, `server-validation.test.ts` -- `roadmapReorderSchema`
+- [x] `server.ts` -- `PATCH /api/projects/:id/roadmap/reorder` in one transaction, project-scoped
       id check, returns the full roadmap payload
-- [ ] `src/services/api.ts`, `src/App.tsx` -- `reorderRoadmap`, `applyRoadmapReorder`,
+- [x] `src/services/api.ts`, `src/App.tsx` -- `reorderRoadmap`, `applyRoadmapReorder`,
       `handleReorderRoadmap` with snapshot rollback
-- [ ] `src/components/roadmap/useRoadmapDrag.ts` -- `source` / `entity`, `RowDescriptor[]`,
+- [x] `src/components/roadmap/useRoadmapDrag.ts` -- `source` / `entity`, `RowDescriptor[]`,
       single hit-test via `dropTargetAt`, raw deltas on the ghost, live container rect, auto-scroll
-- [ ] `src/components/roadmap/Roadmap.tsx` -- hook lifted here, shared `RowDescriptor[]`,
+- [x] `src/components/roadmap/Roadmap.tsx` -- hook lifted here, shared `RowDescriptor[]`,
       `commitDrag` reorder branch + undo snapshot, `moveLane` / `moveItem` onto the same path
-- [ ] `src/components/roadmap/RoadmapTimeline.tsx` -- floating pixel-follow drag layer + dashed
+- [x] `src/components/roadmap/RoadmapTimeline.tsx` -- floating pixel-follow drag layer + dashed
       snapped ghost, insert line, target-lane outline, `⌥↑` / `⌥↓`, `⌃↑` / `⌃↓` with an explicit index
-- [ ] `src/components/roadmap/RoadmapGrid.tsx` -- grip handle, drag wiring, focusable rows with the
+- [x] `src/components/roadmap/RoadmapGrid.tsx` -- grip handle, drag wiring, focusable rows with the
       same key bindings, click suppression after an active gesture, menu `onPointerDown` guard,
       insert line / lane highlight
-- [ ] lane drag (`entity: 'lane'`) in both panes, on the same state machine
-- [ ] `src/components/roadmap/Roadmap.test.tsx` -- keyboard path asserts the reorder payloads
-- [ ] docs -- `timeline-component.md` pointer model + keyboard table, `data-model.md` endpoint
+- [x] lane drag (`entity: 'lane'`) in both panes, on the same state machine -- grip added to both the
+      grid row and the timeline's (previously label-less) lane band; both call the same
+      `onDragPointerDown({ entity: 'lane', ... })` on the one shared state machine
+- [x] `src/components/roadmap/Roadmap.test.tsx` -- keyboard path asserts the reorder payloads
+- [x] docs -- `timeline-component.md` pointer model + keyboard table, `data-model.md` endpoint
 
 **Acceptance Criteria:**
 
@@ -287,34 +289,75 @@ in fullscreen too; ⋮ menu, lane collapse and click-to-select all still work.
 
 ## Suggested Review Order
 
-**Placement**
+**Entry point — placement geometry**
 
-- Slot math and the lane-row-means-head rule — `src/utils/roadmapGeometry.ts` (`dropTargetAt`)
-- Collapsed / empty lane and the above-first / below-last clamps — same file
-- Self-drop resolving to a no-op — same file
+- Pure slot math: pointer/keyboard Y resolves to `{laneId, index}`; the lane-row-means-head and self-drop-no-op rules live here.
+  [`roadmapGeometry.ts:207`](../../src/utils/roadmapGeometry.ts#L207)
+
+- Lane-drop-index variant for `entity: 'lane'`, mirrors the item hit-test.
+  [`roadmapGeometry.ts:251`](../../src/utils/roadmapGeometry.ts#L251)
+
+- Insert-line Y for the one indicator both panes render identically.
+  [`roadmapGeometry.ts:277`](../../src/utils/roadmapGeometry.ts#L277)
 
 **Order and persistence**
 
-- Contiguous renumber across the two touched lanes — `src/utils/roadmapOrder.ts` (`buildReorder`)
-- Undo snapshot completeness — same file (`orderSnapshot`)
-- Transaction and project-scoped id check — `server.ts`, reorder route
-- Optimistic apply and rollback — `src/App.tsx` (`applyRoadmapReorder`, `handleReorderRoadmap`)
+- Renumbers every touched lane in full — "always correct" beats "smallest payload" for a write the intent requires atomic.
+  [`roadmapOrder.ts:60`](../../src/utils/roadmapOrder.ts#L60)
 
-**Pointer drag**
+- Undo payload capturing the full pre-drag order of every touched lane.
+  [`roadmapOrder.ts:125`](../../src/utils/roadmapOrder.ts#L125)
 
-- Single hit-test, live container rect, raw deltas — `src/components/roadmap/useRoadmapDrag.ts`
-- Hook lifted, both panes fed one drag state — `src/components/roadmap/Roadmap.tsx`
-- Floating pixel-follow layer + dashed snapped ghost — `src/components/roadmap/RoadmapTimeline.tsx`
-- Grip handle, click suppression, menu guard — `src/components/roadmap/RoadmapGrid.tsx`
+- Client-side optimistic merge, pulled out of `App.tsx` so it's independently unit-testable.
+  [`roadmapOrder.ts:152`](../../src/utils/roadmapOrder.ts#L152)
 
-**Keyboard**
+- New atomic endpoint: one project-scoped id check, one transaction, full payload back.
+  [`server.ts:1701`](../../server.ts#L1701)
 
-- `⌥↑` / `⌥↓` and the explicit index on `⌃↑` / `⌃↓` — `RoadmapTimeline.tsx`, `RoadmapGrid.tsx`
-- Menu Move up / Move down on the same commit path — `Roadmap.tsx`
+- Server-side contiguity check (added during review) — the `0..n-1` invariant is no longer client-trust-only.
+  [`server-validation.ts:378`](../../server-validation.ts#L378)
+
+**Pointer drag state machine**
+
+- One hit-test via `dropTargetAt`, replacing the two duplicated copies; live container rect read per move, not captured once.
+  [`useRoadmapDrag.ts:253`](../../src/components/roadmap/useRoadmapDrag.ts#L253)
+
+- Auto-scroll re-resolves the ghost each tick (added during review) so the indicator doesn't freeze under a stationary cursor.
+  [`useRoadmapDrag.ts:308`](../../src/components/roadmap/useRoadmapDrag.ts#L308)
+
+- Pointer-up commit, plus the `justDraggedRef` timeout fallback for a drop outside any row.
+  [`useRoadmapDrag.ts:346`](../../src/components/roadmap/useRoadmapDrag.ts#L346)
+
+**Component wiring**
+
+- Hook lifted here; `commitDrag` branches the old single-PATCH path from the new atomic reorder.
+  [`Roadmap.tsx:443`](../../src/components/roadmap/Roadmap.tsx#L443)
+
+- Row-menu Move up / Move down now route through the same commit path as drag and keyboard.
+  [`Roadmap.tsx:375`](../../src/components/roadmap/Roadmap.tsx#L375)
+
+- Floating pixel-follow layer + dashed snapped ghost for the timeline's live drag.
+  [`RoadmapTimeline.tsx:184`](../../src/components/roadmap/RoadmapTimeline.tsx#L184)
+
+- Lane grip added to the timeline's lane band too, so a lane drag starts from either pane.
+  [`RoadmapTimeline.tsx:324`](../../src/components/roadmap/RoadmapTimeline.tsx#L324)
+
+- Grid's keyboard parity — a focused lane row now answers Enter/Space with collapse-toggle.
+  [`RoadmapGrid.tsx:88`](../../src/components/roadmap/RoadmapGrid.tsx#L88)
+
+- Single sink for every reorder gesture — pointer, keyboard, and row-menu alike.
+  [`App.tsx:525`](../../src/App.tsx#L525)
 
 **Tests**
 
-- Placement matrix — `src/utils/roadmapGeometry.test.ts`
-- Payload and undo snapshot — `src/utils/roadmapOrder.test.ts`
-- Keyboard path asserts the same payloads the pointer would send —
-  `src/components/roadmap/Roadmap.test.tsx`
+- Placement matrix, including collapsed/empty-lane, above/below clamps, and self-drop no-op.
+  [`roadmapGeometry.test.ts`](../../src/utils/roadmapGeometry.test.ts)
+
+- Payload renumbering, undo snapshot, and the optimistic-merge sort order.
+  [`roadmapOrder.test.ts`](../../src/utils/roadmapOrder.test.ts)
+
+- Server-side contiguity rejection, atomic cross-project rejection, and spread-window refusal.
+  [`server-validation.test.ts`](../../server-validation.test.ts), [`roadmap.integration.test.ts`](../../roadmap.integration.test.ts)
+
+- Keyboard reorder payloads for both panes, plus row-menu Move up/down assertions.
+  [`Roadmap.test.tsx`](../../src/components/roadmap/Roadmap.test.tsx)

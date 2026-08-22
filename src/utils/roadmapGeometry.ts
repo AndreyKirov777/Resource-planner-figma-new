@@ -221,6 +221,131 @@ export function snapDrag(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Vertical placement — reorder within a lane, cross-lane move, lane reorder.
+// See spec-roadmap-vertical-drag.md. `rowAt` (floor) is reused for the
+// "slot" math below rather than re-implemented — a slot is just `rowAt`
+// evaluated half a row lower, which rounds instead of floors.
+// ---------------------------------------------------------------------------
+
+/** The minimal row shape vertical placement needs — a slice of `RoadmapRow`. */
+export interface RowDescriptor {
+  kind: 'lane' | 'item';
+  /** The row's own id: a lane id for a lane row, an item id for an item row. */
+  id: number;
+  /** The lane this row belongs to — its own id for a lane row, the owning lane for an item row. */
+  laneId: number;
+  /** Only meaningful for a lane row. */
+  collapsed: boolean;
+}
+
+export interface DropTarget {
+  laneId: number;
+  /** Index within the target lane's item list, AFTER the dragged item has been removed from it. */
+  index: number;
+}
+
+/** The target lane's current items, in display order, as a list of ids. */
+function laneItemIdsOf(rows: readonly RowDescriptor[], laneId: number): number[] {
+  return rows.filter((r) => r.kind === 'item' && r.laneId === laneId).map((r) => r.id);
+}
+
+/**
+ * Resolve pointer Y to an insertion slot `{ laneId, index }`. `slot =
+ * round(y / rowHeight)` (via `rowAt(y + rowHeight/2, rowHeight)`, so the
+ * floor math lives in one place) yields 0…rows.length. A slot landing on a
+ * lane row reads as "first position in that lane" (or "append" when that
+ * lane is collapsed) — otherwise an item could never be inserted at a
+ * lane's head, and a collapsed lane's hidden items could never be targeted
+ * at all. Above the first row clamps to the head of the first lane; below
+ * the last row clamps to the tail of the last lane. The dragged item is
+ * excluded before the index is resolved, so a drop on its own position
+ * reproduces its exact current index — a guaranteed no-op.
+ */
+export function dropTargetAt(
+  y: number,
+  rows: readonly RowDescriptor[],
+  rowHeight: number,
+  draggedItemId: number
+): DropTarget | null {
+  if (rows.length === 0) return null;
+  const slot = Math.min(rows.length, rowHeight > 0 ? rowAt(y + rowHeight / 2, rowHeight) : 0);
+  const landing = slot < rows.length ? rows[slot] : undefined;
+
+  let laneId: number;
+  let rawIndex: number;
+
+  if (landing === undefined) {
+    // Below the last row -> tail of the last lane.
+    const lastLane = [...rows].reverse().find((r) => r.kind === 'lane');
+    if (!lastLane) return null;
+    laneId = lastLane.id;
+    rawIndex = laneItemIdsOf(rows, laneId).length;
+  } else if (landing.kind === 'lane') {
+    laneId = landing.id;
+    const laneItemIds = laneItemIdsOf(rows, laneId);
+    rawIndex = landing.collapsed ? laneItemIds.length : 0;
+  } else {
+    laneId = landing.laneId;
+    rawIndex = laneItemIdsOf(rows, laneId).indexOf(landing.id);
+  }
+
+  const laneItemIds = laneItemIdsOf(rows, laneId);
+  const draggedIndex = laneItemIds.indexOf(draggedItemId);
+  const index = draggedIndex !== -1 && draggedIndex < rawIndex ? rawIndex - 1 : rawIndex;
+  return { laneId, index };
+}
+
+/**
+ * Resolve pointer Y to a target ordinal among LANES (`entity: 'lane'`).
+ * Coarser than `dropTargetAt`: each lane's whole zone (its header plus its
+ * item rows) is split at its vertical midpoint — the upper half targets
+ * "before this lane", the lower half falls through to the next lane's
+ * check. Past every lane's midpoint targets "after the last lane". The
+ * caller passes the result straight to `reorderWithin`, which clamps it
+ * after removing the dragged lane, so no separate self-removal step is
+ * needed here.
+ */
+export function laneDropIndexAt(y: number, rows: readonly RowDescriptor[], rowHeight: number): number {
+  const laneRowIndices: number[] = [];
+  rows.forEach((r, i) => {
+    if (r.kind === 'lane') laneRowIndices.push(i);
+  });
+  const n = laneRowIndices.length;
+  if (n === 0) return 0;
+  for (let i = 0; i < n; i++) {
+    const zoneStart = laneRowIndices[i] * rowHeight;
+    const zoneEnd = (laneRowIndices[i + 1] ?? rows.length) * rowHeight;
+    if (y < (zoneStart + zoneEnd) / 2) return i;
+  }
+  return n;
+}
+
+/** Move the element at `from` to `to`, clamping `to` into the post-removal bounds. */
+export function reorderWithin<T>(list: readonly T[], from: number, to: number): T[] {
+  if (from < 0 || from >= list.length) return [...list];
+  const copy = [...list];
+  const [moved] = copy.splice(from, 1);
+  const clampedTo = Math.max(0, Math.min(copy.length, to));
+  copy.splice(clampedTo, 0, moved);
+  return copy;
+}
+
+/** The y (top offset) an insert line draws at for a resolved `DropTarget`. */
+export function indicatorY(target: DropTarget, rows: readonly RowDescriptor[], rowHeight: number): number {
+  const laneItemRowIndices: number[] = [];
+  rows.forEach((r, i) => {
+    if (r.kind === 'item' && r.laneId === target.laneId) laneItemRowIndices.push(i);
+  });
+  if (target.index < laneItemRowIndices.length) {
+    return laneItemRowIndices[target.index] * rowHeight;
+  }
+  const laneHeaderIndex = rows.findIndex((r) => r.kind === 'lane' && r.id === target.laneId);
+  const afterRowIndex =
+    laneItemRowIndices.length > 0 ? laneItemRowIndices[laneItemRowIndices.length - 1] : laneHeaderIndex;
+  return (afterRowIndex + 1) * rowHeight;
+}
+
 export interface StripeItem {
   startPeriod: number;
   periodCount: number;

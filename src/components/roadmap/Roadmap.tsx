@@ -14,6 +14,7 @@ import {
   RoadmapItem,
   RoadmapItemKind,
   BootstrapRoadmapPayload,
+  RoadmapReorderPayload,
   ResourcePlan,
   RateCard,
   GeneratePlanDraft,
@@ -46,7 +47,10 @@ import {
   DEFAULT_ZOOM_INDEX,
   zoomStep,
   fit as fitZoom,
+  RowDescriptor,
+  reorderWithin,
 } from '../../utils/roadmapGeometry';
+import { buildReorder, orderSnapshot, ItemReorderCommit, LaneReorderCommit } from '../../utils/roadmapOrder';
 import { RoadmapGrid } from './RoadmapGrid';
 import { RoadmapTimeline } from './RoadmapTimeline';
 import { RoadmapLoadStrip } from './RoadmapLoadStrip';
@@ -57,7 +61,7 @@ import { TextPromptDialog } from './TextPromptDialog';
 import { AddItemDialog } from './AddItemDialog';
 import { StartDateDialog } from './StartDateDialog';
 import { ConfirmDialog } from './ConfirmDialog';
-import { RoadmapDragCommit } from './useRoadmapDrag';
+import { RoadmapDragCommit, useRoadmapDrag } from './useRoadmapDrag';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../ui/select';
 
@@ -85,6 +89,7 @@ interface RoadmapProps {
   ) => Promise<RoadmapItem>;
   onUpdateItem: (id: number, data: RoadmapItemPatch) => Promise<void>;
   onDeleteItem: (id: number) => Promise<void>;
+  onReorderRoadmap: (payload: RoadmapReorderPayload) => Promise<void>;
   onReplaceItemLinks: (itemId: number, wbsItemIds: number[]) => Promise<void>;
   onBootstrap: (payload: BootstrapRoadmapPayload) => Promise<void>;
   onSetStartDate: (startDate: string | null) => Promise<void>;
@@ -170,6 +175,7 @@ export function Roadmap({
   onAddItem,
   onUpdateItem,
   onDeleteItem,
+  onReorderRoadmap,
   onReplaceItemLinks,
   onBootstrap,
   onSetStartDate,
@@ -299,6 +305,20 @@ export function Roadmap({
     [rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np, overDemandByItemId]
   );
 
+  // Vertical drag (spec-roadmap-vertical-drag.md): the minimal row shape
+  // placement needs, built ONCE here — both panes and the drag hook share it,
+  // rather than each re-deriving it from `rows`.
+  const rowDescriptors: RowDescriptor[] = useMemo(
+    () =>
+      rows.map((r) => ({
+        kind: r.kind === 'lane' ? ('lane' as const) : ('item' as const),
+        id: r.id,
+        laneId: r.kind === 'lane' ? r.id : (r.laneId as number),
+        collapsed: r.kind === 'lane' ? r.collapsed : false,
+      })),
+    [rows]
+  );
+
   // CAP-9's load strip is a SINGLE explicit role/discipline at a time,
   // switchable from the toolbar (the conservative reading of the open
   // question — see the Slice B final report). Defaults to the first
@@ -339,30 +359,74 @@ export function Roadmap({
     });
   }
 
+  // One request, atomic; the undo action restores the full pre-drag order of
+  // every lane the commit touches. Shared by the pointer/keyboard drag path
+  // (`commitDrag` below) AND the row menu's Move up / Move down — menu,
+  // keyboard and pointer all reach the same commit path.
+  function commitReorderRequest(
+    reorderCommit: ItemReorderCommit | LaneReorderCommit,
+    touchedLaneIds: number[],
+    label: string,
+    windowRestore?: { itemId: number; startPeriod: number; periodCount: number },
+    description?: string
+  ) {
+    const payload = buildReorder(rowLanes, rowItems, reorderCommit);
+    if (!payload) return; // drop on own position (or a lane back where it started) -> no request at all
+    const snapshot = orderSnapshot(rowLanes, rowItems, touchedLaneIds);
+    if (windowRestore && snapshot.items) {
+      snapshot.items = snapshot.items.map((it) =>
+        it.id === windowRestore.itemId
+          ? { ...it, startPeriod: windowRestore.startPeriod, periodCount: windowRestore.periodCount }
+          : it
+      );
+    }
+
+    onReorderRoadmap(payload)
+      .then(() => {
+        toast(`Moved "${label}"`, {
+          description,
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              void onReorderRoadmap(snapshot).catch(() => toast.error('Undo failed'));
+            },
+          },
+        });
+      })
+      .catch((err) => {
+        toast.error(`Failed to move "${label}"`, {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      });
+  }
+
   function moveLane(laneId: number, direction: -1 | 1) {
     const ordered = [...roadmapLanes].sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
     const idx = ordered.findIndex((l) => l.id === laneId);
-    const swapIdx = idx + direction;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= ordered.length) return;
-    const a = ordered[idx];
-    const b = ordered[swapIdx];
-    void onUpdateLane(a.id, { displayOrder: b.displayOrder });
-    void onUpdateLane(b.id, { displayOrder: a.displayOrder });
+    const targetIdx = idx + direction;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= ordered.length) return;
+    commitReorderRequest(
+      { entity: 'lane', laneId, index: targetIdx },
+      rowLanes.map((l) => l.id),
+      ordered[idx].name
+    );
   }
 
   function moveItem(itemId: number, direction: -1 | 1) {
     const item = allItems.find((i) => i.id === itemId);
     if (!item) return;
-    const siblings = allItems
+    const siblingIds = allItems
       .filter((i) => i.laneId === item.laneId)
-      .sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
-    const idx = siblings.findIndex((i) => i.id === itemId);
-    const swapIdx = idx + direction;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return;
-    const a = siblings[idx];
-    const b = siblings[swapIdx];
-    void onUpdateItem(a.id, { displayOrder: b.displayOrder });
-    void onUpdateItem(b.id, { displayOrder: a.displayOrder });
+      .sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id)
+      .map((i) => i.id);
+    const idx = siblingIds.indexOf(itemId);
+    const targetIdx = idx + direction;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= siblingIds.length) return;
+    // `buildReorder`'s item index is POST-removal (like `dropTargetAt`'s), unlike
+    // a lane's raw target ordinal — `reorderWithin` gives the exact final order,
+    // and where the dragged id lands in it IS that post-removal index.
+    const index = reorderWithin(siblingIds, idx, targetIdx).indexOf(itemId);
+    commitReorderRequest({ entity: 'item', itemId, laneId: item.laneId, index }, [item.laneId], item.name);
   }
 
   function handleDeleteLane(laneId: number) {
@@ -400,33 +464,89 @@ export function Roadmap({
     });
   }
 
+  // `commit.order === undefined` -> pure horizontal drag/resize: the existing
+  // single-item PATCH, unwidened. Otherwise the vertical placement changed
+  // (reorder within a lane, cross-lane move, possibly with a window change
+  // too) -> one atomic reorder request. Lane commits always reorder.
   function commitDrag(commit: RoadmapDragCommit) {
-    const patch: RoadmapItemPatch = { startPeriod: commit.startPeriod, periodCount: commit.periodCount };
-    if (commit.laneId !== undefined) patch.laneId = commit.laneId;
+    if (commit.entity === 'lane') {
+      const label = roadmapLanes.find((l) => l.id === commit.laneId)?.name ?? 'lane';
+      commitReorderRequest(
+        { entity: 'lane', laneId: commit.laneId, index: commit.order },
+        rowLanes.map((l) => l.id),
+        label
+      );
+      return;
+    }
+
     const label = allItems.find((i) => i.id === commit.itemId)?.name ?? 'item';
 
-    onUpdateItem(commit.itemId, patch)
-      .then(() => {
-        toast(`Moved "${label}"`, {
-          description: `W${commit.startPeriod}${commit.periodCount > 0 ? `–${commit.startPeriod + commit.periodCount - 1}` : ''}`,
-          action: {
-            label: 'Undo',
-            onClick: () => {
-              void onUpdateItem(commit.itemId, {
-                laneId: commit.previous.laneId,
-                startPeriod: commit.previous.startPeriod,
-                periodCount: commit.previous.periodCount,
-              }).catch(() => toast.error('Undo failed'));
+    if (commit.order === undefined) {
+      const patch: RoadmapItemPatch = { startPeriod: commit.startPeriod, periodCount: commit.periodCount };
+      if (commit.laneId !== undefined) patch.laneId = commit.laneId;
+
+      onUpdateItem(commit.itemId, patch)
+        .then(() => {
+          toast(`Moved "${label}"`, {
+            description: `W${commit.startPeriod}${commit.periodCount > 0 ? `–${commit.startPeriod + commit.periodCount - 1}` : ''}`,
+            action: {
+              label: 'Undo',
+              onClick: () => {
+                void onUpdateItem(commit.itemId, {
+                  laneId: commit.previous.laneId,
+                  startPeriod: commit.previous.startPeriod,
+                  periodCount: commit.previous.periodCount,
+                }).catch(() => toast.error('Undo failed'));
+              },
             },
-          },
+          });
+        })
+        .catch((err) => {
+          toast.error(`Failed to move "${label}"`, {
+            description: err instanceof Error ? err.message : undefined,
+          });
         });
-      })
-      .catch((err) => {
-        toast.error(`Failed to move "${label}"`, {
-          description: err instanceof Error ? err.message : undefined,
-        });
-      });
+      return;
+    }
+
+    const windowChanged =
+      commit.startPeriod !== commit.previous.startPeriod || commit.periodCount !== commit.previous.periodCount;
+    const targetLaneId = commit.laneId ?? commit.previous.laneId;
+    commitReorderRequest(
+      {
+        entity: 'item',
+        itemId: commit.itemId,
+        laneId: targetLaneId,
+        index: commit.order,
+        window: windowChanged ? { startPeriod: commit.startPeriod, periodCount: commit.periodCount } : undefined,
+      },
+      [commit.previous.laneId, targetLaneId],
+      label,
+      windowChanged
+        ? { itemId: commit.itemId, startPeriod: commit.previous.startPeriod, periodCount: commit.previous.periodCount }
+        : undefined,
+      // Same window-range detail the pure-window-move path shows below — a
+      // cross-lane/reorder drag that ALSO moved the window must not lose it.
+      windowChanged
+        ? `W${commit.startPeriod}${commit.periodCount > 0 ? `–${commit.startPeriod + commit.periodCount - 1}` : ''}`
+        : undefined
+    );
   }
+
+  const {
+    ghost: dragGhost,
+    onPointerDown: onDragPointerDown,
+    onPointerMove: onDragPointerMove,
+    onPointerUp: onDragPointerUp,
+    onPointerCancel: onDragPointerCancel,
+    consumeWasDragging,
+  } = useRoadmapDrag({
+    periodWidth,
+    np,
+    rows: rowDescriptors,
+    onCommit: commitDrag,
+    onSelect: (id) => setSelectedItemId(id),
+  });
 
   function handleAddLane() {
     setAddLaneOpen(true);
@@ -669,6 +789,7 @@ export function Roadmap({
           <div className="flex">
             <RoadmapGrid
               rows={rows}
+              rowDescriptors={rowDescriptors}
               selectedItemId={selectedItemId}
               onSelectItem={(id) => setSelectedItemId(id)}
               onToggleLane={toggleLane}
@@ -678,9 +799,19 @@ export function Roadmap({
               onEditItem={(id) => setEditorItemId(id)}
               onDeleteItem={handleDeleteItem}
               onMoveItem={moveItem}
+              onCommit={commitDrag}
+              periodWidth={periodWidth}
+              np={np}
+              ghost={dragGhost}
+              onDragPointerDown={onDragPointerDown}
+              onDragPointerMove={onDragPointerMove}
+              onDragPointerUp={onDragPointerUp}
+              onDragPointerCancel={onDragPointerCancel}
+              consumeWasDragging={consumeWasDragging}
             />
             <RoadmapTimeline
               rows={rows}
+              rowDescriptors={rowDescriptors}
               phases={phases}
               phaseHours={phaseHours}
               effortByItemId={effortByItemId}
@@ -694,6 +825,12 @@ export function Roadmap({
               onSelectItem={setSelectedItemId}
               onOpenEditor={(id) => setEditorItemId(id)}
               onCommit={commitDrag}
+              ghost={dragGhost}
+              onDragPointerDown={onDragPointerDown}
+              onDragPointerMove={onDragPointerMove}
+              onDragPointerUp={onDragPointerUp}
+              onDragPointerCancel={onDragPointerCancel}
+              consumeWasDragging={consumeWasDragging}
               onScroll={(scrollLeft) => {
                 if (loadStripScrollRef.current) loadStripScrollRef.current.scrollLeft = scrollLeft;
               }}

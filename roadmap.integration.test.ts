@@ -318,4 +318,110 @@ describe('Roadmap API integration', () => {
       expect(res.body.wbsItemIds).toEqual([leafId]);
     });
   });
+
+  describe('PATCH /api/projects/:id/roadmap/reorder', () => {
+    it('renumbers a single lane contiguously in one request', async () => {
+      const laneId = await makeLane(projectId, 'Reorder lane A');
+      const a = await makeItem(projectId, laneId, { name: 'A' });
+      const b = await makeItem(projectId, laneId, { name: 'B' });
+      const c = await makeItem(projectId, laneId, { name: 'C' });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/roadmap/reorder`)
+        .send({
+          items: [
+            { id: c, laneId, displayOrder: 0 },
+            { id: a, laneId, displayOrder: 1 },
+            { id: b, laneId, displayOrder: 2 },
+          ],
+        });
+      expect(res.status).toBe(200);
+      const lane = res.body.lanes.find((l: { id: number }) => l.id === laneId);
+      expect(lane.items.map((i: { id: number }) => i.id)).toEqual([c, a, b]);
+    });
+
+    it('moves an item to another lane and its window, both lanes renumbered, in ONE request', async () => {
+      const laneA = await makeLane(projectId, 'Reorder lane B1');
+      const laneB = await makeLane(projectId, 'Reorder lane B2');
+      const x = await makeItem(projectId, laneA, { name: 'X', startPeriod: 1, periodCount: 2 });
+      const y = await makeItem(projectId, laneB, { name: 'Y' });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/roadmap/reorder`)
+        .send({
+          items: [
+            { id: x, laneId: laneB, displayOrder: 0, startPeriod: 5, periodCount: 3 },
+            { id: y, laneId: laneB, displayOrder: 1 },
+          ],
+        });
+      expect(res.status).toBe(200);
+      const laneBRow = res.body.lanes.find((l: { id: number }) => l.id === laneB);
+      expect(laneBRow.items.map((i: { id: number }) => i.id)).toEqual([x, y]);
+      const xRow = laneBRow.items.find((i: { id: number }) => i.id === x);
+      expect(xRow.startPeriod).toBe(5);
+      expect(xRow.periodCount).toBe(3);
+      const laneARow = res.body.lanes.find((l: { id: number }) => l.id === laneA);
+      expect(laneARow.items).toEqual([]);
+    });
+
+    it('reorders lanes themselves', async () => {
+      const l1 = await makeLane(projectId, 'Reorder lane C1');
+      const l2 = await makeLane(projectId, 'Reorder lane C2');
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/roadmap/reorder`)
+        .send({ lanes: [{ id: l2, displayOrder: 0 }, { id: l1, displayOrder: 1 }] });
+      expect(res.status).toBe(200);
+      const ids = res.body.lanes
+        .filter((l: { id: number }) => l.id === l1 || l.id === l2)
+        .sort((a: { displayOrder: number }, b: { displayOrder: number }) => a.displayOrder - b.displayOrder)
+        .map((l: { id: number }) => l.id);
+      expect(ids).toEqual([l2, l1]);
+    });
+
+    it('rejects an item id from a different project (400) and writes NOTHING (atomic)', async () => {
+      const laneId = await makeLane(projectId, 'Reorder atomic lane');
+      const a = await makeItem(projectId, laneId, { name: 'A', startPeriod: 1, periodCount: 2 });
+      const b = await makeItem(projectId, laneId, { name: 'B', startPeriod: 3, periodCount: 2 });
+      const foreignLaneId = await makeLane(otherProjectId, 'Foreign reorder lane');
+      const foreignItemId = await makeItem(otherProjectId, foreignLaneId, { name: 'Foreign' });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/roadmap/reorder`)
+        .send({
+          items: [
+            { id: b, laneId, displayOrder: 0 },
+            { id: a, laneId, displayOrder: 1 },
+            { id: foreignItemId, laneId, displayOrder: 2 },
+          ],
+        });
+      expect(res.status).toBe(400);
+
+      // Nothing committed: a and b keep their original order.
+      const roadmap = await request(app).get(`/api/projects/${projectId}/roadmap`);
+      const lane = roadmap.body.lanes.find((l: { id: number }) => l.id === laneId);
+      expect(lane.items.map((i: { id: number }) => i.id)).toEqual([a, b]);
+    });
+
+    it('rejects a laneId from a different project (400)', async () => {
+      const laneId = await makeLane(projectId, 'Reorder foreign-lane target');
+      const itemId = await makeItem(projectId, laneId, { name: 'Item' });
+      const foreignLaneId = await makeLane(otherProjectId, 'Foreign target lane');
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/roadmap/reorder`)
+        .send({ items: [{ id: itemId, laneId: foreignLaneId, displayOrder: 0 }] });
+      expect(res.status).toBe(400);
+    });
+
+    it('refuses a window write on a spread item (400), matching the single-item PATCH rule', async () => {
+      const laneId = await makeLane(projectId, 'Reorder spread lane');
+      const spreadId = await makeItem(projectId, laneId, { name: 'Spread', kind: 'spread', startPeriod: 1, periodCount: 0 });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/roadmap/reorder`)
+        .send({ items: [{ id: spreadId, laneId, displayOrder: 0, startPeriod: 1, periodCount: 4 }] });
+      expect(res.status).toBe(400);
+    });
+  });
 });

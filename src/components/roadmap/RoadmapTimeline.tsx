@@ -1,10 +1,13 @@
 /**
  * The period timeline: phase-band header over period columns, rows, bars and
- * milestones. Both the pointer path (`useRoadmapDrag`) and the keyboard path
- * (this file's `onKeyDown`) route through `snapDrag` and call the SAME
- * `onCommit` prop — one rule, one commit path, per `timeline-component.md`.
+ * milestones. Both the pointer path (`useRoadmapDrag`, lifted into
+ * `Roadmap.tsx` and shared with `RoadmapGrid`) and the keyboard path (this
+ * file's `onKeyDown`) route through `snapDrag` / `dropTargetAt` and call the
+ * SAME `onCommit` prop — one rule, one commit path, per
+ * `timeline-component.md` and `spec-roadmap-vertical-drag.md`.
  */
 import React, { useMemo, useRef } from 'react';
+import { GripVertical } from 'lucide-react';
 import { Phase } from '../../services/api';
 import { RoadmapRow, periodToDate, recomputeLaneSpans } from '../../utils/roadmap';
 import { RoadmapLoad, avgSupplyFteOverWindow } from '../../utils/roadmapLoad';
@@ -13,12 +16,13 @@ import {
   barRect,
   milestoneX,
   phaseBands,
-  rowAt,
   snapDrag,
   stripeSegments,
   laneBarRect,
   laneSummaryPath,
   laneMilestoneXs,
+  indicatorY,
+  RowDescriptor,
   ROW_HEIGHT,
   HEADER_HEIGHT,
   BAR_HEIGHT,
@@ -28,7 +32,7 @@ import {
   LANE_CAP_DROP,
   LANE_MILESTONE_SIZE,
 } from '../../utils/roadmapGeometry';
-import { RoadmapDragCommit, useRoadmapDrag } from './useRoadmapDrag';
+import { DragGhost, ItemDragStartArgs, LaneDragStartArgs, RoadmapDragCommit, keyboardVerticalCommit, dropIndicatorFor } from './useRoadmapDrag';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../ui/utils';
 
@@ -41,6 +45,7 @@ const STRIPE_EPSILON = 1e-6;
 
 interface RoadmapTimelineProps {
   rows: RoadmapRow[];
+  rowDescriptors: RowDescriptor[];
   phases: Phase[];
   phaseHours: Map<string, number>;
   effortByItemId: Map<number, Map<string, number>>;
@@ -54,6 +59,12 @@ interface RoadmapTimelineProps {
   onSelectItem: (id: number | null) => void;
   onOpenEditor: (id: number) => void;
   onCommit: (commit: RoadmapDragCommit) => void;
+  ghost: DragGhost | null;
+  onDragPointerDown: (e: React.PointerEvent<HTMLElement>, args: ItemDragStartArgs | LaneDragStartArgs) => void;
+  onDragPointerMove: (e: React.PointerEvent<HTMLElement>) => void;
+  onDragPointerUp: (e: React.PointerEvent<HTMLElement>) => void;
+  onDragPointerCancel: () => void;
+  consumeWasDragging: () => boolean;
   onScroll: (scrollLeft: number) => void;
   viewportRef: React.MutableRefObject<HTMLDivElement | null>;
   /** Governs the whole lane summary layer — bar, caps, ticks, stripe, label and chip. Off is an early return, not hidden DOM. */
@@ -61,9 +72,9 @@ interface RoadmapTimelineProps {
   onToggleLane: (laneId: number) => void;
 }
 
-
 export function RoadmapTimeline({
   rows,
+  rowDescriptors,
   phases,
   phaseHours,
   effortByItemId,
@@ -77,6 +88,12 @@ export function RoadmapTimeline({
   onSelectItem,
   onOpenEditor,
   onCommit,
+  ghost,
+  onDragPointerDown,
+  onDragPointerMove,
+  onDragPointerUp,
+  onDragPointerCancel,
+  consumeWasDragging,
   onScroll,
   viewportRef,
   showLaneBars,
@@ -84,29 +101,21 @@ export function RoadmapTimeline({
 }: RoadmapTimelineProps) {
   const rowsWrapRef = useRef<HTMLDivElement | null>(null);
 
-  // rows[i] -> the lane id that row belongs to. Same index space `rowAt` resolves
-  // against during a drag, so the lane under the pointer is found with one lookup.
-  const rowLaneIds = useMemo(
-    () => rows.map((r) => (r.kind === 'lane' ? r.id : (r.laneId as number))),
-    [rows]
-  );
   const laneOrder = useMemo(() => rows.filter((r) => r.kind === 'lane').map((r) => r.id), [rows]);
-
-  const { ghost, onPointerDown, onPointerMove, onPointerUp, onPointerCancel } = useRoadmapDrag({
-    periodWidth,
-    np,
-    onCommit,
-    onSelect: onSelectItem,
-  });
 
   // The summary never lags its children: while a drag ghost is live, the
   // affected lane(s)' span is recomputed from the ghosted window in the same
   // pass rows are consumed — one scan, not a per-row check. Off costs
-  // nothing: skipped entirely when the layer is off.
-  const displayRows = useMemo(
-    () => (showLaneBars ? recomputeLaneSpans(rows, ghost) : rows),
-    [rows, ghost, showLaneBars]
-  );
+  // nothing: skipped entirely when the layer is off. A lane drag has no
+  // window to preview, so it is ignored here.
+  const displayRows = useMemo(() => {
+    if (!showLaneBars) return rows;
+    const spanGhost =
+      ghost && ghost.entity === 'item'
+        ? { itemId: ghost.id, laneId: ghost.laneId, startPeriod: ghost.startPeriod, periodCount: ghost.periodCount }
+        : null;
+    return recomputeLaneSpans(rows, spanGhost);
+  }, [rows, ghost, showLaneBars]);
 
   const bands = useMemo(
     () =>
@@ -124,21 +133,36 @@ export function RoadmapTimeline({
 
   const timelineWidth = np * periodWidth;
 
-  function laneIdForRowIndex(rowIndex: number, dy: number): number | null {
-    // ⌃↑ / ⌃↓ lane change: find the ordered list of lane ids and step by one.
-    const currentRow = rows[rowIndex];
-    if (currentRow === undefined || currentRow.laneId === null) return null;
-    const idx = laneOrder.indexOf(currentRow.laneId);
-    if (idx < 0) return null;
-    const nextIdx = idx + dy;
-    if (nextIdx < 0 || nextIdx >= laneOrder.length) return null;
-    return laneOrder[nextIdx];
-  }
+  // Shared vertical-drag indicator: an insert line at the resolved slot, or a
+  // lane-row highlight instead when the target lane is collapsed/empty (per
+  // `dropTargetAt`'s contract) — rendered identically in RoadmapGrid.
+  const indicator = useMemo(() => dropIndicatorFor(ghost, rowDescriptors, rows.length), [ghost, rowDescriptors, rows.length]);
 
-  function handleBarKeyDown(e: React.KeyboardEvent<HTMLDivElement>, row: RoadmapRow, rowIndex: number) {
+  const targetLaneId = ghost?.entity === 'item' ? ghost.laneId : null;
+
+  function handleBarKeyDown(e: React.KeyboardEvent<HTMLDivElement>, row: RoadmapRow) {
     if (row.kind === 'lane') return;
-    // A spread item has no meaningful window — it is not draggable, resizable
-    // or re-lanable by keyboard either, only selectable/openable (decision 2).
+    const previous = { laneId: row.laneId ?? 0, startPeriod: row.startPeriod, periodCount: row.periodCount };
+
+    // Vertical reorder / cross-lane move applies to every kind alike (bars,
+    // milestones AND spread items reorder vertically like bars) -- checked
+    // before the spread-specific early return below. Same helper RoadmapGrid's
+    // rows call, so there is one rule and one place to fix it.
+    if ((e.altKey || e.ctrlKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const commit = keyboardVerticalCommit(
+        e.key === 'ArrowDown' ? 1 : -1,
+        e.altKey ? 'alt' : 'ctrl',
+        { id: row.id, laneId: row.laneId as number, startPeriod: row.startPeriod, periodCount: row.periodCount },
+        rowDescriptors,
+        laneOrder
+      );
+      if (commit) onCommit(commit);
+      return;
+    }
+
+    // A spread item has no meaningful window — it is not draggable/resizable by
+    // keyboard, only selectable/openable and vertically reorderable (above).
     if (row.kind === 'spread') {
       if (e.key === ' ' || e.key === 'Spacebar') {
         e.preventDefault();
@@ -149,13 +173,12 @@ export function RoadmapTimeline({
       }
       return;
     }
-    const origin = { startPeriod: row.startPeriod, periodCount: row.periodCount };
-    const previous = { laneId: row.laneId ?? 0, startPeriod: row.startPeriod, periodCount: row.periodCount };
 
+    const origin = { startPeriod: row.startPeriod, periodCount: row.periodCount };
     const commitMove = (mode: 'move' | 'resizeStart' | 'resizeEnd', dir: 1 | -1) => {
       const result = snapDrag(mode, origin, dir * periodWidth, periodWidth, np);
       if (result.startPeriod === origin.startPeriod && result.periodCount === origin.periodCount) return;
-      onCommit({ itemId: row.id, startPeriod: result.startPeriod, periodCount: result.periodCount, previous });
+      onCommit({ entity: 'item', itemId: row.id, startPeriod: result.startPeriod, periodCount: result.periodCount, previous });
     };
 
     switch (e.key) {
@@ -166,21 +189,6 @@ export function RoadmapTimeline({
         if (e.shiftKey) commitMove('resizeEnd', dir);
         else if (e.altKey) commitMove('resizeStart', dir);
         else commitMove('move', dir);
-        return;
-      }
-      case 'ArrowUp':
-      case 'ArrowDown': {
-        if (!e.ctrlKey) return;
-        e.preventDefault();
-        const targetLaneId = laneIdForRowIndex(rowIndex, e.key === 'ArrowDown' ? 1 : -1);
-        if (targetLaneId === null) return;
-        onCommit({
-          itemId: row.id,
-          laneId: targetLaneId,
-          startPeriod: row.startPeriod,
-          periodCount: row.periodCount,
-          previous,
-        });
         return;
       }
       case ' ':
@@ -196,6 +204,60 @@ export function RoadmapTimeline({
         return;
     }
   }
+
+  // Floating pixel-follow layer for an in-progress TIMELINE item drag: the
+  // dragged bar/milestone tracks the raw pointer delta in both axes, and a
+  // dashed rect shows the snapped landing window+row. Snapping is applied
+  // only on release (`timeline-component.md`'s "Pointer model").
+  const floatingDrag = useMemo(() => {
+    if (!ghost || ghost.entity !== 'item' || ghost.source !== 'timeline') return null;
+    const rowIndex = rows.findIndex((r) => r.kind !== 'lane' && r.id === ghost.id);
+    const originRow = rowIndex >= 0 ? rows[rowIndex] : undefined;
+    if (!originRow) return null;
+    const isMilestone = originRow.kind === 'milestone';
+    const originTop = rowIndex * ROW_HEIGHT;
+    const snappedTop = indicatorY({ laneId: ghost.laneId, index: ghost.dropIndex }, rowDescriptors, ROW_HEIGHT);
+
+    if (isMilestone) {
+      const originLeft = milestoneX(originRow.startPeriod, periodWidth) - MILESTONE_HIT / 2;
+      const snappedLeft = milestoneX(ghost.startPeriod, periodWidth) - MILESTONE_HIT / 2;
+      return {
+        follow: {
+          left: originLeft + ghost.dxPx,
+          top: originTop + (ROW_HEIGHT - MILESTONE_HIT) / 2 + ghost.dyPx,
+          width: MILESTONE_HIT,
+          height: MILESTONE_HIT,
+          milestone: true,
+        },
+        snapped: {
+          left: snappedLeft,
+          top: snappedTop + (ROW_HEIGHT - MILESTONE_HIT) / 2,
+          width: MILESTONE_HIT,
+          height: MILESTONE_HIT,
+          milestone: true,
+        },
+      };
+    }
+
+    const originRect = barRect(originRow.startPeriod, originRow.periodCount, periodWidth);
+    const snappedRect = barRect(ghost.startPeriod, ghost.periodCount, periodWidth);
+    return {
+      follow: {
+        left: originRect.left + ghost.dxPx,
+        top: originTop + (ROW_HEIGHT - BAR_HEIGHT) / 2 + ghost.dyPx,
+        width: originRect.width,
+        height: BAR_HEIGHT,
+        milestone: false,
+      },
+      snapped: {
+        left: snappedRect.left,
+        top: snappedTop + (ROW_HEIGHT - BAR_HEIGHT) / 2,
+        width: snappedRect.width,
+        height: BAR_HEIGHT,
+        milestone: false,
+      },
+    };
+  }, [ghost, rows, rowDescriptors, periodWidth]);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -254,21 +316,12 @@ export function RoadmapTimeline({
           </div>
 
           {/* Rows */}
-          <div ref={rowsWrapRef}>
-            {displayRows.map((row, rowIndex) => {
+          <div ref={rowsWrapRef} className="relative">
+            {displayRows.map((row) => {
               if (row.kind === 'lane') {
-                if (!showLaneBars) {
-                  return (
-                    <div
-                      key={`lane-${row.id}`}
-                      className="border-b bg-[#f6f6f6] dark:bg-[#1f1f1f]"
-                      style={{ height: ROW_HEIGHT, boxSizing: 'border-box' }}
-                      data-testid={`roadmap-row-lane-${row.id}`}
-                    />
-                  );
-                }
-
-                const hasBar = row.periodCount > 0;
+                const isHighlighted = indicator?.kind === 'highlight' && indicator.laneId === row.id;
+                const isTargetLane = targetLaneId === row.id;
+                const hasBar = showLaneBars && row.periodCount > 0;
                 const rect = hasBar ? laneBarRect(row.startPeriod, row.periodCount, periodWidth) : null;
                 const svgHeight = LANE_BAR_HEIGHT + LANE_CAP_DROP;
                 const svgTop = (ROW_HEIGHT - svgHeight) / 2;
@@ -290,10 +343,33 @@ export function RoadmapTimeline({
                 return (
                   <div
                     key={`lane-${row.id}`}
-                    className="relative border-b bg-[#f6f6f6] dark:bg-[#1f1f1f]"
-                    style={{ height: ROW_HEIGHT, boxSizing: 'border-box' }}
+                    className={cn(
+                      'group relative border-b bg-[#f6f6f6] dark:bg-[#1f1f1f]',
+                      isHighlighted && 'ring-2 ring-inset',
+                      isTargetLane && !isHighlighted && 'bg-accent/20'
+                    )}
+                    style={{
+                      height: ROW_HEIGHT,
+                      boxSizing: 'border-box',
+                      ...(isHighlighted ? { boxShadow: `inset 0 0 0 2px ${ACCENT}` } : {}),
+                    }}
                     data-testid={`roadmap-row-lane-${row.id}`}
                   >
+                    {/* Lane grip: same gesture as the grid's, so a lane drag can start from
+                        either pane on the one shared state machine. */}
+                    <span
+                      className="absolute left-1 top-1/2 z-10 flex h-3.5 w-3.5 -translate-y-1/2 cursor-grab items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100"
+                      data-testid={`roadmap-timeline-lane-grip-${row.id}`}
+                      aria-label={`Drag ${row.name} lane to reorder`}
+                      onPointerDown={(e) => {
+                        onDragPointerDown(e, { entity: 'lane', laneId: row.id, containerEl: rowsWrapRef.current });
+                      }}
+                      onPointerMove={onDragPointerMove}
+                      onPointerUp={onDragPointerUp}
+                      onPointerCancel={onDragPointerCancel}
+                    >
+                      <GripVertical className="h-3.5 w-3.5" aria-hidden />
+                    </span>
                     {rect && (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -375,7 +451,7 @@ export function RoadmapTimeline({
                         {row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h · {row.fte.toFixed(1)} FTE
                       </span>
                     )}
-                    {row.spreadItemCount > 0 && (
+                    {showLaneBars && row.spreadItemCount > 0 && (
                       <span
                         data-testid={`roadmap-lane-spread-chip-${row.id}`}
                         title={`Spread across the whole project: ${row.spreadItemNames.join(', ')}`}
@@ -388,25 +464,22 @@ export function RoadmapTimeline({
                 );
               }
 
-              const isGhosted = ghost !== null && ghost.itemId === row.id;
-              const effectiveWindow = isGhosted
-                ? { startPeriod: ghost!.startPeriod, periodCount: ghost!.periodCount }
-                : { startPeriod: row.startPeriod, periodCount: row.periodCount };
+              const isDragSource = ghost !== null && ghost.entity === 'item' && ghost.id === row.id;
+              const effectiveWindow = { startPeriod: row.startPeriod, periodCount: row.periodCount };
               const isSelected = row.id === selectedItemId;
               const effort = effortByItemId.get(row.id);
               const roleLines = effort ? Array.from(effort.entries()) : [];
-              // CAP-9: the warning stripe over exactly the over-demand periods,
-              // clipped to the bar's own (possibly ghosted) rect. Never drawn on
-              // a milestone (no window) or while dragging isn't relevant either.
+              const isTargetLane = targetLaneId === row.laneId;
+              // CAP-9: the warning stripe over exactly the over-demand periods.
               const stripeRects =
-                row.kind !== 'milestone' && !isGhosted && row.overDemandPeriods.length > 0
+                row.kind !== 'milestone' && row.overDemandPeriods.length > 0
                   ? stripeSegments(effectiveWindow, row.overDemandPeriods, periodWidth)
                   : [];
 
               return (
                 <div
                   key={`item-${row.id}`}
-                  className="relative border-b"
+                  className={cn('relative border-b', isTargetLane && 'bg-accent/10')}
                   style={{ height: ROW_HEIGHT, boxSizing: 'border-box' }}
                   data-testid={`roadmap-row-item-${row.id}`}
                 >
@@ -419,8 +492,8 @@ export function RoadmapTimeline({
                         aria-selected={isSelected}
                         data-testid={`roadmap-bar-${row.id}`}
                         className={cn(
-                          'absolute select-none outline-none',
-                          row.kind === 'spread' ? 'cursor-pointer' : 'cursor-grab',
+                          'absolute select-none outline-none cursor-grab',
+                          isDragSource && 'opacity-40',
                           row.kind === 'bar' && isSelected && 'ring-2 ring-offset-1'
                         )}
                         style={
@@ -460,12 +533,35 @@ export function RoadmapTimeline({
                                 }
                         }
                         onPointerDown={(e) => {
-                          // A spread item has no draggable window (decision 2) — selection
-                          // only, via the plain onClick below.
-                          if (row.kind === 'spread') return;
-                          const containerTop = rowsWrapRef.current?.getBoundingClientRect().top ?? 0;
+                          const containerEl = rowsWrapRef.current;
+                          if (row.kind === 'spread') {
+                            // Spread items never touch the window (dx discarded, `snapDrag` never
+                            // called) — vertical reorder only, same as a grid-sourced drag.
+                            onDragPointerDown(e, {
+                              entity: 'item',
+                              source: 'timeline',
+                              itemId: row.id,
+                              mode: 'move',
+                              laneId: row.laneId as number,
+                              startPeriod: row.startPeriod,
+                              periodCount: row.periodCount,
+                              allowWindow: false,
+                              containerEl,
+                            });
+                            return;
+                          }
                           if (row.kind === 'milestone') {
-                            onPointerDown(e, row, 'move', rowLaneIds, containerTop);
+                            onDragPointerDown(e, {
+                              entity: 'item',
+                              source: 'timeline',
+                              itemId: row.id,
+                              mode: 'move',
+                              laneId: row.laneId as number,
+                              startPeriod: row.startPeriod,
+                              periodCount: row.periodCount,
+                              allowWindow: true,
+                              containerEl,
+                            });
                             return;
                           }
                           const rect = e.currentTarget.getBoundingClientRect();
@@ -476,14 +572,27 @@ export function RoadmapTimeline({
                               : rect.right - e.clientX <= grabZone
                                 ? 'resizeEnd'
                                 : 'move';
-                          onPointerDown(e, row, mode, rowLaneIds, containerTop);
+                          onDragPointerDown(e, {
+                            entity: 'item',
+                            source: 'timeline',
+                            itemId: row.id,
+                            mode,
+                            laneId: row.laneId as number,
+                            startPeriod: row.startPeriod,
+                            periodCount: row.periodCount,
+                            allowWindow: true,
+                            containerEl,
+                          });
                         }}
-                        onPointerMove={onPointerMove}
-                        onPointerUp={onPointerUp}
-                        onPointerCancel={onPointerCancel}
-                        onClick={() => onSelectItem(row.id)}
+                        onPointerMove={onDragPointerMove}
+                        onPointerUp={onDragPointerUp}
+                        onPointerCancel={onDragPointerCancel}
+                        onClick={() => {
+                          if (consumeWasDragging()) return;
+                          onSelectItem(row.id);
+                        }}
                         onDoubleClick={() => onOpenEditor(row.id)}
-                        onKeyDown={(e) => handleBarKeyDown(e, row, rowIndex)}
+                        onKeyDown={(e) => handleBarKeyDown(e, row)}
                       >
                         {(row.kind === 'bar' || row.kind === 'spread') && (
                           <span
@@ -560,18 +669,66 @@ export function RoadmapTimeline({
                 </div>
               );
             })}
+
+            {/* Vertical-drag insert line — shared indicator, same y both panes render at. */}
+            {indicator?.kind === 'line' && (
+              <div
+                className="pointer-events-none absolute left-0 right-0"
+                data-testid="roadmap-drop-indicator"
+                style={{ top: indicator.y - 1, height: 2, background: ACCENT }}
+              />
+            )}
+
+            {/* Floating pixel-follow layer for a live TIMELINE item drag, plus the
+                dashed rect at the snapped landing window/row (snapping applied
+                only on release). */}
+            {floatingDrag && (
+              <>
+                <div
+                  className="pointer-events-none absolute"
+                  data-testid="roadmap-drag-follow"
+                  style={
+                    floatingDrag.follow.milestone
+                      ? {
+                          left: floatingDrag.follow.left,
+                          top: floatingDrag.follow.top,
+                          width: floatingDrag.follow.width,
+                          height: floatingDrag.follow.height,
+                          background: ACCENT,
+                          transform: 'rotate(45deg)',
+                          opacity: 0.85,
+                        }
+                      : {
+                          left: floatingDrag.follow.left,
+                          top: floatingDrag.follow.top,
+                          width: floatingDrag.follow.width,
+                          height: floatingDrag.follow.height,
+                          background: ACCENT,
+                          borderRadius: 4,
+                          opacity: 0.85,
+                        }
+                  }
+                />
+                <div
+                  className="pointer-events-none absolute"
+                  data-testid="roadmap-drag-snapped"
+                  style={{
+                    left: floatingDrag.snapped.left,
+                    top: floatingDrag.snapped.top,
+                    width: floatingDrag.snapped.width,
+                    height: floatingDrag.snapped.height,
+                    border: `1.5px dashed ${ACCENT}`,
+                    borderRadius: floatingDrag.snapped.milestone ? 1.5 : 4,
+                    transform: floatingDrag.snapped.milestone ? 'rotate(45deg)' : undefined,
+                  }}
+                />
+              </>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
-}
-
-/** For the pointer path's cross-lane hit test — resolves the row index -> lane id. */
-export function laneIdAtRowIndex(rows: RoadmapRow[], rowIndex: number): number | null {
-  const row = rows[rowIndex];
-  if (row === undefined) return null;
-  return row.kind === 'lane' ? row.id : row.laneId;
 }
 
 export function periodColumnLeft(period: number, periodWidth: number): number {

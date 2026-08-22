@@ -209,6 +209,14 @@ export interface BootstrapRoadmapPayload {
   lanes: BootstrapRoadmapLane[];
 }
 
+// Vertical drag: reorder within a lane, cross-lane move, and lane reorder —
+// see spec-roadmap-vertical-drag.md. One atomic PATCH; `startPeriod`/
+// `periodCount` are only ever present on a bar whose window also moved.
+export interface RoadmapReorderPayload {
+  lanes?: { id: number; displayOrder: number }[];
+  items?: { id: number; laneId: number; displayOrder: number; startPeriod?: number; periodCount?: number }[];
+}
+
 function pickDefined<T extends Record<string, unknown>>(obj: T, keys: (keyof T)[]): Partial<T> {
   return Object.fromEntries(
     keys.filter((key) => obj[key] !== undefined).map((key) => [key, obj[key]])
@@ -703,6 +711,19 @@ export const api = {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.details || errorData.error || 'Failed to bootstrap roadmap');
+    }
+    return response.json();
+  },
+
+  async reorderRoadmap(projectId: number, payload: RoadmapReorderPayload): Promise<RoadmapPayload> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/roadmap/reorder`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to reorder roadmap');
     }
     return response.json();
   },

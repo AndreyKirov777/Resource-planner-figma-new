@@ -67,14 +67,16 @@ Rows carry `border-box` sizing so a 34 px row includes its 1 px border and the l
 Pointer Events with `setPointerCapture` — not HTML5 drag-and-drop, which cannot express a live preview and does not fire predictably over scrollable ancestors.
 
 - **Grab zone.** The outer 8 px of a bar resize; the rest moves. Fixed pixels, not a percentage, so a 2-period bar keeps a usable move area. Milestones move only.
-- **During the gesture** the bar follows the pointer pixel for pixel and a dashed ghost shows the snapped landing rect. Snapping mid-gesture makes short drags feel like they are fighting the cursor; snapping only on release keeps the gesture continuous and the result exact. This is a binding UX rule, restated here because the implementation is where it gets lost.
-- **Cross-lane.** On move, `rowAt(clientY)` resolves the lane under the pointer and its rows are outlined. The item's `laneId` changes on drop.
-- **On release** one `PATCH` carries `{ laneId?, startPeriod, periodCount }`. Nothing else is ever written back from a drag.
-- **Failure** snaps the bar back to its pre-drag rect and the toast states why.
-- **Undo** is one `PATCH` restoring the pre-drag triple, offered in a `sonner` toast.
-- A gesture that moved more than 3 px must not also read as a click-to-select.
+- **During the gesture** the bar follows the pointer pixel for pixel in BOTH axes and a dashed ghost shows the snapped landing rect. Snapping mid-gesture makes short drags feel like they are fighting the cursor; snapping only on release keeps the gesture continuous and the result exact. This is a binding UX rule, restated here because the implementation is where it gets lost.
+- **Vertical placement.** Pointer Y resolves to an insertion slot `{ laneId, index }` via `dropTargetAt` (`roadmapGeometry.ts`) — `slot = round(y / ROW_HEIGHT)`. A slot landing on a lane row is the head of that lane, or an append when the lane is collapsed/empty (its row is highlighted instead of an insert line drawn). Above the first row heads the first lane; below the last row tails the last lane. The dragged item is excluded before the index is resolved, so a drop on its own position is a no-op. An insert line at that slot renders identically in the left grid and the timeline — one drag state machine, lifted into `Roadmap.tsx`, drives both panes, and its target lane's rows are outlined.
+- **From the grid.** The same gesture starts from a grip handle in the left grid; there, dx is always discarded and `snapDrag` is never called — vertical placement only.
+- **On release** a drop that changed ONLY the window (no vertical placement change) still sends the single `PATCH { laneId?, startPeriod, periodCount }`. A drop that changed lane and/or order — with or without a window change in the same gesture — sends ONE atomic `PATCH /api/projects/:id/roadmap/reorder` carrying every touched lane/item's contiguous `0…n-1` renumbering, plus the dragged item's `startPeriod`/`periodCount` when the window moved too. Nothing else is ever written back from a drag.
+- **Failure** snaps the bar back to its pre-drag rect (and pre-drag order) and the toast states why.
+- **Undo** is one request restoring the pre-drag state, offered in a `sonner` toast — the single-item triple for a pure window move, or the full pre-drag order of every touched lane (plus the item's window, when that moved too) for a reorder.
+- **Auto-scroll.** No dedicated Y-scroll container owns the rows (this viewport scrolls X only) — a pointer within 24 px of the page's top/bottom edge scrolls the page ~8 px per frame while a gesture is active.
+- A gesture that moved more than 3 px must not also read as a click-to-select (or, in the grid, a lane collapse-toggle).
 
-Measured on the mockup: the whole layer — move, both resize edges, cross-lane drop, clamping, ghost, toast and working undo — is 146 lines with 16 unit assertions over `snapDrag`.
+Measured on the mockup: the whole layer — move, both resize edges, cross-lane drop, clamping, ghost, toast and working undo — is 146 lines with 16 unit assertions over `snapDrag`. Vertical placement is specified in full, with its own worked matrix, in `spec-roadmap-vertical-drag.md`.
 
 ## Keyboard parity is not optional
 
@@ -85,11 +87,12 @@ Every drag gesture has a keyboard equivalent, because a bar that can only be pla
 | `←` / `→` | move by one period |
 | `⇧←` / `⇧→` | resize the finish edge by one period |
 | `⌥←` / `⌥→` | resize the start edge by one period |
-| `⌃↑` / `⌃↓` | move to the previous / next lane |
+| `⌥↑` / `⌥↓` | reorder one position within the current lane |
+| `⌃↑` / `⌃↓` | move to the previous / next lane, appended at that lane's tail (an explicit index, not just a lane change) |
 | `Space` | open the editor panel |
 | `Esc` | cancel an in-flight drag, restoring the pre-drag rect |
 
-All six route through the same `snapDrag` and the same commit path as the pointer gestures, so there is one rule and one place to fix it. Bars are focusable in row order; the focus ring is the app's, not a browser default.
+All route through the same `snapDrag` / `dropTargetAt` and the same commit path as the pointer gestures, so there is one rule and one place to fix it. Bars are focusable in row order; the focus ring is the app's, not a browser default. Left-grid rows take the same bindings, on the same commit path, so a keyboard-only user is never limited to the row menu's Move up / Move down (which now route through it too).
 
 ## Theming
 

@@ -465,3 +465,36 @@ paths, not contract breaks.
 - source_spec: `_bmad-output/implementation-artifacts/spec-planning-table-column-visibility.md`
   summary: Planning Table hourly cost/rate cell edits still accept negative or non-finite numbers.
   evidence: Pre-existing `onCellEdited` bodies write `newValue.data || 0` with no finite/min clamp; this story was required to keep those mutation bodies verbatim.
+
+## Deferred from spec-roadmap-vertical-drag review (2026-08-22)
+
+Pre-existing `server.ts`/`App.tsx` conventions this story's new endpoint and handler faithfully
+matched rather than fixed. None are regressions caused by this change.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: `api.reorderRoadmap`'s error handling can throw `new Error("[object Object]")` when the server returns a Zod `.flatten()` object as `details`.
+  evidence: Identical `errorData.details || errorData.error || '...'` pattern already exists in the pre-existing `updateRoadmapItem`; not something this story introduced.
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: `parseInt(req.params.id)` in the new reorder route is not NaN-checked, so a non-numeric `:id` falls through to a generic 500 instead of a 400.
+  evidence: The pre-existing single-item `PATCH /api/roadmap-items/:id` handler has the identical unchecked `parseInt`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: The reorder endpoint has no optimistic-locking/version check, so two concurrent overlapping reorder requests touching the same lane can silently last-write-wins.
+  evidence: No endpoint anywhere in `server.ts` does optimistic locking; this is an app-wide architectural gap, not specific to this endpoint.
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: The reorder endpoint's existence checks and its `prisma.$transaction` are two separate round trips, so a referenced lane/item deleted in between surfaces as a 500 instead of a 400/404.
+  evidence: The same check-then-write (non-transactional-together) shape is used throughout `server.ts`, including the pre-existing single-item PATCH handlers.
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: The new reorder endpoint never validates `startPeriod + periodCount` against the project's total period count.
+  evidence: Verified the pre-existing single-item `PATCH /api/roadmap-items/:id` handler has no such bound check either — the new endpoint matches existing behavior exactly, not a regression.
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: `handleReorderRoadmap` silently no-ops when `currentProject` is null, same as every other App.tsx domain handler.
+  evidence: The identical `if (!currentProject) return;` guard appears 11 times across `src/App.tsx`; this is the established house convention, not new.
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: Holding both Alt and Ctrl while pressing an arrow key on a bar/grid row silently does the Alt (within-lane reorder) action instead of being rejected as an ambiguous chord.
+  evidence: Low-impact, unusual key combination; behavior is deterministic (Alt wins), just undocumented — polish, not a functional break.
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: `Esc` does not cancel an in-flight *pointer* drag (only the keyboard-selection path handles Escape).
+  evidence: Confirmed via `git show` on the pre-story baseline (`3a0949e`) that no such listener existed before this change either — the keyboard table's claim predates this story.
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
+  summary: No guard prevents two overlapping drag/keyboard reorder commits from firing concurrent `PATCH .../reorder` requests whose responses could resolve out of order.
+  evidence: Confirmed via `git show` on the pre-story baseline that the old two-PATCH `commitDrag` path had no such guard either — pre-existing gap in the commit path this story generalized, not introduced by it.

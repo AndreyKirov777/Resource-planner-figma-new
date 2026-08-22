@@ -15,6 +15,12 @@ import {
   laneSummaryPath,
   laneMilestoneXs,
   LANE_CAP_WIDTH,
+  dropTargetAt,
+  laneDropIndexAt,
+  reorderWithin,
+  indicatorY,
+  RowDescriptor,
+  ROW_HEIGHT,
 } from './roadmapGeometry';
 
 /** Inverse of `periodX`, reimplemented here since production only needs the forward direction. */
@@ -276,6 +282,99 @@ describe('stripeSegments', () => {
 
   it('a milestone (periodCount 0) has no stripe', () => {
     expect(stripeSegments({ startPeriod: 5, periodCount: 0 }, [5], periodWidth)).toEqual([]);
+  });
+});
+
+describe('dropTargetAt / laneDropIndexAt / reorderWithin / indicatorY', () => {
+  const RH = ROW_HEIGHT;
+  // row0: Lane 1 (open)          row1: item 10        row2: item 11
+  // row3: Lane 2 (open, empty)
+  // row4: Lane 3 (collapsed)     row5(hidden): item 30 -- still in the descriptor list, just not "visible"
+  const rows: RowDescriptor[] = [
+    { kind: 'lane', id: 1, laneId: 1, collapsed: false },
+    { kind: 'item', id: 10, laneId: 1, collapsed: false },
+    { kind: 'item', id: 11, laneId: 1, collapsed: false },
+    { kind: 'lane', id: 2, laneId: 2, collapsed: false },
+    { kind: 'lane', id: 3, laneId: 3, collapsed: true },
+  ];
+  // A separate fixture whose collapsed lane 3 actually carries an item, to prove
+  // "collapsed -> append" rather than "collapsed -> head".
+  const rowsWithHiddenItem: RowDescriptor[] = [
+    ...rows,
+    { kind: 'item', id: 30, laneId: 3, collapsed: false },
+  ];
+
+  it('lands on a lane row -> head of that lane', () => {
+    expect(dropTargetAt(0, rows, RH, 99)).toEqual({ laneId: 1, index: 0 });
+  });
+
+  it('above the first row clamps to the head of the first lane', () => {
+    expect(dropTargetAt(-1000, rows, RH, 99)).toEqual({ laneId: 1, index: 0 });
+  });
+
+  it('below the last row clamps to the tail of the last lane', () => {
+    expect(dropTargetAt(100000, rows, RH, 99)).toEqual({ laneId: 3, index: 0 }); // lane 3 has no items in `rows`
+    expect(dropTargetAt(100000, rowsWithHiddenItem, RH, 99)).toEqual({ laneId: 3, index: 1 });
+  });
+
+  it('lands between two items -> inserts at that index', () => {
+    // Boundary between item 10 (row1) and item 11 (row2): slot = round(51/34) = 2.
+    expect(dropTargetAt(51, rows, RH, 99)).toEqual({ laneId: 1, index: 1 });
+  });
+
+  it('empty lane resolves to index 0', () => {
+    // Lane 2's own header row, no items.
+    expect(dropTargetAt(3 * RH, rows, RH, 99)).toEqual({ laneId: 2, index: 0 });
+  });
+
+  it('collapsed lane appends to the end instead of resolving to head', () => {
+    // Lane 3's header row (index 4), with one hidden item already in it.
+    expect(dropTargetAt(4 * RH, rowsWithHiddenItem, RH, 99)).toEqual({ laneId: 3, index: 1 });
+  });
+
+  it('drop on own position resolves to the item\'s current index -- a no-op', () => {
+    // Item 10's own row, dragging item 10 itself.
+    expect(dropTargetAt(1 * RH, rows, RH, 10)).toEqual({ laneId: 1, index: 0 });
+    // Item 11's own row, dragging item 11 itself -> still index 1 (its current position).
+    expect(dropTargetAt(2 * RH, rows, RH, 11)).toEqual({ laneId: 1, index: 1 });
+  });
+
+  it('cross-lane: dragged item excluded from its ORIGIN lane never shifts the target lane index', () => {
+    // Dragging item 10 (lane 1) onto lane 2's empty header -> lane 2 unaffected by item 10's removal from lane 1.
+    expect(dropTargetAt(3 * RH, rows, RH, 10)).toEqual({ laneId: 2, index: 0 });
+  });
+
+  it('laneDropIndexAt: near the top resolves to the first lane, past every midpoint appends at the end', () => {
+    expect(laneDropIndexAt(0, rows, RH)).toBe(0);
+    expect(laneDropIndexAt(100000, rows, RH)).toBe(3); // 3 lanes -> append index 3
+  });
+
+  it('laneDropIndexAt: empty rows resolves to 0', () => {
+    expect(laneDropIndexAt(0, [], RH)).toBe(0);
+  });
+
+  it('reorderWithin moves an element and clamps an out-of-range target', () => {
+    expect(reorderWithin([1, 2, 3], 0, 2)).toEqual([2, 3, 1]);
+    expect(reorderWithin([1, 2, 3], 2, 0)).toEqual([3, 1, 2]);
+    expect(reorderWithin([1, 2, 3], 0, 999)).toEqual([2, 3, 1]); // clamped to the end
+  });
+
+  it('reorderWithin is a no-op copy when `from` is out of range', () => {
+    expect(reorderWithin([1, 2, 3], -1, 0)).toEqual([1, 2, 3]);
+  });
+
+  it('indicatorY draws at the top of the target item row', () => {
+    expect(indicatorY({ laneId: 1, index: 0 }, rows, RH)).toBe(1 * RH);
+    expect(indicatorY({ laneId: 1, index: 1 }, rows, RH)).toBe(2 * RH);
+  });
+
+  it('indicatorY for an append target draws just past the lane\'s last row', () => {
+    // Lane 1 has 2 items -> appending draws right where lane 2's header starts.
+    expect(indicatorY({ laneId: 1, index: 2 }, rows, RH)).toBe(3 * RH);
+  });
+
+  it('indicatorY for an empty lane draws right after its own header', () => {
+    expect(indicatorY({ laneId: 2, index: 0 }, rows, RH)).toBe(4 * RH);
   });
 });
 

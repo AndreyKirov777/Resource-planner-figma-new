@@ -32,6 +32,7 @@ import {
   roadmapLinksReplaceSchema,
   wbsRoadmapLinkSchema,
   bootstrapRoadmapSchema,
+  roadmapReorderSchema,
 } from './server-validation';
 import { generateResourcePlan } from './server/planner/generateResourcePlan';
 import { loadAIConfig } from './server/llm/config';
@@ -1689,6 +1690,95 @@ app.post('/api/projects/:id/roadmap/bulk', async (req, res) => {
   } catch (error) {
     console.error('Error bootstrapping roadmap:', error);
     res.status(500).json({ error: 'Failed to bootstrap roadmap' });
+  }
+});
+
+// PATCH /api/projects/:id/roadmap/reorder — atomic vertical drag: reorder within a
+// lane, move across lanes, and (for a single bar) move its window, all in ONE write.
+// See spec-roadmap-vertical-drag.md — a scoped exception to "one endpoint writes one
+// row": a cross-lane drop renumbers two lanes and may move the window in the same
+// gesture, and the human decision on this feature is that it commits atomically.
+app.patch('/api/projects/:id/roadmap/reorder', async (req, res) => {
+  try {
+    const parsed = roadmapReorderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const projectId = parseInt(req.params.id);
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const { lanes = [], items = [] } = parsed.data;
+
+    // Every lane id referenced anywhere — as a lane row being renumbered OR as an
+    // item's target laneId — must belong to this project. One query, same invariant
+    // the single-item PATCH enforces at :1497.
+    const referencedLaneIds = [...new Set<number>([...lanes.map((l) => l.id), ...items.map((i) => i.laneId)])];
+    if (referencedLaneIds.length > 0) {
+      const laneRows = await prisma.roadmapLane.findMany({ where: { id: { in: referencedLaneIds } } });
+      const found = new Set(laneRows.map((l) => l.id));
+      const allBelong =
+        laneRows.every((l) => l.projectId === projectId) && referencedLaneIds.every((id) => found.has(id));
+      if (!allBelong) {
+        return res.status(400).json({ error: 'lane ids must reference roadmap lanes in this project' });
+      }
+    }
+
+    // Every item id must belong to this project, and any window fields it carries must
+    // pass the same kind/periodCount rule the single-item PATCH enforces (:1503-1516) —
+    // checked against the item's EXISTING kind, since `kind` is never part of this payload.
+    if (items.length > 0) {
+      const itemRows = await prisma.roadmapItem.findMany({ where: { id: { in: items.map((i) => i.id) } } });
+      const foundItems = new Set(itemRows.map((i) => i.id));
+      const allItemsBelong =
+        itemRows.every((i) => i.projectId === projectId) && items.every((i) => foundItems.has(i.id));
+      if (!allItemsBelong) {
+        return res.status(400).json({ error: 'item ids must reference roadmap items in this project' });
+      }
+      const byId = new Map(itemRows.map((i) => [i.id, i]));
+      for (const patch of items) {
+        if (patch.startPeriod === undefined && patch.periodCount === undefined) continue;
+        const existing = byId.get(patch.id)!;
+        const finalPeriodCount = patch.periodCount ?? existing.periodCount;
+        const finalStartPeriod = patch.startPeriod ?? existing.startPeriod;
+        if (existing.kind === 'bar' && finalPeriodCount < 1) {
+          return res.status(400).json({ error: 'periodCount must be >= 1 for a bar' });
+        }
+        if (existing.kind === 'milestone' && finalPeriodCount !== 0) {
+          return res.status(400).json({ error: 'periodCount must be 0 for a milestone' });
+        }
+        if (existing.kind === 'spread' && finalPeriodCount !== 0) {
+          return res.status(400).json({ error: 'periodCount must be 0 for a spread item — it always spans the whole project' });
+        }
+        if (existing.kind === 'spread' && finalStartPeriod !== 1) {
+          return res.status(400).json({ error: 'startPeriod must be 1 for a spread item — it always spans the whole project' });
+        }
+      }
+    }
+
+    await prisma.$transaction([
+      ...lanes.map((l) =>
+        prisma.roadmapLane.update({ where: { id: l.id }, data: { displayOrder: l.displayOrder } })
+      ),
+      ...items.map((i) =>
+        prisma.roadmapItem.update({
+          where: { id: i.id },
+          data: {
+            laneId: i.laneId,
+            displayOrder: i.displayOrder,
+            ...(i.startPeriod !== undefined ? { startPeriod: i.startPeriod } : {}),
+            ...(i.periodCount !== undefined ? { periodCount: i.periodCount } : {}),
+          },
+        })
+      ),
+    ]);
+
+    res.json(await fetchRoadmapPayload(projectId));
+  } catch (error) {
+    console.error('Error reordering roadmap:', error);
+    res.status(500).json({ error: 'Failed to reorder roadmap' });
   }
 });
 

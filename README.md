@@ -184,6 +184,7 @@
   - `PUT /roadmap-items/:id/links` - Replace an item's direct WBS links
   - `PUT /wbs-items/:id/roadmap-link` - Set or clear a WBS node's direct roadmap link
   - `POST /projects/:id/roadmap/bulk` - Bootstrap a roadmap from the WBS (refused with 409 unless the roadmap is empty)
+  - `PATCH /projects/:id/roadmap/reorder` - Atomic vertical drag: reorder within a lane, move across lanes (and its window in the same request), or reorder lanes — one transaction
 
   ## Development
 

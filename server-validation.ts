@@ -343,6 +343,75 @@ export const bootstrapRoadmapSchema = z.object({
   lanes: z.array(bootstrapRoadmapLaneSchema),
 }).strict();
 
+// PATCH /api/projects/:id/roadmap/reorder — atomic cross-lane move / reorder.
+// See spec-roadmap-vertical-drag.md: a scoped exception to the
+// single-item-PATCH-only rule, because a cross-lane drop renumbers two lanes
+// AND may move the window in the same gesture, and the human decision is
+// that it commits atomically.
+const roadmapReorderLaneSchema = z.object({
+  id: z.number().int().positive(),
+  displayOrder: z.number().int().min(0),
+}).strict();
+
+const roadmapReorderItemSchema = z.object({
+  id: z.number().int().positive(),
+  laneId: z.number().int().positive(),
+  displayOrder: z.number().int().min(0),
+  startPeriod: z.number().int().min(1).optional(),
+  periodCount: z.number().int().min(0).optional(),
+}).strict();
+
+function refineUniqueIds<T extends { id: number }>(list: T[], ctx: z.RefinementCtx, path: string) {
+  const seen = new Set<number>();
+  for (const row of list) {
+    if (seen.has(row.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate id ${row.id} in ${path}`, path: [path] });
+      return;
+    }
+    seen.add(row.id);
+  }
+}
+
+// "displayOrder is renumbered contiguously 0…n-1 within every lane the drop
+// touched. No fractional ranks, no gaps" (spec-roadmap-vertical-drag.md) — a
+// hard invariant, not just a client convention, so the server checks it too.
+function refineContiguousOrders(orders: number[], ctx: z.RefinementCtx, path: string, groupLabel?: string) {
+  const sorted = [...orders].sort((a, b) => a - b);
+  const contiguous = sorted.every((value, i) => value === i);
+  if (!contiguous) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: groupLabel
+        ? `displayOrder values for lane ${groupLabel} must be contiguous 0..${orders.length - 1}`
+        : `displayOrder values must be contiguous 0..${orders.length - 1}`,
+      path: [path],
+    });
+  }
+}
+
+export const roadmapReorderSchema = z.object({
+  lanes: z.array(roadmapReorderLaneSchema).optional(),
+  items: z.array(roadmapReorderItemSchema).optional(),
+}).strict().superRefine((data, ctx) => {
+  if (data.lanes) refineUniqueIds(data.lanes, ctx, 'lanes');
+  if (data.items) refineUniqueIds(data.items, ctx, 'items');
+  if (!data.lanes?.length && !data.items?.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'reorder payload must include lanes or items', path: [] });
+  }
+  if (data.lanes) refineContiguousOrders(data.lanes.map((l) => l.displayOrder), ctx, 'lanes');
+  if (data.items) {
+    const byLaneId = new Map<number, number[]>();
+    for (const item of data.items) {
+      const orders = byLaneId.get(item.laneId) ?? [];
+      orders.push(item.displayOrder);
+      byLaneId.set(item.laneId, orders);
+    }
+    byLaneId.forEach((orders, laneId) => refineContiguousOrders(orders, ctx, 'items', String(laneId)));
+  }
+});
+
+export type RoadmapReorderInput = z.infer<typeof roadmapReorderSchema>;
+
 export type RoadmapLaneCreateInput = z.infer<typeof roadmapLaneCreateSchema>;
 export type RoadmapLaneUpdateInput = z.infer<typeof roadmapLaneUpdateSchema>;
 export type RoadmapItemCreateInput = z.infer<typeof roadmapItemCreateSchema>;

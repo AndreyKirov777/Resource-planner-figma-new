@@ -18,6 +18,7 @@ import {
   roadmapLinksReplaceSchema,
   wbsRoadmapLinkSchema,
   bootstrapRoadmapSchema,
+  roadmapReorderSchema,
 } from './server-validation';
 
 describe('server-validation Zod schemas', () => {
@@ -465,6 +466,107 @@ describe('server-validation Zod schemas', () => {
         lanes: [{ name: 'Platform', items: [], id: 1 }],
       });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('roadmapReorderSchema', () => {
+    it('accepts a lanes-only payload', () => {
+      expect(roadmapReorderSchema.safeParse({ lanes: [{ id: 1, displayOrder: 0 }] }).success).toBe(true);
+    });
+
+    it('accepts an items-only payload, startPeriod/periodCount optional', () => {
+      const result = roadmapReorderSchema.safeParse({
+        items: [
+          { id: 10, laneId: 1, displayOrder: 0 },
+          { id: 11, laneId: 1, displayOrder: 1, startPeriod: 3, periodCount: 2 },
+        ],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts both lanes and items in one payload', () => {
+      const result = roadmapReorderSchema.safeParse({
+        lanes: [{ id: 1, displayOrder: 0 }],
+        items: [{ id: 10, laneId: 1, displayOrder: 0 }],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects an empty payload (neither lanes nor items)', () => {
+      expect(roadmapReorderSchema.safeParse({}).success).toBe(false);
+      expect(roadmapReorderSchema.safeParse({ lanes: [], items: [] }).success).toBe(false);
+    });
+
+    it('rejects duplicate ids within lanes', () => {
+      const result = roadmapReorderSchema.safeParse({
+        lanes: [
+          { id: 1, displayOrder: 0 },
+          { id: 1, displayOrder: 1 },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects duplicate ids within items', () => {
+      const result = roadmapReorderSchema.safeParse({
+        items: [
+          { id: 10, laneId: 1, displayOrder: 0 },
+          { id: 10, laneId: 1, displayOrder: 1 },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a negative displayOrder', () => {
+      expect(roadmapReorderSchema.safeParse({ lanes: [{ id: 1, displayOrder: -1 }] }).success).toBe(false);
+    });
+
+    it('rejects an unlisted field on an item row (strict)', () => {
+      const result = roadmapReorderSchema.safeParse({
+        items: [{ id: 10, laneId: 1, displayOrder: 0, kind: 'bar' }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a gap in a lane\'s displayOrder sequence (must be contiguous 0..n-1)', () => {
+      const result = roadmapReorderSchema.safeParse({
+        items: [
+          { id: 10, laneId: 1, displayOrder: 0 },
+          { id: 11, laneId: 1, displayOrder: 2 }, // skips 1
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a duplicate displayOrder within the same lane, even with distinct ids', () => {
+      const result = roadmapReorderSchema.safeParse({
+        items: [
+          { id: 10, laneId: 1, displayOrder: 0 },
+          { id: 11, laneId: 1, displayOrder: 0 },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a gap in the lanes array\'s displayOrder sequence', () => {
+      const result = roadmapReorderSchema.safeParse({
+        lanes: [
+          { id: 1, displayOrder: 0 },
+          { id: 2, displayOrder: 2 },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('checks each lane\'s displayOrder sequence independently', () => {
+      const result = roadmapReorderSchema.safeParse({
+        items: [
+          { id: 10, laneId: 1, displayOrder: 0 },
+          { id: 11, laneId: 1, displayOrder: 1 },
+          { id: 20, laneId: 2, displayOrder: 0 },
+        ],
+      });
+      expect(result.success).toBe(true);
     });
   });
 });
