@@ -9,7 +9,21 @@ import { Plus, Trash2, Search, X, ArrowLeft, FileSpreadsheet, CalendarClock } fr
 import * as ExcelJS from 'exceljs';
 import { RateCard as RateCardType } from '../services/api';
 import { getClientRoleFromRole } from '../utils/clientRoleMapping';
-import { APP_DEFAULTS } from '../config/defaults';
+import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
+import { GENERATE_PLAN_REGIONS } from '../utils/regions';
+
+// The 9 rate-card regions: RateCard field, tab slug (activeRegionTab), the
+// grid column header, and the resource-list location string. `LOCATIONS` and
+// `GENERATE_PLAN_REGIONS` are declared in the same order (see utils/regions.ts)
+// but their labels differ in punctuation for one entry ("Asia (ARM,KZ)" vs
+// "Asia (ARM, KZ)") — zipped by index, not merged into a single label, to
+// preserve both spellings exactly as they were before this table existed.
+const REGION_FIELDS = LOCATIONS.map(({ slug, label: locationLabel }, i) => ({
+  slug,
+  field: GENERATE_PLAN_REGIONS[i].value,
+  columnLabel: GENERATE_PLAN_REGIONS[i].label,
+  locationLabel,
+}));
 
 // Import AG Grid styles
 import 'ag-grid-community/styles/ag-grid.css';
@@ -238,197 +252,27 @@ export function RateCard({
     ];
 
     // Regional rate columns with dynamic visibility based on active tab
-    const regionalColumns: ColDef<RateCardType>[] = [
-      {
-        headerName: 'Ukraine',
-        field: 'ukraine',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'ukraine',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, ukraine: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'Eastern Europe',
-        field: 'easternEurope',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'eastern-europe',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, easternEurope: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'Asia (GE)',
-        field: 'asiaGE',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'asia-ge',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, asiaGE: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'Asia (ARM, KZ)',
-        field: 'asiaARMKZ',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'asia-arm-kz',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, asiaARMKZ: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'LATAM',
-        field: 'latam',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'latam',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, latam: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'Mexico',
-        field: 'mexico',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'mexico',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, mexico: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'India',
-        field: 'india',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'india',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, india: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'New York',
-        field: 'newYork',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'new-york',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, newYork: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
-      },
-      {
-        headerName: 'London',
-        field: 'london',
-        sortable: true,
-        filter: false,
-        resizable: true,
-        valueFormatter: currencyFormatter,
-        type: 'numericColumn',
-        editable: true,
-        hide: activeRegionTab !== 'london',
-        onCellValueChanged: (params: any) => {
-          const updatedRateCards = rateCards.map(rateCard =>
-            rateCard.id === params.data.id
-              ? { ...rateCard, london: parseFloat(params.newValue) || 0 }
-              : rateCard
-          );
-          onRateCardsChange(updatedRateCards);
-          const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
-          if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
-        }
+    const regionalColumns: ColDef<RateCardType>[] = REGION_FIELDS.map(({ slug, field, columnLabel }) => ({
+      headerName: columnLabel,
+      field,
+      sortable: true,
+      filter: false,
+      resizable: true,
+      valueFormatter: currencyFormatter,
+      type: 'numericColumn',
+      editable: true,
+      hide: activeRegionTab !== slug,
+      onCellValueChanged: (params: any) => {
+        const updatedRateCards = rateCards.map(rateCard =>
+          rateCard.id === params.data.id
+            ? { ...rateCard, [field]: parseFloat(params.newValue) || 0 }
+            : rateCard
+        );
+        onRateCardsChange(updatedRateCards);
+        const updatedRow = updatedRateCards.find(rc => rc.id === params.data.id);
+        if (updatedRow?.id != null && onRateCardUpdate) onRateCardUpdate(updatedRow.id, updatedRow);
       }
-    ];
+    }));
 
     return [...baseColumns, ...regionalColumns];
   }, [rateCards, onRateCardsChange, onRateCardUpdate, activeRegionTab]);
@@ -551,51 +395,10 @@ export function RateCard({
       return;
     }
 
-    // Get the daily rate based on active regional tab
-    let dailyRate = 0;
-    let location = '';
-    
-    switch (activeRegionTab) {
-      case 'ukraine':
-        dailyRate = rateCardData.ukraine * 8; // Convert hourly to daily (8 hours)
-        location = 'Ukraine';
-        break;
-      case 'eastern-europe':
-        dailyRate = rateCardData.easternEurope * 8;
-        location = 'Eastern Europe';
-        break;
-      case 'asia-ge':
-        dailyRate = rateCardData.asiaGE * 8;
-        location = 'Asia (GE)';
-        break;
-      case 'asia-arm-kz':
-        dailyRate = rateCardData.asiaARMKZ * 8;
-        location = 'Asia (ARM,KZ)';
-        break;
-      case 'latam':
-        dailyRate = rateCardData.latam * 8;
-        location = 'LATAM';
-        break;
-      case 'mexico':
-        dailyRate = rateCardData.mexico * 8;
-        location = 'Mexico';
-        break;
-      case 'india':
-        dailyRate = rateCardData.india * 8;
-        location = 'India';
-        break;
-      case 'new-york':
-        dailyRate = rateCardData.newYork * 8;
-        location = 'New York';
-        break;
-      case 'london':
-        dailyRate = rateCardData.london * 8;
-        location = 'London';
-        break;
-      default:
-        dailyRate = rateCardData.ukraine * 8; // Default to Ukraine
-        location = 'Ukraine';
-    }
+    // Get the daily rate based on active regional tab (default to Ukraine, same as the old switch's default case)
+    const regionField = REGION_FIELDS.find((r) => r.slug === activeRegionTab) ?? REGION_FIELDS[0];
+    const dailyRate = rateCardData[regionField.field] * 8; // Convert hourly to daily (8 hours)
+    const location = regionField.locationLabel;
 
     // Get the client role from the role mapping
     const clientRole = getClientRoleFromRole(rateCardData.role);
