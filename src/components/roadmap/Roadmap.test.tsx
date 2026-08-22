@@ -3,7 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { Roadmap } from './Roadmap';
 import { Project, RoadmapLaneWithItems, WbsItem, GeneratePlanDraft } from '../../services/api';
 import { snapDrag, ZOOM_LADDER, DEFAULT_ZOOM_INDEX, periodX } from '../../utils/roadmapGeometry';
-import { buildRoadmapLoad, demandHours, supplyHours } from '../../utils/roadmapLoad';
+import { buildRoadmapLoad, buildByPeriodMatrix, demandHours, supplyHours } from '../../utils/roadmapLoad';
+import { ReconciliationPanel } from '../ReconciliationPanel';
 
 /**
  * Drives the KEYBOARD path, not the pointer path — no pointer harness needed,
@@ -486,5 +487,108 @@ describe('CAP-13 draft plan from the roadmap', () => {
   it('is disabled when the roadmap has no demand anywhere', () => {
     renderRoadmap(); // default fixture: empty wbsItems, no linked scope
     expect(screen.getByRole('button', { name: 'Draft plan from roadmap' })).toBeDisabled();
+  });
+});
+
+describe('Done-means cross-check: stripe, load strip and by-period matrix agree cell-for-cell', () => {
+  it('a deliberately over-committed fixture reads identically in all three places, because all three call buildRoadmapLoad', () => {
+    // One Backend Developer, 700h, over periods 1-4 (175h/period demand) against
+    // 100h/period supply — every period in the window is over-demand.
+    const overCommittedWbsItems: WbsItem[] = [
+      {
+        id: 900,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [{ id: 90, discipline: 'Engineering', role: 'Backend Developer', hours: 700, wbsItemId: 900, createdAt: '', updatedAt: '' }],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].startPeriod = 1;
+    lanes[0].items[0].periodCount = 4;
+    lanes[0].items[0].wbsItemIds = [900];
+    const resourcePlans = [
+      {
+        id: 1,
+        role: 'Backend Developer',
+        intHourlyRate: 0,
+        clientHourlyRate: 0,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        allocations: [1, 2, 3, 4].map((p) => ({ id: p, periodNumber: p, allocation: 250, resourcePlanId: 1, createdAt: '', updatedAt: '' })), // 250% = 100h/period
+      },
+    ];
+
+    // The ONE engine call every reader is supposed to share.
+    const sharedLoad = buildRoadmapLoad({
+      wbsItems: overCommittedWbsItems,
+      roadmapItems: [{ id: 10, name: 'API', kind: 'bar', startPeriod: 1, periodCount: 4 }],
+      links: [{ wbsItemId: 900, roadmapItemId: 10 }],
+      resourcePlans,
+      rateCards: [],
+      phases: JSON.parse(project.phases as string),
+      planningMode: 'weekly',
+      daysInFTE: project.daysInFTE,
+    });
+    const expectedDemandP2 = demandHours(sharedLoad, 'role', 'Backend Developer', 2);
+    const expectedSupplyP2 = supplyHours(sharedLoad, 'role', 'Backend Developer', 2);
+    expect(expectedDemandP2).toBe(175);
+    expect(expectedSupplyP2).toBe(100);
+
+    // 1) The bar's stripe (RoadmapTimeline, via <Roadmap>): covers the whole window.
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={overCommittedWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={resourcePlans}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn(() => Promise.resolve())}
+      />
+    );
+    expect(screen.getByTestId('roadmap-stripe-10')).toBeInTheDocument();
+
+    // 2) The load strip's period-2 cell (same render tree): "175/100".
+    const loadCell = screen.getByTestId('roadmap-load-cell-2');
+    expect(loadCell).toHaveAccessibleName(
+      `Period 2: ${Math.round(expectedDemandP2)} of ${Math.round(expectedSupplyP2)} hours`
+    );
+
+    // 3) The by-period matrix (ReconciliationPanel, mounted separately as Wbs.tsx
+    // does): the SAME period-2 cell for the SAME role, from the SAME engine call.
+    const matrix = buildByPeriodMatrix(sharedLoad, 'role');
+    render(
+      <ReconciliationPanel
+        report={{
+          projectTotal: { wbsHours: 0, planHours: 0, varianceHours: 0 },
+          byDiscipline: [],
+          byPhaseDiscipline: [],
+          phaseLevelAvailable: false,
+          unassignedWbs: { totalHours: 0, byDiscipline: [] },
+          unmappedPlan: { totalHours: 0, rows: [] },
+        }}
+        byPeriodRoleMatrix={matrix}
+        byPeriodDisciplineMatrix={buildByPeriodMatrix(sharedLoad, 'discipline')}
+      />
+    );
+    const matrixRow = matrix.rows.find((r) => r.key === 'Backend Developer')!;
+    expect(matrixRow.cells[1].demand).toBe(expectedDemandP2); // index 1 -> period 2
+    expect(matrixRow.cells[1].supply).toBe(expectedSupplyP2);
+    expect(screen.getAllByText(`${Math.round(expectedDemandP2)}/${Math.round(expectedSupplyP2)}`).length).toBeGreaterThan(0);
   });
 });
