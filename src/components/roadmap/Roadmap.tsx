@@ -16,10 +16,13 @@ import {
   BootstrapRoadmapPayload,
   ResourcePlan,
   RateCard,
+  GeneratePlanDraft,
 } from '../../services/api';
 import { parsePhases } from '../../utils/phases';
 import { hoursPerPeriod } from '../../utils/calculations';
 import { buildWbsTree, effectivePhases } from '../../utils/wbsTree';
+import { regionForLocationSlug } from '../../utils/regions';
+import { APP_DEFAULTS } from '../../config/defaults';
 import {
   effectiveRoadmapItems,
   itemEffort,
@@ -34,9 +37,11 @@ import {
   buildRoadmapLoad,
   overDemandPeriodsInWindow,
   roadmapLoadKeys,
+  totalDemandHours,
   RoadmapLoadDimension,
   RoadmapLoadItemInput,
 } from '../../utils/roadmapLoad';
+import { buildDraftFromRoadmapLoad } from '../../utils/roadmapDraftPlan';
 import {
   ZOOM_LADDER,
   DEFAULT_ZOOM_INDEX,
@@ -46,6 +51,7 @@ import {
 import { RoadmapGrid } from './RoadmapGrid';
 import { RoadmapTimeline } from './RoadmapTimeline';
 import { RoadmapLoadStrip } from './RoadmapLoadStrip';
+import { GeneratePlanSheet } from '../GeneratePlanSheet';
 import { RoadmapEditorPanel } from './RoadmapEditorPanel';
 import { BootstrapDialog } from './BootstrapDialog';
 import { RoadmapDragCommit } from './useRoadmapDrag';
@@ -79,6 +85,8 @@ interface RoadmapProps {
   onReplaceItemLinks: (itemId: number, wbsItemIds: number[]) => Promise<void>;
   onBootstrap: (payload: BootstrapRoadmapPayload) => Promise<void>;
   onSetStartDate: (startDate: string | null) => Promise<void>;
+  /** CAP-13: accepts a draft built from the roadmap's demand — same contract as `GeneratePlanSheet`'s existing `onAcceptPlan`. */
+  onGenerateDraftPlan: (draft: GeneratePlanDraft) => Promise<void>;
 }
 
 function collapsedStorageKey(projectId: number) {
@@ -119,6 +127,7 @@ export function Roadmap({
   onReplaceItemLinks,
   onBootstrap,
   onSetStartDate,
+  onGenerateDraftPlan,
 }: RoadmapProps) {
   const planningMode = (project.planningMode || 'weekly') as 'weekly' | 'monthly';
   const phases = useMemo(() => parsePhases(project.phases, []), [project.phases]);
@@ -134,6 +143,7 @@ export function Roadmap({
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [editorItemId, setEditorItemId] = useState<number | null>(null);
   const [bootstrapPreview, setBootstrapPreview] = useState<BootstrapPreview | null>(null);
+  const [draftPlan, setDraftPlan] = useState<GeneratePlanDraft | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const loadStripScrollRef = useRef<HTMLDivElement | null>(null);
@@ -362,6 +372,21 @@ export function Roadmap({
     setBootstrapPreview(bootstrapRoadmap(wbsItems, phases));
   }
 
+  // CAP-13: builds the draft straight from the SAME `roadmapLoad` the stripe,
+  // tooltip, load strip and editor already read — then hands it to the
+  // existing `GeneratePlanSheet` draft -> preview -> apply flow unmodified.
+  function openDraftPlan() {
+    const region = regionForLocationSlug(project.defaultLocation);
+    const draft = buildDraftFromRoadmapLoad(
+      roadmapLoad,
+      rateCards,
+      region,
+      project.defaultMargin ?? APP_DEFAULTS.defaultMargin,
+      project.exchangeRate
+    );
+    setDraftPlan(draft);
+  }
+
   function confirmBootstrap() {
     if (!bootstrapPreview) return;
     const payload: BootstrapRoadmapPayload = {
@@ -506,6 +531,9 @@ export function Roadmap({
           </SelectContent>
         </Select>
         <div className="flex-1" />
+        <Button variant="outline" size="sm" onClick={openDraftPlan} disabled={totalDemandHours(roadmapLoad) <= 0}>
+          Draft plan from roadmap
+        </Button>
         <Button variant="outline" size="sm" onClick={handleAddLane}>
           Add lane
         </Button>
@@ -591,6 +619,18 @@ export function Roadmap({
         preview={bootstrapPreview}
         onCancel={() => setBootstrapPreview(null)}
         onConfirm={confirmBootstrap}
+      />
+
+      <GeneratePlanSheet
+        open={draftPlan !== null}
+        onOpenChange={(open) => {
+          if (!open) setDraftPlan(null);
+        }}
+        projectId={project.id}
+        phases={phases}
+        planningMode={planningMode}
+        onAcceptPlan={onGenerateDraftPlan}
+        initialDraft={draftPlan ?? undefined}
       />
     </div>
   );

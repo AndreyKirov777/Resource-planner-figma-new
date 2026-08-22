@@ -21,6 +21,19 @@ const LOCATION_SLUG_LABELS = new Map<string, string>(
   LOCATIONS.map(({ slug, label }) => [slug, label]),
 );
 
+// `LOCATIONS` and `GENERATE_PLAN_REGIONS` are declared in the same order
+// (both list the 9 rate-card regions identically) — zip by index rather than
+// by label, since the two arrays' labels differ in punctuation for one entry
+// ("Asia (ARM,KZ)" vs "Asia (ARM, KZ)").
+const REGION_BY_SLUG = new Map<string, GeneratePlanRegion>(
+  LOCATIONS.map(({ slug }, i) => [slug, GENERATE_PLAN_REGIONS[i].value]),
+);
+
+/** A project's `defaultLocation` slug ("eastern-europe") to the camelCase rate-card column key ("easternEurope"). */
+export function regionForLocationSlug(slug?: string | null): GeneratePlanRegion {
+  return (slug && REGION_BY_SLUG.get(slug)) || 'ukraine';
+}
+
 export function regionToLocationLabel(region: string): string {
   return REGION_LABEL_BY_VALUE.get(region) ?? region;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Roadmap } from './Roadmap';
-import { Project, RoadmapLaneWithItems, WbsItem } from '../../services/api';
+import { Project, RoadmapLaneWithItems, WbsItem, GeneratePlanDraft } from '../../services/api';
 import { snapDrag, ZOOM_LADDER, DEFAULT_ZOOM_INDEX, periodX } from '../../utils/roadmapGeometry';
 import { buildRoadmapLoad, demandHours, supplyHours } from '../../utils/roadmapLoad';
 
@@ -79,6 +79,7 @@ function renderRoadmap(lanes = makeLanes()) {
     onReplaceItemLinks: vi.fn(() => Promise.resolve()),
     onBootstrap: vi.fn(() => Promise.resolve()),
     onSetStartDate: vi.fn(() => Promise.resolve()),
+    onGenerateDraftPlan: vi.fn(() => Promise.resolve()),
   };
   render(
     <Roadmap
@@ -96,6 +97,7 @@ function renderRoadmap(lanes = makeLanes()) {
       onReplaceItemLinks={handlers.onReplaceItemLinks}
       onBootstrap={handlers.onBootstrap}
       onSetStartDate={handlers.onSetStartDate}
+      onGenerateDraftPlan={handlers.onGenerateDraftPlan}
     />
   );
   return handlers;
@@ -275,6 +277,7 @@ describe('CAP-9 over-demand stripe (roadmapLoad wiring)', () => {
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn()}
       />
     );
 
@@ -338,6 +341,7 @@ describe('CAP-9 over-demand stripe (roadmapLoad wiring)', () => {
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn()}
       />
     );
 
@@ -394,6 +398,7 @@ describe('CAP-9 load strip', () => {
         onReplaceItemLinks={vi.fn()}
         onBootstrap={vi.fn()}
         onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn()}
       />
     );
 
@@ -416,5 +421,70 @@ describe('CAP-9 load strip', () => {
 
     const cell = screen.getByTestId('roadmap-load-cell-6');
     expect(cell).toHaveAccessibleName(`Period 6: ${expectedDemand} of ${expectedSupply} hours`);
+  });
+});
+
+describe('CAP-13 draft plan from the roadmap', () => {
+  it('opens GeneratePlanSheet straight to the preview (no LLM call), and Accept hands off the built draft', async () => {
+    const draftWbsItems: WbsItem[] = [
+      {
+        id: 503,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 4, discipline: 'Engineering', role: 'Backend Developer', hours: 160, wbsItemId: 503, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [503];
+    const onGenerateDraftPlan = vi.fn((_draft: GeneratePlanDraft) => Promise.resolve());
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={draftWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={[]}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={onGenerateDraftPlan}
+      />
+    );
+
+    const button = screen.getByRole('button', { name: 'Draft plan from roadmap' });
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+
+    // Lands directly on the preview/accept view — no "Generate" form, no LLM round trip.
+    const acceptButton = await screen.findByRole('button', { name: 'Accept plan' });
+    expect(screen.queryByRole('button', { name: /generate/i })).not.toBeInTheDocument();
+
+    fireEvent.click(acceptButton);
+
+    expect(onGenerateDraftPlan).toHaveBeenCalledTimes(1);
+    const draft = onGenerateDraftPlan.mock.calls[0][0];
+    expect(draft.resourcePlans).toHaveLength(1);
+    expect(draft.resourcePlans[0].role).toBe('Backend Developer');
+    // 160h / 4 periods (W5-W8) = 40h/period = 1.0 FTE = 100%.
+    expect(draft.resourcePlans[0].allocations).toEqual([5, 6, 7, 8].map((p) => ({ periodNumber: p, allocation: 100 })));
+  });
+
+  it('is disabled when the roadmap has no demand anywhere', () => {
+    renderRoadmap(); // default fixture: empty wbsItems, no linked scope
+    expect(screen.getByRole('button', { name: 'Draft plan from roadmap' })).toBeDisabled();
   });
 });

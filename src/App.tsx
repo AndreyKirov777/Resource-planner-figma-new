@@ -1467,6 +1467,7 @@ export default function App() {
             onReplaceItemLinks={handleReplaceRoadmapItemLinks}
             onBootstrap={handleBootstrapRoadmap}
             onSetStartDate={handleSetProjectStartDate}
+            onGenerateDraftPlan={handleApplyGeneratedPlan}
           />
         </TabsContent>
       </Tabs>
