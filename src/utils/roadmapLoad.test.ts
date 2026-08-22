@@ -8,8 +8,6 @@ import {
   demandFte,
   supplyHours,
   variance,
-  feasiblePeriods,
-  totalDemandHours,
   spreadDistribution,
   contributorsForPeriod,
   buildByPeriodMatrix,
@@ -100,10 +98,17 @@ function load(overrides: Partial<RoadmapLoadInput>): ReturnType<typeof buildRoad
   return buildRoadmapLoad(input);
 }
 
+/** Σ_p Σ_r demandHours(r,p) — inlined here since `totalDemandHours` isn't exported by production code. */
+function totalDemand(l: ReturnType<typeof buildRoadmapLoad>): number {
+  let sum = 0;
+  l.demandByRole.forEach((byPeriod) => byPeriod.forEach((hours) => (sum += hours)));
+  return sum;
+}
+
 describe('buildRoadmapLoad — empty project', () => {
   it('produces zero demand and zero unplaceable hours everywhere', () => {
     const l = load({});
-    expect(totalDemandHours(l)).toBe(0);
+    expect(totalDemand(l)).toBe(0);
     expect(l.unplaceableHours).toBe(0);
     expect(demandHours(l, 'role', 'Backend Developer', 1)).toBe(0);
     expect(supplyHours(l, 'role', 'Backend Developer', 1)).toBe(0);
@@ -223,23 +228,23 @@ describe('buildRoadmapLoad — WBS-3 total invariant', () => {
     const l = load({ wbsItems, roadmapItems: items, links });
     const report = buildReconciliationReport(wbsItems, [], [], PHASES, HRS_PER_PERIOD);
 
-    expect(totalDemandHours(l) + l.unplaceableHours).toBeCloseTo(report.projectTotal.wbsHours, 6);
+    expect(totalDemand(l) + l.unplaceableHours).toBeCloseTo(report.projectTotal.wbsHours, 6);
   });
 });
 
-describe('buildRoadmapLoad — feasiblePeriods against zero supply', () => {
+describe('buildRoadmapLoad — feasiblePeriodsDetail against zero supply', () => {
   it('returns Infinity when the role has no supply anywhere in the window', () => {
     const leaf = wbsItem({ id: 1, estimates: [estimate({ wbsItemId: 1, role: 'Backend Developer', hours: 200 })] });
     const items: RoadmapLoadItemInput[] = [roadmapItem({ id: 100, startPeriod: 1, periodCount: 4 })];
     const links: RoadmapLinkRecord[] = [{ wbsItemId: 1, roadmapItemId: 100 }];
     const l = load({ wbsItems: [leaf], roadmapItems: items, links }); // no resourcePlans at all
     const effort = l.itemEffortByRole.get(100)!;
-    const result = feasiblePeriods(l, 100, { startPeriod: 1, periodCount: 4 }, effort);
+    const result = feasiblePeriodsDetail(l, 100, { startPeriod: 1, periodCount: 4 }, effort).periods;
     expect(result).toBe(Infinity);
   });
 });
 
-describe('buildRoadmapLoad — feasiblePeriods uses RESIDUAL supply (decision 1)', () => {
+describe('buildRoadmapLoad — feasiblePeriodsDetail uses RESIDUAL supply (decision 1)', () => {
   it('a competing item shortens the reported feasible-duration improvement vs. raw-supply math', () => {
     // Backend supply: 100h/period for periods 1-4.
     const supplyPlan = resourcePlan({
@@ -260,12 +265,12 @@ describe('buildRoadmapLoad — feasiblePeriods uses RESIDUAL supply (decision 1)
       resourcePlans: [supplyPlan],
       rateCards,
     });
-    const aloneFeasible = feasiblePeriods(
+    const aloneFeasible = feasiblePeriodsDetail(
       aloneLoad,
       100,
       { startPeriod: 1, periodCount: 4 },
       aloneLoad.itemEffortByRole.get(100)!
-    );
+    ).periods;
     expect(aloneFeasible).toBe(7); // ceil(700 / 100)
 
     // Contended: a second item Q claims 60h/period of the SAME Backend supply,
@@ -282,12 +287,12 @@ describe('buildRoadmapLoad — feasiblePeriods uses RESIDUAL supply (decision 1)
       resourcePlans: [supplyPlan],
       rateCards,
     });
-    const contendedFeasible = feasiblePeriods(
+    const contendedFeasible = feasiblePeriodsDetail(
       contendedLoad,
       100,
       { startPeriod: 1, periodCount: 4 },
       contendedLoad.itemEffortByRole.get(100)!
-    );
+    ).periods;
     expect(contendedFeasible).toBe(18); // ceil(700 / 40)
     expect(contendedFeasible).toBeGreaterThan(aloneFeasible);
 

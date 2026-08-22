@@ -143,12 +143,10 @@ const MAX_GRID_HEIGHT = 640;
 // ---------------------------------------------------------------------------
 // Custom cells
 //
-// NOTE: deliberately not modelled on `ResourcePlan.tsx`'s `RoleCellRenderer`,
-// which is dead code that has never executed. Its draws mutate ctx state
-// without save/restore (bleeding font/alignment into neighbouring cells) and
-// its editor puts a portaled Radix menu inside the overlay with none of the
-// guards that makes it actually work. See the spec's "Overlay editor
-// semantics".
+// NOTE: deliberately not modelled on a canvas cell renderer with a portaled
+// Radix menu inside the overlay editor: draws that mutate ctx state without
+// save/restore bleed font/alignment into neighbouring cells, and the overlay
+// needs guards to actually work. See the spec's "Overlay editor semantics".
 // ---------------------------------------------------------------------------
 
 interface TaskCellData {

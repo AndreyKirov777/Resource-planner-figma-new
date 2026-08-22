@@ -50,6 +50,7 @@ interface GenerateOptions {
   region: string;
   applyProposedPhases: boolean;
   model?: LanguageModel;
+  signal?: AbortSignal;
 }
 
 export interface DraftResourcePlan {
@@ -173,6 +174,7 @@ export async function generateResourcePlan(
     schema,
     schemaName: 'ResourcePlanOutput',
     model: opts.model,
+    signal: opts.signal,
   });
 
   const proposedPhases =

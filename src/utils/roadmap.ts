@@ -366,39 +366,6 @@ export function periodToDate(
   return new Date(start.getTime() + (period - 1) * 7 * DAY_MS);
 }
 
-/** Inverse of `periodToDate` — the period a calendar date falls in. `null` startDate -> `null`. */
-export function dateToPeriod(
-  date: Date,
-  planningMode: 'weekly' | 'monthly',
-  startDate: string | null
-): number | null {
-  if (startDate == null) return null;
-  const start = new Date(startDate);
-  if (Number.isNaN(start.getTime())) return null;
-  if (planningMode === 'monthly') {
-    const months =
-      (date.getFullYear() - start.getFullYear()) * 12 + (date.getMonth() - start.getMonth());
-    return months + 1;
-  }
-  const days = Math.floor((date.getTime() - start.getTime()) / DAY_MS);
-  return Math.floor(days / 7) + 1;
-}
-
-/** A date range snapped to whole periods, for anything that starts from calendar dates rather than periods. */
-export function snapToPeriod(
-  start: Date,
-  end: Date,
-  planningMode: 'weekly' | 'monthly',
-  startDate: string | null
-): { startPeriod: number; periodCount: number } | null {
-  const startPeriod = dateToPeriod(start, planningMode, startDate);
-  const endPeriod = dateToPeriod(end, planningMode, startDate);
-  if (startPeriod === null || endPeriod === null) return null;
-  const lo = Math.min(startPeriod, endPeriod);
-  const hi = Math.max(startPeriod, endPeriod);
-  return { startPeriod: Math.max(1, lo), periodCount: Math.max(1, hi - lo + 1) };
-}
-
 // ---------------------------------------------------------------------------
 // Render rows
 // ---------------------------------------------------------------------------

@@ -338,13 +338,6 @@ export function roadmapLoadKeys(load: RoadmapLoad, dimension: RoadmapLoadDimensi
   return Array.from(new Set([...demand.keys(), ...supply.keys()])).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-/** Σ_p Σ_r demandHours(r,p) — the by-period view's share of the WBS-3 total (the rest is `unplaceableHours`). */
-export function totalDemandHours(load: RoadmapLoad): number {
-  let sum = 0;
-  load.demandByRole.forEach((byPeriod) => byPeriod.forEach((hours) => (sum += hours)));
-  return sum;
-}
-
 export interface FeasibleResult {
   periods: number;
   /** The role that determined `periods` (max over roles), or `null` for a window with no effort. */
@@ -389,16 +382,6 @@ export function feasiblePeriodsDetail(
   });
 
   return { periods: maxPeriods, limitingRole };
-}
-
-/** Convenience wrapper over `feasiblePeriodsDetail` for callers that only need the number. */
-export function feasiblePeriods(
-  load: RoadmapLoad,
-  itemId: number,
-  window: { startPeriod: number; periodCount: number },
-  itemEffortByRole: Map<string, number>
-): number {
-  return feasiblePeriodsDetail(load, itemId, window, itemEffortByRole).periods;
 }
 
 /** Average FTE of a role's supply over a window — the editor's "plan supply" figure and the tooltip's "plan X.X FTE" line. */

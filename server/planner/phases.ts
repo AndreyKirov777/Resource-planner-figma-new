@@ -62,11 +62,6 @@ export function resolvePlannerPhases(
   return parsed;
 }
 
-/** True when phases JSON is empty or only the default single placeholder. */
-export function isPlaceholderSinglePhase(phases: ProjectPhase[]): boolean {
-  return phases.length === 1 && /^phase\s*1$/i.test(phases[0].name.trim());
-}
-
 export function buildPhaseEnum(
   phases: ProjectPhase[],
 ): [string, ...string[]] {

@@ -100,15 +100,6 @@ interface ActionCell {
   copyData: '';
 }
 
-// Custom cell type for role selection
-interface RoleCell {
-  kind: GridCellKind.Custom;
-  data: { type: 'role-select'; value: string; options: string[] };
-  allowOverlay: true;
-  copyData: string;
-  readonly?: boolean;
-}
-
 // Custom cell renderer for actions
 const ActionCellRenderer: CustomRenderer<ActionCell> = {
   kind: GridCellKind.Custom,
@@ -138,68 +129,7 @@ const ActionCellRenderer: CustomRenderer<ActionCell> = {
   provideEditor: () => undefined
 };
 
-// Custom cell renderer for role selection with dropdown editor
-const RoleCellRenderer = {
-  isMatch: (cell: any): cell is RoleCell => cell.kind === GridCellKind.Custom && cell.data?.type === 'role-select',
-  draw: (args: any, cell: RoleCell) => {
-    const { ctx, rect, theme } = args;
-    const { x, y, width, height } = rect;
-
-    // background
-    ctx.fillStyle = (args as any).cell?.themeOverride?.bgCell ?? theme.bgCell;
-    ctx.fillRect(x, y, width, height);
-
-    // text
-    ctx.fillStyle = theme.textDark;
-    ctx.font = '14px Inter, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    const label = cell.data.value || 'Select role...';
-    ctx.fillText(label, x + 8, y + height / 2);
-
-    return true;
-  },
-  provideEditor: (cell: RoleCell) => {
-    const Editor = (p: any) => {
-      const { onChange, onFinishedEditing, value } = p;
-      const current = (value as RoleCell).data.value;
-      const options = (value as RoleCell).data.options;
-
-      return (
-        <div style={{ padding: 8, minWidth: 220 }}>
-          <Select
-            value={current || ''}
-            onValueChange={(val: string) => {
-              const updated: RoleCell = {
-                ...(value as RoleCell),
-                data: { ...((value as RoleCell).data), value: val },
-              };
-              onChange(updated);
-              onFinishedEditing(updated);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select role..." />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map((opt: string) => (
-                <SelectItem key={opt} value={opt}>
-                  {opt}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      );
-    };
-    return {
-      editor: Editor,
-      disablePadding: true,
-    } as any;
-  },
-};
-
-export function ResourcePlan({ 
+export function ResourcePlan({
   project, 
   resourceLists, 
   resourcePlans, 

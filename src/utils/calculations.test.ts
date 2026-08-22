@@ -7,7 +7,6 @@ import {
   marginPct,
   hoursPerPeriod,
   estimatedEffortHours,
-  fteEffort,
 } from './calculations';
 
 describe('calculations', () => {
@@ -104,21 +103,6 @@ describe('calculations', () => {
 
     it('defaults to 40 hours per week', () => {
       expect(estimatedEffortHours(1)).toBe(40);
-    });
-  });
-
-  describe('fteEffort', () => {
-    it('returns totalHours / hoursPerDay', () => {
-      expect(fteEffort(40, 8)).toBe(5);
-      expect(fteEffort(80, 8)).toBe(10);
-    });
-
-    it('defaults to 8 hours per day', () => {
-      expect(fteEffort(40)).toBe(5);
-    });
-
-    it('returns 0 when hoursPerDay is 0', () => {
-      expect(fteEffort(40, 0)).toBe(0);
     });
   });
 });

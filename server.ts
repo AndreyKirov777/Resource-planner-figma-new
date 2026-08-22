@@ -1176,6 +1176,7 @@ app.post('/api/projects/generate-plan', async (req, res) => {
       region,
       applyProposedPhases,
       model: undefined,
+      signal: ac.signal,
     });
 
     res.json(result);

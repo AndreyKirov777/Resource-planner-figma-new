@@ -55,14 +55,6 @@ export type ClientPngExportModel = {
   phaseBreakdown: ClientPngPhaseBreakdown[];
 };
 
-/** Labels/fragments that must never appear in a client-safe PNG. */
-export const CLIENT_PNG_FORBIDDEN_LABEL_FRAGMENTS = [
-  'int.',
-  'internal',
-  'margin',
-  'rate card',
-] as const;
-
 export function clientCurrencySymbol(clientCurrency: string): string {
   if (clientCurrency === 'EUR') return '€';
   if (clientCurrency === 'GBP') return '£';

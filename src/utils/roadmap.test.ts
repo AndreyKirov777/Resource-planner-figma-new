@@ -9,8 +9,6 @@ import {
   coverage,
   bootstrapRoadmap,
   periodToDate,
-  dateToPeriod,
-  snapToPeriod,
   toRoadmapRows,
   convertRoadmapItemsToMonthly,
   convertRoadmapItemsToWeekly,
@@ -331,6 +329,19 @@ describe('bootstrapRoadmap', () => {
   });
 });
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Inverse of `periodToDate`, reimplemented here since production only needs the forward direction. */
+function dateToPeriod(date: Date, planningMode: 'weekly' | 'monthly', startDate: string | null): number | null {
+  if (startDate == null) return null;
+  const start = new Date(startDate);
+  if (Number.isNaN(start.getTime())) return null;
+  if (planningMode === 'monthly') {
+    return (date.getFullYear() - start.getFullYear()) * 12 + (date.getMonth() - start.getMonth()) + 1;
+  }
+  return Math.floor(Math.floor((date.getTime() - start.getTime()) / DAY_MS) / 7) + 1;
+}
+
 describe('calendar round-trip', () => {
   it('round-trips exactly at period boundaries with a startDate (weekly)', () => {
     const startDate = '2026-01-05'; // Monday
@@ -348,18 +359,8 @@ describe('calendar round-trip', () => {
     }
   });
 
-  it('without startDate, both adapters return null', () => {
+  it('without startDate, the adapter returns null', () => {
     expect(periodToDate(3, 'weekly', null)).toBeNull();
-    expect(dateToPeriod(new Date(), 'weekly', null)).toBeNull();
-    expect(snapToPeriod(new Date(), new Date(), 'weekly', null)).toBeNull();
-  });
-
-  it('snapToPeriod derives a period window from a date range', () => {
-    const startDate = '2026-01-05';
-    const from = periodToDate(3, 'weekly', startDate)!;
-    const to = periodToDate(5, 'weekly', startDate)!;
-    const result = snapToPeriod(from, to, 'weekly', startDate);
-    expect(result).toEqual({ startPeriod: 3, periodCount: 3 });
   });
 });
 

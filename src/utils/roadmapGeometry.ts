@@ -17,9 +17,6 @@ export const HEADER_HEIGHT = 44;
 export const BAR_HEIGHT = 18;
 /** Horizontal inset applied to each side of a bar's rect, so adjacent bars never touch. */
 export const BAR_INSET = 2;
-/** Width of the resize grab zone at each end of a bar, in fixed pixels (not a percentage). */
-export const GRAB_ZONE = 8;
-
 /** Visible side of the milestone diamond (before the 45° rotation). */
 export const MILESTONE_SIZE = 9;
 /** Transparent square that catches the pointer — the diamond alone is too small to grab. */
@@ -51,12 +48,6 @@ export function fit(periodCount: number, containerWidth: number): number {
 /** X of a period's left edge. Period 1 starts at x = 0. */
 export function periodX(period: number, periodWidth: number): number {
   return (period - 1) * periodWidth;
-}
-
-/** The 1-based period containing pixel `x` (never below period 1). */
-export function periodAtX(x: number, periodWidth: number): number {
-  if (periodWidth <= 0) return 1;
-  return Math.max(1, Math.floor(x / periodWidth) + 1);
 }
 
 export interface Rect {

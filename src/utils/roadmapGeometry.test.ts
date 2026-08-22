@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   periodX,
-  periodAtX,
   barRect,
   milestoneX,
   phaseBands,
@@ -14,7 +13,13 @@ import {
   BAR_INSET,
 } from './roadmapGeometry';
 
-describe('periodX / periodAtX', () => {
+/** Inverse of `periodX`, reimplemented here since production only needs the forward direction. */
+function periodAtX(x: number, periodWidth: number): number {
+  if (periodWidth <= 0) return 1;
+  return Math.max(1, Math.floor(x / periodWidth) + 1);
+}
+
+describe('periodX', () => {
   it('period 1 starts at x=0', () => {
     expect(periodX(1, 20)).toBe(0);
   });
@@ -29,10 +34,6 @@ describe('periodX / periodAtX', () => {
       // one pixel after the boundary (but before the next) still belongs to p
       expect(periodAtX(x + periodWidth - 1, periodWidth)).toBe(p);
     }
-  });
-
-  it('never returns a period below 1', () => {
-    expect(periodAtX(-100, 20)).toBe(1);
   });
 });
 

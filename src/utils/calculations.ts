@@ -92,13 +92,3 @@ export function estimatedEffortHours(
 ): number {
   return totalPeriodsEquivalent * hoursPerPeriodValue;
 }
-
-/**
- * FTE (full-time equivalent) effort in days from total hours.
- * @param totalHours - Total effort in hours
- * @param hoursPerDay - Hours per FTE day (default 8)
- */
-export function fteEffort(totalHours: number, hoursPerDay: number = 8): number {
-  if (hoursPerDay <= 0) return 0;
-  return totalHours / hoursPerDay;
-}

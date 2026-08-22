@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildClientPngExport,
-  CLIENT_PNG_FORBIDDEN_LABEL_FRAGMENTS,
   downloadClientViewPng,
 } from '../utils/clientViewPng';
+
+/** Labels/fragments that must never appear in a client-safe PNG. */
+const CLIENT_PNG_FORBIDDEN_LABEL_FRAGMENTS = ['int.', 'internal', 'margin', 'rate card'] as const;
 
 const baseInput = {
   projectName: 'Acme',

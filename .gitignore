@@ -35,3 +35,6 @@ scripts/deploy.config.local.sh
 # Optional: uncomment if you don't want to share editor/IDE config
 # .vscode
 # .cursor
+
+# macOS Finder "copy" duplicates (e.g. "file 2.ts")
+* 2.*
