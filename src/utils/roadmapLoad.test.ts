@@ -13,6 +13,9 @@ import {
   spreadDistribution,
   contributorsForPeriod,
   buildByPeriodMatrix,
+  feasiblePeriodsDetail,
+  avgSupplyFteOverWindow,
+  worstConflictInWindow,
   RoadmapLoadInput,
   RoadmapLoadItemInput,
 } from './roadmapLoad';
@@ -440,5 +443,65 @@ describe('buildByPeriodMatrix — CAP-10', () => {
     expect(row.cells[1].demand).toBe(demandHours(l, 'role', 'Backend Developer', 2));
     expect(row.cells[1].supply).toBe(supplyHours(l, 'role', 'Backend Developer', 2));
     expect(row.cells[1].variance).toBe(variance(l, 'role', 'Backend Developer', 2));
+  });
+});
+
+describe('feasiblePeriodsDetail — names the limiting role (CAP-11)', () => {
+  it('names the one role that drove the max periods-needed figure', () => {
+    const backendLeaf = wbsItem({ id: 1, estimates: [estimate({ wbsItemId: 1, role: 'Backend Developer', hours: 700 })] });
+    const frontendLeaf = wbsItem({ id: 2, estimates: [estimate({ wbsItemId: 2, role: 'Frontend Developer', hours: 40 })] });
+    const items: RoadmapLoadItemInput[] = [roadmapItem({ id: 100, startPeriod: 1, periodCount: 4 })];
+    const links: RoadmapLinkRecord[] = [
+      { wbsItemId: 1, roadmapItemId: 100 },
+      { wbsItemId: 2, roadmapItemId: 100 },
+    ];
+    const l = load({
+      wbsItems: [backendLeaf, frontendLeaf],
+      roadmapItems: items,
+      links,
+      resourcePlans: [
+        resourcePlan({ role: 'Backend Developer', allocations: [1, 2, 3, 4].map((p) => allocation({ periodNumber: p, allocation: 250 })) }),
+        resourcePlan({ role: 'Frontend Developer', allocations: [1, 2, 3, 4].map((p) => allocation({ periodNumber: p, allocation: 250 })) }),
+      ],
+      rateCards: [rateCard({ role: 'Backend Developer', discipline: 'Engineering' }), rateCard({ role: 'Frontend Developer', discipline: 'Engineering' })],
+    });
+    const effort = l.itemEffortByRole.get(100)!;
+    const result = feasiblePeriodsDetail(l, 100, { startPeriod: 1, periodCount: 4 }, effort);
+    expect(result.periods).toBe(7); // ceil(700/100), Backend is the limit
+    expect(result.limitingRole).toBe('Backend Developer');
+  });
+});
+
+describe('avgSupplyFteOverWindow', () => {
+  it('averages supply hours over the window and converts to FTE', () => {
+    // supplyByRole is only populated for roles with SOME demand (see the module doc
+    // comment) — realistic for every real caller, which always derives the role from
+    // an item's own effort map, so give this leaf a trivial demand too.
+    const leaf = wbsItem({ id: 1, estimates: [estimate({ wbsItemId: 1, role: 'Backend Developer', hours: 1 })] });
+    const l = load({
+      wbsItems: [leaf],
+      roadmapItems: [roadmapItem({ id: 100, startPeriod: 1, periodCount: 2 })],
+      links: [{ wbsItemId: 1, roadmapItemId: 100 }],
+      resourcePlans: [
+        resourcePlan({ role: 'Backend Developer', allocations: [allocation({ periodNumber: 1, allocation: 100 }), allocation({ periodNumber: 2, allocation: 50 })] }),
+      ],
+    });
+    // period 1: 40h, period 2: 20h -> avg 30h / 40h = 0.75 FTE
+    expect(avgSupplyFteOverWindow(l, 'Backend Developer', { startPeriod: 1, periodCount: 2 }, 40)).toBe(0.75);
+  });
+});
+
+describe('worstConflictInWindow — CAP-11 conflict statement', () => {
+  it('reports the largest demand-over-supply period/role, and null when nothing conflicts', () => {
+    const leaf = wbsItem({ id: 1, estimates: [estimate({ wbsItemId: 1, role: 'Backend Developer', hours: 400 })] });
+    const items: RoadmapLoadItemInput[] = [roadmapItem({ id: 100, startPeriod: 1, periodCount: 4 })];
+    const links: RoadmapLinkRecord[] = [{ wbsItemId: 1, roadmapItemId: 100 }];
+    const l = load({ wbsItems: [leaf], roadmapItems: items, links }); // no supply at all
+    const effort = l.itemEffortByRole.get(100)!;
+    const conflict = worstConflictInWindow(l, effort, { startPeriod: 1, periodCount: 4 });
+    expect(conflict).toEqual({ period: 1, role: 'Backend Developer', demandFte: 2.5, supplyFte: 0 }); // 100h/40h
+
+    const noConflict = worstConflictInWindow(l, new Map(), { startPeriod: 1, periodCount: 4 });
+    expect(noConflict).toBeNull();
   });
 });

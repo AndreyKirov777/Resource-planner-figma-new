@@ -575,6 +575,10 @@ export function Roadmap({
             allLinks={links}
             itemNames={itemNames}
             np={np}
+            planningMode={planningMode}
+            roadmapLoad={roadmapLoad}
+            roadmapItems={loadItems}
+            hrsPerPeriod={hrsPerPeriod}
             onUpdate={onUpdateItem}
             onReplaceLinks={onReplaceItemLinks}
             onClose={() => setEditorItemId(null)}

@@ -345,6 +345,12 @@ export function totalDemandHours(load: RoadmapLoad): number {
   return sum;
 }
 
+export interface FeasibleResult {
+  periods: number;
+  /** The role that determined `periods` (max over roles), or `null` for a window with no effort. */
+  limitingRole: string | null;
+}
+
 /**
  * `feasiblePeriods` — decision 1 (residual supply): for each role the item
  * has effort in, the average RESIDUAL supply over the item's window (supply
@@ -354,15 +360,16 @@ export function totalDemandHours(load: RoadmapLoad): number {
  * anywhere in the window makes the window infeasible at current staffing
  * (`Infinity` — "cannot be resourced at all", not just "cannot be shorter").
  */
-export function feasiblePeriods(
+export function feasiblePeriodsDetail(
   load: RoadmapLoad,
   itemId: number,
   window: { startPeriod: number; periodCount: number },
   itemEffortByRole: Map<string, number>
-): number {
-  if (window.periodCount <= 0) return 0;
+): FeasibleResult {
+  if (window.periodCount <= 0) return { periods: 0, limitingRole: null };
   const dist = load.itemDistributions.get(itemId);
   let maxPeriods = 0;
+  let limitingRole: string | null = null;
 
   itemEffortByRole.forEach((totalEffort, role) => {
     if (totalEffort <= 0) return;
@@ -375,10 +382,81 @@ export function feasiblePeriods(
     }
     const avgResidual = residualSum / window.periodCount;
     const periodsNeeded = avgResidual > 0 ? Math.ceil(totalEffort / avgResidual) : Infinity;
-    maxPeriods = Math.max(maxPeriods, periodsNeeded);
+    if (periodsNeeded > maxPeriods) {
+      maxPeriods = periodsNeeded;
+      limitingRole = role;
+    }
   });
 
-  return maxPeriods;
+  return { periods: maxPeriods, limitingRole };
+}
+
+/** Convenience wrapper over `feasiblePeriodsDetail` for callers that only need the number. */
+export function feasiblePeriods(
+  load: RoadmapLoad,
+  itemId: number,
+  window: { startPeriod: number; periodCount: number },
+  itemEffortByRole: Map<string, number>
+): number {
+  return feasiblePeriodsDetail(load, itemId, window, itemEffortByRole).periods;
+}
+
+/** Average FTE of a role's supply over a window — the editor's "plan supply" figure and the tooltip's "plan X.X FTE" line. */
+export function avgSupplyFteOverWindow(
+  load: RoadmapLoad,
+  role: string,
+  window: { startPeriod: number; periodCount: number },
+  hrsPerPeriod: number
+): number {
+  if (window.periodCount <= 0 || hrsPerPeriod <= 0) return 0;
+  let sum = 0;
+  for (let p = window.startPeriod; p < window.startPeriod + window.periodCount; p++) {
+    sum += supplyHours(load, 'role', role, p);
+  }
+  return sum / window.periodCount / hrsPerPeriod;
+}
+
+export interface ConflictPeriod {
+  period: number;
+  role: string;
+  demandFte: number;
+  supplyFte: number;
+}
+
+/**
+ * The single worst (largest demand-over-supply) period/role conflict within
+ * `window`, across every role the item has effort in — the editor's
+ * concrete conflict statement (CAP-11). `null` when nothing is over-demand.
+ * Deliberately reports only ONE conflict, the worst, rather than every
+ * over-demand period — the editor states it concretely, it doesn't enumerate.
+ */
+export function worstConflictInWindow(
+  load: RoadmapLoad,
+  itemEffortByRole: ReadonlyMap<string, number>,
+  window: { startPeriod: number; periodCount: number }
+): ConflictPeriod | null {
+  if (window.periodCount <= 0 || load.hrsPerPeriod <= 0) return null;
+  let worst: { period: number; role: string; varianceHours: number; demand: number; supply: number } | null = null;
+
+  itemEffortByRole.forEach((_, role) => {
+    for (let p = window.startPeriod; p < window.startPeriod + window.periodCount; p++) {
+      const demand = demandHours(load, 'role', role, p);
+      const supply = supplyHours(load, 'role', role, p);
+      const varianceHours = demand - supply;
+      if (varianceHours > 1e-9 && (worst === null || varianceHours > worst.varianceHours)) {
+        worst = { period: p, role, varianceHours, demand, supply };
+      }
+    }
+  });
+
+  if (!worst) return null;
+  const w: { period: number; role: string; varianceHours: number; demand: number; supply: number } = worst;
+  return {
+    period: w.period,
+    role: w.role,
+    demandFte: w.demand / load.hrsPerPeriod,
+    supplyFte: w.supply / load.hrsPerPeriod,
+  };
 }
 
 /**

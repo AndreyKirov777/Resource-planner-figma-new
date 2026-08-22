@@ -7,7 +7,7 @@
 import React, { useMemo, useRef } from 'react';
 import { Phase } from '../../services/api';
 import { RoadmapRow, periodToDate } from '../../utils/roadmap';
-import { RoadmapLoad, supplyHours } from '../../utils/roadmapLoad';
+import { RoadmapLoad, avgSupplyFteOverWindow } from '../../utils/roadmapLoad';
 import {
   periodX,
   barRect,
@@ -46,20 +46,6 @@ interface RoadmapTimelineProps {
   onScroll: (scrollLeft: number) => void;
 }
 
-/** Average FTE of a role's supply over a window — the tooltip's "plan X.X FTE" figure. */
-function windowSupplyFte(
-  load: RoadmapLoad,
-  role: string,
-  window: { startPeriod: number; periodCount: number },
-  hrsPerPeriod: number
-): number {
-  if (window.periodCount <= 0 || hrsPerPeriod <= 0) return 0;
-  let sum = 0;
-  for (let p = window.startPeriod; p < window.startPeriod + window.periodCount; p++) {
-    sum += supplyHours(load, 'role', role, p);
-  }
-  return sum / window.periodCount / hrsPerPeriod;
-}
 
 export function RoadmapTimeline({
   rows,
@@ -382,7 +368,7 @@ export function RoadmapTimeline({
                               effectiveWindow.periodCount > 0 && hrsPerPeriod > 0
                                 ? hours / (effectiveWindow.periodCount * hrsPerPeriod)
                                 : 0;
-                            const planFte = windowSupplyFte(roadmapLoad, role, effectiveWindow, hrsPerPeriod);
+                            const planFte = avgSupplyFteOverWindow(roadmapLoad, role, effectiveWindow, hrsPerPeriod);
                             const short = planFte < roleFte - STRIPE_EPSILON;
                             return (
                               <div key={role}>
