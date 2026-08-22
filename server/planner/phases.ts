@@ -36,6 +36,11 @@ export interface ExpandResult {
   warnings: string[];
 }
 
+/** Periods occupied by a phase, tolerating the legacy `weekCount` field. */
+export function phaseLength(phase: ProjectPhase): number {
+  return phase.periodCount ?? phase.weekCount ?? 0;
+}
+
 /** Parse project phases JSON. Returns [] on null/empty/invalid. */
 export function parseProjectPhases(
   phasesJson: string | null,
@@ -89,7 +94,7 @@ export function expandPhaseAllocations(
   let periodOffset = 0;
 
   for (const projectPhase of projectPhases) {
-    const periodCount = projectPhase.periodCount ?? projectPhase.weekCount ?? 0;
+    const periodCount = phaseLength(projectPhase);
 
     // Find the matching phaseAllocation (case-insensitive).
     const match = phaseAllocations.find(

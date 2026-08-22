@@ -42,13 +42,13 @@
 
 ## Phase 1 — Консолидация на бэкенде
 
-- [ ] Убрать дублирование списка регионов: оставить один источник (`REGION_COLUMNS` в `server/planner/rateCard.ts:17-27`), в `server-validation.ts:156-166` импортировать его и делать `z.enum(REGION_COLUMNS)` вместо повторного перечисления (списки идентичны, проверено)
-- [ ] Заменить инлайновый `try { JSON.parse(project.phases || '[]') } catch {}` на вызов существующего `parseProjectPhases()` — `server.ts:1007-1010`
-- [ ] Добавить в `server/planner/phases.ts` 3-строчный `export function phaseLength(p) { return p.periodCount ?? p.weekCount ?? 0 }` (на сервере его сейчас **нет** — есть только неэкспортированный клиентский в `src/utils/phases.ts:80`) и заменить повторяющийся `periodCount ?? weekCount ?? 0` во всех точках: `server/planner/phases.ts:97`, `server/planner/generateResourcePlan.ts:92,133`, `server.ts:1016,1038`
+- [x] Убрать дублирование списка регионов: оставить один источник (`REGION_COLUMNS` в `server/planner/rateCard.ts:17-27`), в `server-validation.ts:156-166` импортировать его и делать `z.enum(REGION_COLUMNS)` вместо повторного перечисления (списки идентичны, проверено)
+- [x] Заменить инлайновый `try { JSON.parse(project.phases || '[]') } catch {}` на вызов существующего `parseProjectPhases()` — `server.ts:1007-1010`
+- [x] Добавить в `server/planner/phases.ts` 3-строчный `export function phaseLength(p) { return p.periodCount ?? p.weekCount ?? 0 }` (на сервере его сейчас **нет** — есть только неэкспортированный клиентский в `src/utils/phases.ts:80`) и заменить повторяющийся `periodCount ?? weekCount ?? 0` во всех точках: `server/planner/phases.ts:97`, `server/planner/generateResourcePlan.ts:92,133`, `server.ts:1016,1038`
 
 ~~Упростить mtime-based hot-reload кэш промпт-файла (`SkillCache`, `server/planner/scopingSkill.ts:48-93`)~~ — **не делать**: один `stat()` на запрос ничего не стоит, а hot-reload `SKILL.md` без рестарта сервера полезен при тюнинге промпта. −8 строк ценой потери фичи.
 
-**Проверка Phase 1:** `npm run typecheck`, `npm test` (особенно `server-validation.test.ts`, `server/planner/*.test.ts`), затем вручную дернуть эндпоинт генерации плана через UI и убедиться, что суммы по фазам не разъехались.
+**Проверка Phase 1:** `npm run typecheck`, `npm test` — зелёные (те же 12 pre-existing localStorage-failures, не отсюда). Ручная проверка через живой `npm run server` вместо UI (быстрее, без риска для реальных данных): создал одноразовый тестовый проект (`POST /api/projects`, weekly, Phase 1 `periodCount:8` + Phase 2 legacy `weekCount:4`, daysInFTE 20), дёрнул `POST /api/projects/:id/convert-planning-mode` → `monthly`: 12 недель / 4 недели-в-месяце = 3 месяца, вернулось `Phase 1: periodCount 2, Phase 2: periodCount 1` — сходится, `parseProjectPhases`/`phaseLength` (включая legacy `weekCount`) отработали через реальный HTTP-роут. Тестовый проект удалён (`DELETE /api/projects/124`), реальные данные не тронуты. Отдельно проверил `generatePlanRequestSchema` на `/api/projects/generate-plan`: невалидный `region` даёт те же 9 значений enum в ошибке 400 — дедуп `REGION_COLUMNS` не изменил список. LLM-вызов (платный) не делал — не нужен для проверки схемы/математики.
 
 ---
 

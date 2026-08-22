@@ -28,6 +28,7 @@ import {
   buildPhaseEnum,
   descriptionSuggestsPhaseProposal,
   parsePhasesFromDescription,
+  phaseLength,
 } from './phases';
 import { getClientRoleFromRole } from './clientRole';
 import { regionToLocationLabel } from '../../src/utils/regions';
@@ -90,7 +91,7 @@ export interface GeneratePlanResult {
 /** Describe phases as a human-readable string for the prompt. */
 function describePhasesForPrompt(phases: Array<{ name: string; periodCount?: number; weekCount?: number }>): string {
   return phases
-    .map((p) => `${p.name} (${p.periodCount ?? p.weekCount ?? 0} periods)`)
+    .map((p) => `${p.name} (${phaseLength(p)} periods)`)
     .join(', ');
 }
 
@@ -130,10 +131,7 @@ export async function generateResourcePlan(
 
   const total = mandatedPhases.length > 0
     ? mandatedPhases.reduce((sum, p) => sum + p.periodCount, 0)
-    : projectPhases.reduce(
-        (sum, p) => sum + (p.periodCount ?? p.weekCount ?? 0),
-        0,
-      );
+    : projectPhases.reduce((sum, p) => sum + phaseLength(p), 0);
   const phaseEnum = proposePhases || hasMandatedPhases ? null : buildPhaseEnum(projectPhases);
 
   // 3. Build output schema and menu.

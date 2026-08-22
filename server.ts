@@ -37,6 +37,7 @@ import { generateResourcePlan } from './server/planner/generateResourcePlan';
 import { loadAIConfig } from './server/llm/config';
 import { StructuredValidationError } from './server/llm/index';
 import { buildDisciplineEnum } from './server/planner/rateCard';
+import { parseProjectPhases, phaseLength } from './server/planner/phases';
 import {
   convertWeeklyToMonthly,
   convertMonthlyToWeekly,
@@ -1004,16 +1005,13 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
     const weeksPerMonth = getWeeksPerMonth(project.daysInFTE);
 
     // Convert phases
-    let phases: any[] = [];
-    try {
-      phases = JSON.parse(project.phases || '[]');
-    } catch { /* empty */ }
+    const phases = parseProjectPhases(project.phases);
 
     const convertedPhases = targetMode === 'monthly'
       ? convertPhasesToMonthly(phases, weeksPerMonth)
       : convertPhasesToWeekly(phases, weeksPerMonth);
     const convertedProjectPeriodCount = convertedPhases.reduce(
-      (sum: number, p: any) => sum + (p.periodCount ?? p.weekCount ?? 0),
+      (sum: number, p: any) => sum + phaseLength(p),
       0
     );
 
@@ -1035,7 +1033,7 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
           allocation: a.allocation,
         }));
 
-        const totalPeriods = phases.reduce((sum: number, p: any) => sum + (p.periodCount ?? p.weekCount ?? 0), 0);
+        const totalPeriods = phases.reduce((sum: number, p: any) => sum + phaseLength(p), 0);
 
         let convertedAllocations: { periodNumber: number; allocation: number }[];
         if (targetMode === 'monthly') {
