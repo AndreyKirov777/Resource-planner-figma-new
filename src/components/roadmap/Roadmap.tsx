@@ -205,7 +205,7 @@ export function Roadmap({
   const [fullscreen, setFullscreen] = useState(false);
   const [addLaneOpen, setAddLaneOpen] = useState(false);
   const [renameLaneId, setRenameLaneId] = useState<number | null>(null);
-  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [addItemKind, setAddItemKind] = useState<RoadmapItemKind | null>(null);
   const [startDateOpen, setStartDateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     title: string;
@@ -593,15 +593,17 @@ export function Roadmap({
     (selectedItemId != null ? allItems.find((i) => i.id === selectedItemId)?.laneId : undefined) ??
     roadmapLanes[0]?.id;
 
-  function handleAddItem() {
-    setAddItemOpen(true);
+  function handleAddItem(kind: RoadmapItemKind) {
+    setAddItemKind(kind);
   }
 
   function submitAddItem(data: { name: string; laneId: number }) {
-    onAddItem(data.laneId, { name: data.name, startPeriod: 1, periodCount: 1 })
+    if (!addItemKind) return;
+    const span = addItemKind === 'bar' ? { startPeriod: 1, periodCount: 1 } : { startPeriod: 1, periodCount: 0 };
+    onAddItem(data.laneId, { name: data.name, kind: addItemKind, ...span })
       .then((created) => {
         setSelectedItemId(created.id);
-        setAddItemOpen(false);
+        setAddItemKind(null);
       })
       .catch((err) => {
         toast.error('Failed to add item', { description: err instanceof Error ? err.message : undefined });
@@ -799,8 +801,24 @@ export function Roadmap({
         <Button variant="outline" size="sm" onClick={handleAddLane}>
           Add lane
         </Button>
-        <Button variant="outline" size="sm" onClick={handleAddItem} disabled={roadmapLanes.length === 0}>
-          Add item
+        <Button variant="outline" size="sm" onClick={() => handleAddItem('bar')} disabled={roadmapLanes.length === 0}>
+          Add bar
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleAddItem('milestone')}
+          disabled={roadmapLanes.length === 0}
+        >
+          Add milestone
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleAddItem('spread')}
+          disabled={roadmapLanes.length === 0}
+        >
+          Add spread
         </Button>
         <Button
           variant="outline"
@@ -932,10 +950,11 @@ export function Roadmap({
         }}
       />
       <AddItemDialog
-        open={addItemOpen}
+        open={addItemKind !== null}
+        kind={addItemKind ?? 'bar'}
         lanes={roadmapLanes}
         defaultLaneId={addItemDefaultLaneId}
-        onCancel={() => setAddItemOpen(false)}
+        onCancel={() => setAddItemKind(null)}
         onConfirm={submitAddItem}
       />
       <StartDateDialog

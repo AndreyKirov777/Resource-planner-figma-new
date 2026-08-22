@@ -924,21 +924,48 @@ describe('Roadmap modals replace native browser prompts', () => {
     expect(handlers.onDeleteItem).toHaveBeenCalledWith(10);
   });
 
-  it('Add item opens a modal with Name + Lane and calls onAddItem with the picked lane', async () => {
+  it('Add bar opens a modal with Name + Lane and calls onAddItem with the picked lane', async () => {
     const user = userEvent.setup();
     const handlers = renderRoadmap();
 
-    await user.click(screen.getByRole('button', { name: 'Add item' }));
+    await user.click(screen.getByRole('button', { name: 'Add bar' }));
     const dialog = screen.getByRole('dialog');
     const nameInput = within(dialog).getByLabelText('Name');
     await user.clear(nameInput);
     await user.type(nameInput, 'Design review');
-    await user.click(within(dialog).getByRole('button', { name: 'Add item' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Add bar' }));
 
     expect(handlers.onAddItem).toHaveBeenCalledWith(1, {
       name: 'Design review',
+      kind: 'bar',
       startPeriod: 1,
       periodCount: 1,
+    });
+  });
+
+  it('Add milestone and Add spread create zero-width items of the picked kind', async () => {
+    const user = userEvent.setup();
+    const handlers = renderRoadmap();
+
+    await user.click(screen.getByRole('button', { name: 'Add milestone' }));
+    let dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Add milestone' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Add milestone' }));
+    expect(handlers.onAddItem).toHaveBeenCalledWith(1, {
+      name: 'New milestone',
+      kind: 'milestone',
+      startPeriod: 1,
+      periodCount: 0,
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Add spread' }));
+    dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Add spread' }));
+    expect(handlers.onAddItem).toHaveBeenCalledWith(1, {
+      name: 'New spread',
+      kind: 'spread',
+      startPeriod: 1,
+      periodCount: 0,
     });
   });
 

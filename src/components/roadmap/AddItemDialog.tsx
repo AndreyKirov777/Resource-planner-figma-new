@@ -1,10 +1,11 @@
 /**
- * "Add item": name + lane, in a modal — replaces `window.prompt('Item name')`.
- * Kind/start/duration stay editable afterwards in `RoadmapEditorPanel`; the
- * item is created as a 1-period bar at period 1, same as before.
+ * "Add bar" / "Add milestone" / "Add spread": name + lane, in a modal —
+ * replaces `window.prompt('Item name')`. Kind is fixed by which button
+ * opened the dialog; start/duration stay editable afterwards in
+ * `RoadmapEditorPanel`.
  */
 import { useEffect, useState } from 'react';
-import { RoadmapLaneWithItems } from '../../services/api';
+import { RoadmapItemKind, RoadmapLaneWithItems } from '../../services/api';
 import {
   Dialog,
   DialogContent,
@@ -19,22 +20,30 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 
 interface AddItemDialogProps {
   open: boolean;
+  kind: RoadmapItemKind;
   lanes: RoadmapLaneWithItems[];
   defaultLaneId: number | undefined;
   onCancel: () => void;
   onConfirm: (data: { name: string; laneId: number }) => void;
 }
 
-export function AddItemDialog({ open, lanes, defaultLaneId, onCancel, onConfirm }: AddItemDialogProps) {
-  const [name, setName] = useState('New item');
+const KIND_LABEL: Record<RoadmapItemKind, string> = {
+  bar: 'bar',
+  milestone: 'milestone',
+  spread: 'spread',
+};
+
+export function AddItemDialog({ open, kind, lanes, defaultLaneId, onCancel, onConfirm }: AddItemDialogProps) {
+  const label = KIND_LABEL[kind];
+  const [name, setName] = useState(`New ${label}`);
   const [laneId, setLaneId] = useState<number | undefined>(defaultLaneId);
 
   useEffect(() => {
     if (open) {
-      setName('New item');
+      setName(`New ${label}`);
       setLaneId(defaultLaneId);
     }
-  }, [open, defaultLaneId]);
+  }, [open, defaultLaneId, label]);
 
   const trimmed = name.trim();
   const canSubmit = trimmed.length > 0 && laneId !== undefined;
@@ -48,7 +57,7 @@ export function AddItemDialog({ open, lanes, defaultLaneId, onCancel, onConfirm 
     <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Add item</DialogTitle>
+          <DialogTitle>Add {label}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-1.5">
@@ -85,7 +94,7 @@ export function AddItemDialog({ open, lanes, defaultLaneId, onCancel, onConfirm 
             Cancel
           </Button>
           <Button onClick={submit} disabled={!canSubmit}>
-            Add item
+            Add {label}
           </Button>
         </DialogFooter>
       </DialogContent>
