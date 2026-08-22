@@ -37,6 +37,12 @@ computes it into the lane row's existing `startPeriod` / `periodCount` fields (t
 finally becomes real), and `roadmapGeometry.ts` turns it into pixels. A collapsed lane's bar also
 carries what collapsing hid: rolled-up milestone ticks and the union over-demand stripe.
 
+**And it is switchable.** A **Lane bars** toggle in the toolbar turns the whole summary layer on and
+off, remembered per project beside the zoom and collapse preferences. Two readings of the same
+roadmap are legitimate — "show me the workstream envelopes" and "show me only the actual items" —
+and a bar that cannot be turned off becomes clutter for the second reader. Off restores today's
+rendering exactly.
+
 ## Boundaries & Constraints
 
 **Always:**
@@ -66,6 +72,18 @@ carries what collapsing hid: rolled-up milestone ticks and the union over-demand
   of its hidden children and the union of their over-demand periods as the same 3 px amber stripe
   CAP-9 already defines. An expanded lane draws neither — the item rows below it already do.
 - **An empty lane draws nothing.** No bar, no zero-width stub; the row keeps its section tint.
+- **The toggle governs the whole summary layer, and nothing else.** On: bar, end caps, rolled-up
+  ticks, union stripe, label, tooltip and the spans-project chip. Off: the lane row renders exactly
+  as it does today — the section-tinted band and nothing more. Item bars, milestones, item stripes,
+  the left grid and the load strip are untouched in both states.
+- **Default on**, so the feature is discoverable; the preference is per project, in `localStorage`,
+  under `roadmap-lane-bars:{projectId}` — the same shape as `roadmap-collapsed-lanes:{projectId}`
+  (`Roadmap.tsx:95-116`) and `roadmap-zoom:{projectId}` (`Roadmap.tsx:118-137`), including the
+  try/catch that falls back to the default when storage is unavailable.
+- **View state, never project state.** The toggle is per browser, like zoom and collapse. It is not
+  a project field, it is not sent to the server, and it is absent from export/import.
+- **Off costs nothing.** When the layer is off, the lane rows render no summary DOM and the
+  ghost-driven span recompute is skipped — the toggle is an early return, not a `display: none`.
 - Colour comes from one place: a `LANE_BAR` constant beside the existing `ACCENT` / `AMBER`, with
   its dark-theme value, following `ux-reference.md`'s "colour encodes kind and state only".
 - The three-grid alignment contract still holds: the lane bar is positioned from the same
@@ -76,6 +94,10 @@ carries what collapsing hid: rolled-up milestone ticks and the union over-demand
 **Ask First:**
 
 - Whether a lane bar should also appear as a mini span in the **left grid** row. Out of scope here.
+- **Off + collapsed is deliberately blank.** "Off" means off everywhere, including collapsed lanes,
+  because a toggle with an exception is a toggle nobody can predict. If real use shows that
+  collapsing with the layer off feels like a bug rather than a choice, the alternative is to keep the
+  bar for collapsed lanes only — a UX call to make with evidence, not upfront.
 - If a lane turns out to hold *only* spread items often enough that the chip-without-a-bar row reads
   as broken rather than as informative, revisit the chip's placement — not the span rule, which is
   settled.
@@ -89,6 +111,10 @@ carries what collapsing hid: rolled-up milestone ticks and the union over-demand
 - **No lane-level scheduling gesture** — dragging a lane bar to shift all its children is a
   different feature with its own atomicity and undo story. Not here, not "just the pointer part".
 - Do not put lanes into `selectedItemId`; item selection stays item-only.
+- Do not persist the toggle on the server, in a `Project` column, or in the export payload.
+- Do not let the toggle gate anything but the lane summary layer — it is not a "simple view" mode.
+- Do not add a global keyboard shortcut for it; the toolbar button is the affordance, and the
+  roadmap's key space belongs to the bars.
 - Do not change item bar visuals, the milestone diamond, the item stripe, the load strip, coverage,
   the editor panel or the demand engine.
 - No virtualization, no canvas, no memoisation ceremony — `timeline-component.md`'s performance
@@ -114,6 +140,9 @@ gets lost:
 | Empty lane | no bar, no label |
 | Lane with only spread items | no bar (there is no window to draw) — the chip alone, so the row is never blank |
 | Tooltip | lane name · `W3–W18` (plus dates when a start date is set) · total hours and FTE · item count |
+| Toggle control | toolbar `Button`, `variant="outline" size="sm"`, `aria-pressed`, lucide `Brackets` icon + label `Lane bars`; pressed state uses the existing outline-button active styling, so the strip still reads as app chrome |
+| Toggle placement | in the view group, immediately after `Fit` and before the separator that precedes the load selector (`Roadmap.tsx:556-563`) |
+| Layer off | lane rows exactly as today: section tint, no bar, no chip, no label |
 
 The silhouette is drawn as **one inline `<svg>` per lane** with a single `<path>`: it gives the exact
 bracket shape in one element, scales with the rect, and keeps the caps out of the hit test.
@@ -136,6 +165,11 @@ bracket shape in one element, scales with the rect, and keeps the caps out of th
 | Minimum zoom | `periodWidth = 8` | Caps clamped, bar still legible, label suppressed if it would overlap the next thing | N/A |
 | Item with no scope | `emptyScope` bar | Still contributes to the span (it is scheduled, it just has no hours) | N/A |
 | Lane with 0 hours | items exist, no estimates | Bar drawn; label shows `0 h · 0.0 FTE` | N/A |
+| Toggle off | user presses `Lane bars` while it is on | Every lane summary disappears in one render; item rows, load strip and left grid unchanged | N/A |
+| Toggle off, then collapse a lane | layer off | The lane row stays blank — off means off (decision above) | N/A |
+| Toggle state after reload | toggled off, page reloaded | Still off, for that project only | Storage unavailable → default on, no error surfaced |
+| Switch project | project A off, project B never toggled | A stays off, B renders on — the value is re-read on `project.id` change, like collapse and zoom | N/A |
+| Toggle during a drag | pointer gesture live | The gesture is unaffected and still commits; the summary layer simply stops rendering | N/A |
 | Click on the lane bar | pointer down + up under 3 px | Lane collapses / expands, same as the grid row | N/A |
 | Drag attempt on the lane bar | pointer drag | Nothing happens; no ghost, no request | N/A |
 | Keyboard | lane row focused, `Enter` / `Space` | Toggles collapse; arrows do nothing on a lane | N/A |
@@ -174,7 +208,7 @@ bracket shape in one element, scales with the rect, and keeps the caps out of th
 - `src/utils/roadmapGeometry.test.ts` — path shape at a normal width, at `2 × LANE_CAP_WIDTH`, and
   below it; `laneBarRect` edges identical to the earliest/latest child's `barRect` edges.
 
-**Timeline**
+**Timeline and container**
 
 - `src/components/roadmap/RoadmapTimeline.tsx` — lane branch (`:236-247`), `ACCENT` / `AMBER`
   (`:28-29`), item stripe render (`:400-415`).
@@ -184,14 +218,25 @@ bracket shape in one element, scales with the rect, and keeps the caps out of th
   - Feed the rows through `recomputeLaneSpans(rows, ghost)` in the existing `useMemo` region so the
     preview costs one pass, not a per-row scan.
   - `LANE_BAR` constant next to `ACCENT`; dark value via the existing class-based dark theme.
+  - New `showLaneBars: boolean` prop: when `false` the lane branch returns the plain tinted row it
+    returns today, and `recomputeLaneSpans` is skipped — an early return, not hidden DOM.
 - `src/components/roadmap/Roadmap.tsx` — `RoadmapTimeline` call site (`:644-663`): pass the existing
-  `toggleLane` (`:304`) down. No other change; `rows` (`:269`) already carries everything else.
+  `toggleLane` (`:304`) down, plus `showLaneBars`. `rows` (`:269`) already carries everything else.
+  - `laneBarsStorageKey` / `loadShowLaneBars` / `saveShowLaneBars` beside `loadZoomIndex` /
+    `saveZoomIndex` (`:118-137`) — same try/catch, default `true`.
+  - `const [showLaneBars, setShowLaneBars] = useState(() => loadShowLaneBars(project.id))` next to
+    `zoomIndex` / `collapsed` (`:165-167`), re-read in the `project.id` effect (`:185-190`) so a
+    project switch picks up that project's preference.
+  - Toolbar: the `Lane bars` toggle button after `Fit` (`:556-563`), writing through a small
+    `applyShowLaneBars` helper mirroring `applyZoom` (`:192-195`) so state and storage are set in
+    one place.
 
 **Docs**
 
 - `_bmad-output/specs/spec-roadmap/ux-reference.md` — "Rows, 34px" (`:36`) says lane rows "carry no
-  bar"; that sentence is now false and must describe the summary bar instead. Add the lane rows to
-  the "Bar visual language" table (`:44-54`).
+  bar"; that sentence is now false and must describe the summary bar and its toggle instead. Add the
+  lane rows to the "Bar visual language" table (`:44-54`), and the `Lane bars` toggle to the toolbar
+  strip line (`:30`).
 - `_bmad-output/specs/spec-roadmap/timeline-component.md` — add `laneBarRect` / `laneSummaryPath` to
   the geometry list (`:22-31`); record in "Deliberately not built" that the lane bar is a read-out
   and lane-level dragging is explicitly out.
@@ -211,9 +256,11 @@ export/import.
       `LANE_CAP_WIDTH`, `LANE_CAP_DROP`, `laneBarRect`, `laneSummaryPath`, `laneMilestoneXs`
 - [ ] `src/components/roadmap/RoadmapTimeline.tsx` -- summary bar SVG, spans-project chip,
       collapsed-only ticks and union stripe, label, tooltip, click-to-collapse, ghost-aware rows
-- [ ] `src/components/roadmap/Roadmap.tsx` -- `onToggleLane` passed to the timeline
+- [ ] `src/components/roadmap/Roadmap.tsx` -- `onToggleLane` passed to the timeline; `Lane bars`
+      toggle: storage helpers, state, project-switch re-read, toolbar button, `showLaneBars` prop
 - [ ] `src/components/roadmap/Roadmap.test.tsx` -- lane bar present/absent, collapsed rollups,
-      click toggles collapse, no request is ever sent by touching a lane bar
+      click toggles collapse, no request is ever sent by touching a lane bar; the `Lane bars` toggle
+      hides the whole layer, persists to `localStorage` and restores from it
 - [ ] docs -- `ux-reference.md` rows + bar table, `timeline-component.md` geometry list and the
       "not a control" note
 
@@ -242,6 +289,14 @@ export/import.
   are clamped so they neither cross nor overflow the bar's rect.
 - Given a keyboard-only user with a lane row focused, when they press `Enter` or `Space`, then the
   lane toggles, matching the pointer behaviour.
+- Given the `Lane bars` toggle is pressed off, when the roadmap re-renders, then no lane bar, cap,
+  tick, stripe, label or chip is in the DOM, and the item rows, left grid and load strip are
+  pixel-identical to what they showed with the layer on.
+- Given the toggle was turned off and the page is reloaded, when the roadmap opens on the same
+  project, then the layer is still off; when it opens on a different project that was never toggled,
+  then the layer is on.
+- Given `localStorage` throws (private mode), when the roadmap renders, then the layer defaults to on
+  and nothing is surfaced to the user.
 
 **Commands:**
 
@@ -254,7 +309,8 @@ export/import.
 **Manual checks** (no harness sees these): the silhouette against the reference image — cap size,
 slab height, vertical centring in the row; the lane bar reads as chrome, not as a draggable object
 (cursor, no ring on click); collapse/expand at every zoom rung; light and dark themes; a lane containing a spread item next to
-the identical lane without one (the bars must be the same); a spread-only lane; a long label near the timeline's right edge; fullscreen mode.
+the identical lane without one (the bars must be the same); a spread-only lane; a long label near the timeline's right edge; fullscreen mode; the toggle's pressed state readable in
+both themes and the strip still reading as chrome with one more button in it.
 
 ## Suggested Review Order
 
@@ -276,6 +332,13 @@ the identical lane without one (the bars must be the same); a spread-only lane; 
 - Collapsed-only rollups; expanded lane draws neither — `src/components/roadmap/RoadmapTimeline.tsx`
 - Click toggles, drag does nothing, hit area is the bar rect only — same file
 - Ghost-aware rows computed once — same file
+
+**The toggle**
+
+- Layer off is an early return, not hidden DOM; ghost recompute skipped —
+  `src/components/roadmap/RoadmapTimeline.tsx`
+- Storage helpers mirroring the zoom pair, default on, try/catch — `src/components/roadmap/Roadmap.tsx`
+- Re-read on `project.id` change, so preferences do not leak between projects — same file
 
 **Tests and docs**
 
