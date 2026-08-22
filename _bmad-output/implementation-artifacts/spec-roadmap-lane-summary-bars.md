@@ -28,7 +28,8 @@ renders a lane row as an empty `div`; `toRoadmapRows` even hands the lane row a 
 - The left grid says a lane is `1 240 h · 3.1 FTE`, but the chart never says *over what window*, so
   the lane's FTE figure floats free of the calendar it belongs to.
 
-**Approach:** The lane row draws a **summary bar** spanning the union window of its items — the
+**Approach:** The lane row draws a **summary bar** spanning the union window of its scheduled items
+(spread items, which have no window of their own, are marked separately and never widen it) — the
 classic bracket-with-end-caps silhouette from the reference image: a flat slab with a short
 downward tab at each end, in a neutral slate that is deliberately *not* the item accent, so a lane
 bar is never misread as something schedulable. The span is derived, never stored: `toRoadmapRows`
@@ -41,9 +42,15 @@ carries what collapsing hid: rolled-up milestone ticks and the union over-demand
 **Always:**
 
 - **A lane's window is derived, every time.** It is `[min startPeriod, max finish]` over the lane's
-  items, computed in `toRoadmapRows` from the same synthesized windows that file already produces —
-  so a spread item contributes `[1, np]` and a milestone contributes its single period. No new
-  column, no cache, no second source of truth.
+  **window-bearing** items, computed in `toRoadmapRows` from the same synthesized windows that file
+  already produces — a milestone contributes its single period. No new column, no cache, no second
+  source of truth.
+- **A spread item never widens a lane.** It is excluded from the span outright: a spread item has no
+  window of its own (its stored `(1, 0)` is a sentinel, `schema.prisma:163-171`), and letting the
+  sentinel's synthesized `[1, np]` reach the span would drag every lane that owns one to full width
+  and destroy exactly the "when does this workstream run" reading the bar exists for. The lane's
+  spread items are reported by the **spans-project chip** instead (see the visual contract) — the
+  information is shown, it just does not deform the span.
 - **Geometry is pure.** Rect, end caps and the cap-collision clamp live in `roadmapGeometry.ts` and
   are unit-tested with no DOM, exactly like `barRect` / `stripeSegments`. The component does no
   coordinate arithmetic (`timeline-component.md`, "Geometry is a pure module").
@@ -68,17 +75,17 @@ carries what collapsing hid: rolled-up milestone ticks and the union over-demand
 
 **Ask First:**
 
-- **Spread items and the span.** The default is that a spread item extends its lane to the whole
-  project, because it genuinely occupies the whole project. If a real roadmap ends up with every
-  lane full-width and the view stops informing, the fallback is to exclude spread items from the
-  span and mark the lane bar with a "spans project" glyph instead — that is a UX call, not an
-  implementation one.
 - Whether a lane bar should also appear as a mini span in the **left grid** row. Out of scope here.
+- If a lane turns out to hold *only* spread items often enough that the chip-without-a-bar row reads
+  as broken rather than as informative, revisit the chip's placement — not the span rule, which is
+  settled.
 
 **Never:**
 
 - **No stored lane window.** A lane has no `startPeriod` / `periodCount` of its own in the database,
   and nothing in this feature may add one.
+- **Never feed a spread item's `[1, np]` sentinel into the span**, in `laneSpan` or anywhere
+  downstream, including the ghost-preview path.
 - **No lane-level scheduling gesture** — dragging a lane bar to shift all its children is a
   different feature with its own atomicity and undo story. Not here, not "just the pointer part".
 - Do not put lanes into `selectedItemId`; item selection stays item-only.
@@ -103,7 +110,9 @@ gets lost:
 | Collapsed: milestones | 7 px slate diamond centred on the tick's period boundary, sitting on the bar |
 | Collapsed: over-demand | 3 px amber stripe under the bar over the union of the children's over-demand periods, clipped to the bar |
 | Label | `1 240 h · 3.1 FTE`, 11 px muted, 6 px to the right of the bar's right edge, `pointer-events-none`, clipped at the timeline's right edge |
+| Spans-project chip | lane owns one or more spread items: a 9 px slate chevron `»` plus `N spread` in 11 px muted, pinned at the timeline's left edge (x = 0), `pointer-events-none`; tooltip names the items |
 | Empty lane | no bar, no label |
+| Lane with only spread items | no bar (there is no window to draw) — the chip alone, so the row is never blank |
 | Tooltip | lane name · `W3–W18` (plus dates when a start date is set) · total hours and FTE · item count |
 
 The silhouette is drawn as **one inline `<svg>` per lane** with a single `<path>`: it gives the exact
@@ -116,7 +125,9 @@ bracket shape in one element, scales with the rect, and keeps the caps out of th
 | Lane with several bars | items at W3–W6 and W9–W12 | One bar W3–W12 (the gap is *not* drawn as two bars — a lane is one span) | N/A |
 | Lane with a trailing milestone | bars end W10, milestone at W14 | Span extends to W14 | N/A |
 | Milestone-only lane | one milestone at W7 | One-period bar at W7 with both caps clamped | N/A |
-| Lane with a spread item | spread + two bars | Span is `[1, np]` (default decision above) | N/A |
+| Lane with a spread item | spread + two bars at W3–W6 and W9–W12 | Span is W3–W12 — the spread item does **not** widen it; the spans-project chip is drawn at the row's left edge | N/A |
+| Lane with only spread items | one or more spread, nothing else | No bar at all; the chip alone marks the row | N/A |
+| Spread item added to a lane | user adds one to a lane with bars | The lane bar does not move; only the chip appears | N/A |
 | Empty lane | no items | No bar, no label; row tint unchanged | N/A |
 | Collapsed lane | items hidden | Bar drawn, plus rolled-up milestone ticks and the union over-demand stripe | N/A |
 | Expanded lane | items visible | Bar drawn, no ticks, no stripe (children own those) | N/A |
@@ -137,12 +148,15 @@ bracket shape in one element, scales with the rect, and keeps the caps out of th
 
 - `src/utils/roadmap.ts` — `RoadmapRow` (`:389`), `toRoadmapRows` (`:425`), the lane row push
   (`:472-484`) that currently hard-codes `startPeriod: 1, periodCount: 0`.
-  - Add `laneSpan(items: readonly RoadmapRowItem[], np): { startPeriod: number; periodCount: number } | null`
-    — the min/max over the *synthesized* windows (spread → `[1, np]`, milestone → its own period),
-    `null` for an empty lane.
+  - Add `laneSpan(items: readonly RoadmapRowItem[]): { startPeriod: number; periodCount: number } | null`
+    — the min/max over the window-bearing items only (milestone → its own period; **spread items are
+    filtered out before the min/max**), `null` for a lane with no window-bearing items, which covers
+    both the empty lane and the spread-only lane. It deliberately does not take `np`: nothing in the
+    span rule depends on the project length any more.
   - `toRoadmapRows` writes the span onto the lane row (`periodCount: 0` keeps meaning "nothing to
     draw"), sets the lane row's `overDemandPeriods` to the sorted union of its items', and adds
-    `milestonePeriods: number[]` to `RoadmapRow` (always `[]` for item rows).
+    `milestonePeriods: number[]` to `RoadmapRow` (always `[]` for item rows), and sets the lane
+    row's `spreadItemCount: number` for the chip.
   - Add `recomputeLaneSpans(rows, ghost): RoadmapRow[]` — the live-preview rule as a pure function,
     so the "summary follows the ghost" behaviour is unit-tested, not eyeballed.
 - `src/utils/roadmap.test.ts` — every matrix row that is pure span arithmetic.
@@ -190,13 +204,13 @@ export/import.
 
 **Execution:**
 
-- [ ] `src/utils/roadmap.ts`, `src/utils/roadmap.test.ts` -- `laneSpan`, real span on the lane row,
-      union `overDemandPeriods`, `milestonePeriods`, `recomputeLaneSpans` -- the span rule is the
-      feature; it must be provable without a browser
+- [ ] `src/utils/roadmap.ts`, `src/utils/roadmap.test.ts` -- `laneSpan` (spread items excluded),
+      real span on the lane row, union `overDemandPeriods`, `milestonePeriods`, `spreadItemCount`,
+      `recomputeLaneSpans` -- the span rule is the feature; it must be provable without a browser
 - [ ] `src/utils/roadmapGeometry.ts`, `src/utils/roadmapGeometry.test.ts` -- `LANE_BAR_HEIGHT`,
       `LANE_CAP_WIDTH`, `LANE_CAP_DROP`, `laneBarRect`, `laneSummaryPath`, `laneMilestoneXs`
-- [ ] `src/components/roadmap/RoadmapTimeline.tsx` -- summary bar SVG, collapsed-only ticks and
-      union stripe, label, tooltip, click-to-collapse, ghost-aware rows
+- [ ] `src/components/roadmap/RoadmapTimeline.tsx` -- summary bar SVG, spans-project chip,
+      collapsed-only ticks and union stripe, label, tooltip, click-to-collapse, ghost-aware rows
 - [ ] `src/components/roadmap/Roadmap.tsx` -- `onToggleLane` passed to the timeline
 - [ ] `src/components/roadmap/Roadmap.test.tsx` -- lane bar present/absent, collapsed rollups,
       click toggles collapse, no request is ever sent by touching a lane bar
@@ -209,6 +223,11 @@ export/import.
   one summary bar from W3 to W12 whose left and right edges match the first and last item bars to
   the pixel.
 - Given a lane with no items, when the roadmap renders, then no lane bar and no label are drawn.
+- Given a lane holding two bars at W3–W6 and W9–W12 plus a spread item, when the roadmap renders,
+  then the lane bar still runs W3–W12 — unchanged from the same lane without the spread item — and a
+  spans-project chip marks the row.
+- Given a lane holding only spread items, when the roadmap renders, then no lane bar is drawn and the
+  chip alone marks the row.
 - Given a collapsed lane containing a milestone and an over-demand item, when it is collapsed, then
   the lane bar shows the milestone tick and the amber stripe over exactly those periods; when it is
   expanded, then neither is drawn on the lane bar and the item rows show them instead.
@@ -234,15 +253,16 @@ export/import.
 
 **Manual checks** (no harness sees these): the silhouette against the reference image — cap size,
 slab height, vertical centring in the row; the lane bar reads as chrome, not as a draggable object
-(cursor, no ring on click); collapse/expand at every zoom rung; light and dark themes; a lane
-containing a spread item; a long label near the timeline's right edge; fullscreen mode.
+(cursor, no ring on click); collapse/expand at every zoom rung; light and dark themes; a lane containing a spread item next to
+the identical lane without one (the bars must be the same); a spread-only lane; a long label near the timeline's right edge; fullscreen mode.
 
 ## Suggested Review Order
 
 **The span rule**
 
-- Min/max over synthesized windows, spread and milestone included — `src/utils/roadmap.ts` (`laneSpan`)
-- Empty lane → `null` → nothing drawn — same file, and the lane row push
+- Min/max over window-bearing items; milestones counted, **spread items filtered out before the
+  min/max** — `src/utils/roadmap.ts` (`laneSpan`)
+- Empty lane and spread-only lane both → `null` → no bar, chip only — same file, and the lane row push
 - Union of the children's over-demand periods, sorted and deduplicated — same file
 
 **Pixels**
