@@ -7,6 +7,7 @@
 import React, { useMemo, useRef } from 'react';
 import { Phase } from '../../services/api';
 import { RoadmapRow, periodToDate } from '../../utils/roadmap';
+import { RoadmapLoad, avgSupplyFteOverWindow } from '../../utils/roadmapLoad';
 import {
   periodX,
   barRect,
@@ -14,6 +15,7 @@ import {
   phaseBands,
   rowAt,
   snapDrag,
+  stripeSegments,
   ROW_HEIGHT,
   HEADER_HEIGHT,
   BAR_HEIGHT,
@@ -23,12 +25,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../ui/utils';
 
 const ACCENT = '#8f4f8f';
+const AMBER = '#d97706';
+const STRIPE_EPSILON = 1e-6;
 
 interface RoadmapTimelineProps {
   rows: RoadmapRow[];
   phases: Phase[];
   phaseHours: Map<string, number>;
   effortByItemId: Map<number, Map<string, number>>;
+  roadmapLoad: RoadmapLoad;
+  hrsPerPeriod: number;
   periodWidth: number;
   np: number;
   planningMode: 'weekly' | 'monthly';
@@ -40,11 +46,14 @@ interface RoadmapTimelineProps {
   onScroll: (scrollLeft: number) => void;
 }
 
+
 export function RoadmapTimeline({
   rows,
   phases,
   phaseHours,
   effortByItemId,
+  roadmapLoad,
+  hrsPerPeriod,
   periodWidth,
   np,
   planningMode,
@@ -102,6 +111,18 @@ export function RoadmapTimeline({
 
   function handleBarKeyDown(e: React.KeyboardEvent<HTMLDivElement>, row: RoadmapRow, rowIndex: number) {
     if (row.kind === 'lane') return;
+    // A spread item has no meaningful window — it is not draggable, resizable
+    // or re-lanable by keyboard either, only selectable/openable (decision 2).
+    if (row.kind === 'spread') {
+      if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        onOpenEditor(row.id);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onSelectItem(null);
+      }
+      return;
+    }
     const origin = { startPeriod: row.startPeriod, periodCount: row.periodCount };
     const previous = { laneId: row.laneId ?? 0, startPeriod: row.startPeriod, periodCount: row.periodCount };
 
@@ -227,6 +248,13 @@ export function RoadmapTimeline({
               const isSelected = row.id === selectedItemId;
               const effort = effortByItemId.get(row.id);
               const roleLines = effort ? Array.from(effort.entries()) : [];
+              // CAP-9: the warning stripe over exactly the over-demand periods,
+              // clipped to the bar's own (possibly ghosted) rect. Never drawn on
+              // a milestone (no window) or while dragging isn't relevant either.
+              const stripeRects =
+                row.kind !== 'milestone' && !isGhosted && row.overDemandPeriods.length > 0
+                  ? stripeSegments(effectiveWindow, row.overDemandPeriods, periodWidth)
+                  : [];
 
               return (
                 <div
@@ -244,7 +272,8 @@ export function RoadmapTimeline({
                         aria-selected={isSelected}
                         data-testid={`roadmap-bar-${row.id}`}
                         className={cn(
-                          'absolute cursor-grab select-none outline-none',
+                          'absolute select-none outline-none',
+                          row.kind === 'spread' ? 'cursor-pointer' : 'cursor-grab',
                           isSelected && 'ring-2 ring-offset-1'
                         )}
                         style={
@@ -258,19 +287,38 @@ export function RoadmapTimeline({
                                 transform: 'rotate(45deg)',
                                 ...(isSelected ? { boxShadow: `0 0 0 2px ${ACCENT}` } : {}),
                               }
-                            : {
-                                left: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).left,
-                                width: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).width,
-                                top: (ROW_HEIGHT - BAR_HEIGHT) / 2,
-                                height: BAR_HEIGHT,
-                                borderRadius: 4,
-                                ...(row.emptyScope
-                                  ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
-                                  : { background: ACCENT }),
-                                ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
-                              }
+                            : row.kind === 'spread'
+                              ? {
+                                  left: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).left,
+                                  width: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).width,
+                                  top: (ROW_HEIGHT - 10) / 2,
+                                  height: 10,
+                                  borderRadius: 2,
+                                  ...(row.emptyScope
+                                    ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
+                                    : {
+                                        background: 'rgba(143,79,143,0.22)',
+                                        backgroundImage: `repeating-linear-gradient(135deg, ${ACCENT} 0px, ${ACCENT} 3px, transparent 3px, transparent 7px)`,
+                                        border: `1px solid ${ACCENT}`,
+                                      }),
+                                  ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
+                                }
+                              : {
+                                  left: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).left,
+                                  width: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).width,
+                                  top: (ROW_HEIGHT - BAR_HEIGHT) / 2,
+                                  height: BAR_HEIGHT,
+                                  borderRadius: 4,
+                                  ...(row.emptyScope
+                                    ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
+                                    : { background: ACCENT }),
+                                  ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
+                                }
                         }
                         onPointerDown={(e) => {
+                          // A spread item has no draggable window (decision 2) — selection
+                          // only, via the plain onClick below.
+                          if (row.kind === 'spread') return;
                           const containerTop = rowsWrapRef.current?.getBoundingClientRect().top ?? 0;
                           if (row.kind === 'milestone') {
                             onPointerDown(e, row, 'move', rowLaneIds, containerTop);
@@ -293,7 +341,7 @@ export function RoadmapTimeline({
                         onDoubleClick={() => onOpenEditor(row.id)}
                         onKeyDown={(e) => handleBarKeyDown(e, row, rowIndex)}
                       >
-                        {row.kind === 'bar' && (
+                        {(row.kind === 'bar' || row.kind === 'spread') && (
                           <span
                             className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] font-medium text-white"
                             style={row.emptyScope ? { color: ACCENT } : undefined}
@@ -306,23 +354,50 @@ export function RoadmapTimeline({
                     <TooltipContent side="top" className="text-xs">
                       <div className="font-medium">{row.name}</div>
                       <div>
-                        W{row.startPeriod}
-                        {row.periodCount > 0 ? `–${row.startPeriod + row.periodCount - 1}` : ''}
+                        {row.kind === 'spread'
+                          ? 'Spread across the whole project'
+                          : `W${row.startPeriod}${row.periodCount > 0 ? `–${row.startPeriod + row.periodCount - 1}` : ''}`}
                       </div>
-                      {row.kind === 'bar' && (
+                      {(row.kind === 'bar' || row.kind === 'spread') && (
                         <>
                           <div>
                             {row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h · {row.fte.toFixed(1)} FTE
                           </div>
-                          {roleLines.map(([role, hours]) => (
-                            <div key={role}>
-                              {role || '(none)'} {hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h
-                            </div>
-                          ))}
+                          {roleLines.map(([role, hours]) => {
+                            const roleFte =
+                              effectiveWindow.periodCount > 0 && hrsPerPeriod > 0
+                                ? hours / (effectiveWindow.periodCount * hrsPerPeriod)
+                                : 0;
+                            const planFte = avgSupplyFteOverWindow(roadmapLoad, role, effectiveWindow, hrsPerPeriod);
+                            const short = planFte < roleFte - STRIPE_EPSILON;
+                            return (
+                              <div key={role}>
+                                {role || '(none)'} {hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h ·{' '}
+                                {roleFte.toFixed(1)} FTE · plan{' '}
+                                <span style={short ? { color: AMBER, fontWeight: 600 } : undefined}>
+                                  {planFte.toFixed(1)} FTE
+                                </span>
+                              </div>
+                            );
+                          })}
                         </>
                       )}
                     </TooltipContent>
                   </Tooltip>
+                  {stripeRects.map((rect, i) => (
+                    <div
+                      key={i}
+                      className="pointer-events-none absolute rounded-b"
+                      data-testid={`roadmap-stripe-${row.id}`}
+                      style={{
+                        left: rect.left,
+                        width: rect.width,
+                        top: (ROW_HEIGHT + BAR_HEIGHT) / 2 - 3,
+                        height: 3,
+                        background: AMBER,
+                      }}
+                    />
+                  ))}
                 </div>
               );
             })}

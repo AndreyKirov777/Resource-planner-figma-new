@@ -371,7 +371,7 @@ describe('toRoadmapRows', () => {
       { id: 11, laneId: 1, name: 'Launch', kind: 'milestone' as const, startPeriod: 3, periodCount: 0, displayOrder: 1 },
     ];
     const effort = new Map([[10, new Map([['Backend', 80]])]]);
-    const rows = toRoadmapRows(lanes, items, effort, new Set(), 40);
+    const rows = toRoadmapRows(lanes, items, effort, new Set(), 40, 20);
     expect(rows.map((r) => r.kind)).toEqual(['lane', 'bar', 'milestone']);
     expect(rows[0].hours).toBe(80);
     expect(rows[1].fte).toBe(1); // 80h / (2 periods * 40h)
@@ -383,7 +383,7 @@ describe('toRoadmapRows', () => {
     const items = [
       { id: 10, laneId: 1, name: 'API', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0 },
     ];
-    const rows = toRoadmapRows(lanes, items, new Map(), new Set([1]), 40);
+    const rows = toRoadmapRows(lanes, items, new Map(), new Set([1]), 40, 20);
     expect(rows).toHaveLength(1);
     expect(rows[0].collapsed).toBe(true);
   });
@@ -394,9 +394,32 @@ describe('toRoadmapRows', () => {
       { id: 10, laneId: 1, name: 'Empty bar', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0 },
       { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 3, periodCount: 0, displayOrder: 1 },
     ];
-    const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40);
+    const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
     expect(rows.find((r) => r.id === 10)?.emptyScope).toBe(true);
     expect(rows.find((r) => r.id === 11)?.emptyScope).toBe(false);
+  });
+
+  it('a spread item renders over the whole project [1, np], ignoring its stored (1, 0) sentinel', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [
+      { id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0 },
+    ];
+    const effort = new Map([[12, new Map([['PM', 400]])]]);
+    const rows = toRoadmapRows(lanes, items, effort, new Set(), 40, 20);
+    const row = rows.find((r) => r.id === 12)!;
+    expect(row.startPeriod).toBe(1);
+    expect(row.periodCount).toBe(20);
+    expect(row.fte).toBe(0.5); // 400h / (20 periods * 40h)
+    expect(row.emptyScope).toBe(false);
+  });
+
+  it('a spread item with no scope is flagged emptyScope', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [
+      { id: 13, laneId: 1, name: 'Empty spread', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0 },
+    ];
+    const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
+    expect(rows.find((r) => r.id === 13)?.emptyScope).toBe(true);
   });
 });
 

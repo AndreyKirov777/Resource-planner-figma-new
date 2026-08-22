@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ReconciliationPanel } from './ReconciliationPanel';
 import type { ReconciliationReport } from '../utils/wbs';
+import { WbsItem, WbsEstimate, Phase } from '../services/api';
+import { buildRoadmapLoad, buildByPeriodMatrix, demandHours, supplyHours } from '../utils/roadmapLoad';
 
 function report(overrides: Partial<ReconciliationReport>): ReconciliationReport {
   return {
@@ -145,6 +147,111 @@ describe('ReconciliationPanel', () => {
       expect(screen.getByText(/no unplaced wbs hours/i)).toBeInTheDocument();
       expect(screen.getByText(/no bars without scope/i)).toBeInTheDocument();
       expect(screen.getByText(/every linked leaf's phase overlaps/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('by-period matrix (CAP-10)', () => {
+    const PHASES: Phase[] = [{ name: 'Discovery', periodCount: 2, color: '#fff' }, { name: 'Build', periodCount: 6, color: '#000' }];
+
+    function leaf(overrides: Partial<WbsItem> & { id: number }, estimates: Partial<WbsEstimate>[]): WbsItem {
+      return {
+        name: 'Leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: estimates.map((e, i) => ({
+          id: i + 1,
+          discipline: 'Engineering',
+          role: '',
+          hours: 0,
+          wbsItemId: overrides.id,
+          createdAt: '',
+          updatedAt: '',
+          ...e,
+        })),
+        ...overrides,
+      };
+    }
+
+    it('is absent when byPeriodRoleMatrix is not provided', () => {
+      const r = report({});
+      render(<ReconciliationPanel report={r} />);
+      expect(screen.queryByText('By period')).not.toBeInTheDocument();
+    });
+
+    it('renders from the phase baseline with a caption when the roadmap is empty', () => {
+      const wbsItems = [leaf({ id: 1, phaseName: 'Discovery' }, [{ role: 'Backend Developer', hours: 100 }])];
+      const load = buildRoadmapLoad({
+        wbsItems,
+        roadmapItems: [],
+        links: [],
+        resourcePlans: [],
+        rateCards: [],
+        phases: PHASES,
+        planningMode: 'weekly',
+        daysInFTE: 20,
+      });
+      const matrix = buildByPeriodMatrix(load, 'role');
+      const r = report({});
+      render(
+        <ReconciliationPanel
+          report={r}
+          byPeriodRoleMatrix={matrix}
+          byPeriodDisciplineMatrix={buildByPeriodMatrix(load, 'discipline')}
+          byPeriodPhaseBaselineOnly
+        />
+      );
+
+      expect(screen.getByText('By period')).toBeInTheDocument();
+      expect(screen.getByText(/no roadmap yet/i)).toBeInTheDocument();
+      expect(screen.getByRole('cell', { name: 'Backend Developer' })).toBeInTheDocument();
+      // Discovery = periods 1-2, 100h/2 = 50h/period, demand/supply "50/0".
+      expect(screen.getByRole('columnheader', { name: 'W1' })).toBeInTheDocument();
+      expect(screen.getAllByText('50/0').length).toBeGreaterThan(0);
+    });
+
+    it("numbers match a direct roadmapLoad.ts call for the same role and period", () => {
+      const wbsItems = [leaf({ id: 1 }, [{ role: 'Backend Developer', hours: 160 }])];
+      const load = buildRoadmapLoad({
+        wbsItems,
+        roadmapItems: [{ id: 100, name: 'API', kind: 'bar', startPeriod: 1, periodCount: 4 }],
+        links: [{ wbsItemId: 1, roadmapItemId: 100 }],
+        resourcePlans: [
+          {
+            id: 1,
+            role: 'Backend Developer',
+            intHourlyRate: 0,
+            clientHourlyRate: 0,
+            displayOrder: 0,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            allocations: [{ id: 1, periodNumber: 2, allocation: 50, resourcePlanId: 1, createdAt: '', updatedAt: '' }],
+          },
+        ],
+        rateCards: [],
+        phases: PHASES,
+        planningMode: 'weekly',
+        daysInFTE: 20,
+      });
+      const matrix = buildByPeriodMatrix(load, 'role');
+      const expectedDemand = demandHours(load, 'role', 'Backend Developer', 2);
+      const expectedSupply = supplyHours(load, 'role', 'Backend Developer', 2);
+      expect(expectedDemand).toBe(40); // 160h / 4 periods
+      expect(expectedSupply).toBe(20); // 50% * 40h
+
+      const r = report({});
+      render(
+        <ReconciliationPanel
+          report={r}
+          byPeriodRoleMatrix={matrix}
+          byPeriodDisciplineMatrix={buildByPeriodMatrix(load, 'discipline')}
+        />
+      );
+      expect(screen.getAllByText(`${expectedDemand}/${expectedSupply}`).length).toBeGreaterThan(0);
     });
   });
 });

@@ -287,6 +287,15 @@ interface GeneratePlanSheetProps {
   phases?: Phase[];
   planningMode?: string;
   onAcceptPlan?: (draft: GeneratePlanDraft) => Promise<void>;
+  /**
+   * CAP-13: a draft already built (from the roadmap's demand, e.g.) rather
+   * than from the LLM. When present on open, it goes straight to the
+   * preview/accept view — `handleGenerate`/`api.generatePlan` are never
+   * called. The draft → preview → apply contract is otherwise identical:
+   * nothing is written until the planner clicks Accept.
+   */
+  initialDraft?: GeneratePlanDraft;
+  initialWarnings?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -300,6 +309,8 @@ export function GeneratePlanSheet({
   phases: propPhases,
   planningMode: _planningMode,
   onAcceptPlan,
+  initialDraft,
+  initialWarnings,
 }: GeneratePlanSheetProps) {
   const [description, setDescription] = useState('');
   const [region, setRegion] = useState<GeneratePlanRegion>('ukraine');
@@ -324,6 +335,14 @@ export function GeneratePlanSheet({
       setApplyProposedPhases(true);
     }
   }, [description]);
+
+  // CAP-13: a caller-supplied draft (roadmap demand, e.g.) skips straight to
+  // the preview/accept view on open — same as `handleGenerate` landing there,
+  // just without the LLM round trip.
+  useEffect(() => {
+    if (!open || !initialDraft) return;
+    setResult({ draft: initialDraft, warnings: initialWarnings ?? [] });
+  }, [open, initialDraft, initialWarnings]);
 
   // -------------------------------------------------------------------------
   // Helpers

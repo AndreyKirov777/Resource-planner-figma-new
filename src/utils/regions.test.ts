@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { LOCATIONS } from '../config/defaults';
-import { GENERATE_PLAN_REGIONS, LOCATION_LABELS, canonicalLocationLabel, locationAbbr } from './regions';
+import { GENERATE_PLAN_REGIONS, LOCATION_LABELS, canonicalLocationLabel, locationAbbr, regionForLocationSlug } from './regions';
 
 describe('locationAbbr', () => {
   it('abbreviates every canonical label', () => {
@@ -41,5 +41,17 @@ describe('canonicalLocationLabel', () => {
   it('passes unknown and empty values through unchanged', () => {
     expect(canonicalLocationLabel('Remote')).toBe('Remote');
     expect(canonicalLocationLabel(null)).toBe('');
+  });
+});
+
+describe('regionForLocationSlug', () => {
+  it('maps every rate-card slug to its matching camelCase GeneratePlanRegion', () => {
+    expect(LOCATIONS.map((loc) => regionForLocationSlug(loc.slug))).toEqual(GENERATE_PLAN_REGIONS.map((r) => r.value));
+  });
+
+  it('falls back to ukraine for an unknown or missing slug', () => {
+    expect(regionForLocationSlug('mars')).toBe('ukraine');
+    expect(regionForLocationSlug(null)).toBe('ukraine');
+    expect(regionForLocationSlug(undefined)).toBe('ukraine');
   });
 });

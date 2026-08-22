@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { ReconciliationReport } from '../utils/wbs';
 import { formatHours } from '../utils/wbsGrid';
+import { ByPeriodMatrix, RoadmapLoadDimension } from '../utils/roadmapLoad';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { cn } from './ui/utils';
 
 /**
@@ -30,6 +33,11 @@ interface ReconciliationPanelProps {
   report: ReconciliationReport;
   /** Roadmap coverage cards (CAP-7) — omitted entirely when the roadmap payload isn't loaded yet. */
   coverage?: RoadmapCoverageDisplay;
+  /** CAP-10's by-period section — both dimensions precomputed by `buildByPeriodMatrix`, toggled locally. Omitted while the roadmap payload isn't loaded yet, same as `coverage`. */
+  byPeriodRoleMatrix?: ByPeriodMatrix;
+  byPeriodDisciplineMatrix?: ByPeriodMatrix;
+  /** True when the roadmap is empty, so the section renders from the WBS phase baseline alone — a caption says so. */
+  byPeriodPhaseBaselineOnly?: boolean;
 }
 
 // Hour figures are sums of many floating-point terms; treat anything below this as
@@ -65,8 +73,16 @@ export function reconciliationSummary(report: ReconciliationReport): string {
  * All hour figures are computed upstream by `buildReconciliationReport` —
  * this component contains no reconciliation logic of its own.
  */
-export function ReconciliationPanel({ report, coverage }: ReconciliationPanelProps) {
+export function ReconciliationPanel({
+  report,
+  coverage,
+  byPeriodRoleMatrix,
+  byPeriodDisciplineMatrix,
+  byPeriodPhaseBaselineOnly,
+}: ReconciliationPanelProps) {
   const { projectTotal, byDiscipline, byPhaseDiscipline, phaseLevelAvailable, unassignedWbs, unmappedPlan } = report;
+  const [byPeriodDimension, setByPeriodDimension] = useState<RoadmapLoadDimension>('role');
+  const byPeriodMatrix = byPeriodDimension === 'discipline' ? byPeriodDisciplineMatrix : byPeriodRoleMatrix;
 
   return (
     <div className="space-y-4">
@@ -292,6 +308,76 @@ export function ReconciliationPanel({ report, coverage }: ReconciliationPanelPro
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {byPeriodMatrix && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle>By period</CardTitle>
+            <ToggleGroup
+              type="single"
+              size="sm"
+              value={byPeriodDimension}
+              onValueChange={(v) => v && setByPeriodDimension(v as RoadmapLoadDimension)}
+              aria-label="By-period dimension"
+            >
+              <ToggleGroupItem value="role">Role</ToggleGroupItem>
+              <ToggleGroupItem value="discipline">Discipline</ToggleGroupItem>
+            </ToggleGroup>
+          </CardHeader>
+          <CardContent>
+            {byPeriodPhaseBaselineOnly && (
+              <p className="text-muted-foreground mb-2 text-xs">
+                No roadmap yet — figures are the WBS phase baseline (each item's own hours spread over its phase).
+              </p>
+            )}
+            {byPeriodMatrix.rows.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No demand or supply on either side yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{byPeriodDimension === 'discipline' ? 'Discipline' : 'Role'}</TableHead>
+                      {byPeriodMatrix.periods.map((period) => (
+                        <TableHead key={period} className="text-right" data-testid={`by-period-col-${period}`}>
+                          W{period}
+                        </TableHead>
+                      ))}
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {byPeriodMatrix.rows.map((row) => (
+                      <TableRow key={row.key}>
+                        <TableCell className="font-medium">{row.key || '(none)'}</TableCell>
+                        {row.cells.map((cell, i) => (
+                          <TableCell key={i} className={cn('text-right tabular-nums', varianceClass(cell.variance))}>
+                            {formatHours(cell.demand)}/{formatHours(cell.supply)}
+                          </TableCell>
+                        ))}
+                        <TableCell className={cn('text-right font-medium tabular-nums', varianceClass(row.total.variance))}>
+                          {formatHours(row.total.demand)}/{formatHours(row.total.supply)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="font-semibold">
+                      <TableCell>Total</TableCell>
+                      {byPeriodMatrix.totalRow.cells.map((cell, i) => (
+                        <TableCell key={i} className={cn('text-right tabular-nums', varianceClass(cell.variance))}>
+                          {formatHours(cell.demand)}/{formatHours(cell.supply)}
+                        </TableCell>
+                      ))}
+                      <TableCell className={cn('text-right tabular-nums', varianceClass(byPeriodMatrix.totalRow.total.variance))}>
+                        {formatHours(byPeriodMatrix.totalRow.total.demand)}/{formatHours(byPeriodMatrix.totalRow.total.supply)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

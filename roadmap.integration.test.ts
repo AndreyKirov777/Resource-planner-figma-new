@@ -43,7 +43,7 @@ describe('Roadmap API integration', () => {
   async function makeItem(
     pid: number,
     laneId: number,
-    overrides: Partial<{ name: string; kind: 'bar' | 'milestone'; startPeriod: number; periodCount: number }> = {}
+    overrides: Partial<{ name: string; kind: 'bar' | 'milestone' | 'spread'; startPeriod: number; periodCount: number }> = {}
   ) {
     const res = await request(app)
       .post(`/api/projects/${pid}/roadmap/items`)
@@ -255,6 +255,67 @@ describe('Roadmap API integration', () => {
       const clearRes = await request(app).put(`/api/projects/${projectId}`).send({ startDate: null });
       expect(clearRes.status).toBe(200);
       expect(clearRes.body.startDate).toBeNull();
+    });
+  });
+
+  describe('the spread kind (Slice B, decision 2)', () => {
+    it('POST .../items creates a spread item at its (1, 0) sentinel window', async () => {
+      const laneId = await makeLane(projectId, 'PM lane');
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/roadmap/items`)
+        .send({ laneId, name: 'PM', kind: 'spread', startPeriod: 1, periodCount: 0 });
+      expect(res.status).toBe(201);
+      expect(res.body.kind).toBe('spread');
+      expect(res.body.startPeriod).toBe(1);
+      expect(res.body.periodCount).toBe(0);
+    });
+
+    it('POST .../items rejects a spread item with a non-zero periodCount (400, via the strict schema)', async () => {
+      const laneId = await makeLane(projectId, 'PM lane 2');
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/roadmap/items`)
+        .send({ laneId, name: 'Bad spread', kind: 'spread', startPeriod: 1, periodCount: 3 });
+      expect(res.status).toBe(400);
+    });
+
+    it('POST .../items rejects a spread item with a startPeriod other than 1 (400, via the strict schema)', async () => {
+      const laneId = await makeLane(projectId, 'PM lane 3');
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/roadmap/items`)
+        .send({ laneId, name: 'Bad spread 2', kind: 'spread', startPeriod: 5, periodCount: 0 });
+      expect(res.status).toBe(400);
+    });
+
+    it('PATCH .../items turns a bar into a spread item when both fields are reset to the sentinel', async () => {
+      const laneId = await makeLane(projectId, 'PM lane 4');
+      const itemId = await makeItem(projectId, laneId, { name: 'Was a bar', startPeriod: 3, periodCount: 5 });
+
+      const res = await request(app)
+        .patch(`/api/roadmap-items/${itemId}`)
+        .send({ kind: 'spread', startPeriod: 1, periodCount: 0 });
+      expect(res.status).toBe(200);
+      expect(res.body.kind).toBe('spread');
+    });
+
+    it('PATCH .../items rejects turning a bar into a spread item without resetting periodCount (400, merged-row check)', async () => {
+      const laneId = await makeLane(projectId, 'PM lane 5');
+      const itemId = await makeItem(projectId, laneId, { name: 'Bar', startPeriod: 1, periodCount: 4 });
+
+      // Sends only `kind` — the existing periodCount (4) survives the merge and fails the sentinel rule server-side.
+      const res = await request(app).patch(`/api/roadmap-items/${itemId}`).send({ kind: 'spread' });
+      expect(res.status).toBe(400);
+    });
+
+    it('a spread item CAN carry scope, unlike a milestone', async () => {
+      const laneId = await makeLane(projectId, 'PM lane 6');
+      const spreadId = await makeItem(projectId, laneId, { name: 'PM spread', kind: 'spread', startPeriod: 1, periodCount: 0 });
+      const leafId = await makeWbsItem(projectId, { name: 'PM leaf' });
+
+      const res = await request(app)
+        .put(`/api/roadmap-items/${spreadId}/links`)
+        .send({ wbsItemIds: [leafId] });
+      expect(res.status).toBe(200);
+      expect(res.body.wbsItemIds).toEqual([leafId]);
     });
   });
 });

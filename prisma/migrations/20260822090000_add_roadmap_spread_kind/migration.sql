@@ -1,0 +1,11 @@
+-- Slice B, decision 2: RoadmapItem.kind gains a third value, "spread"
+-- (alongside "bar" and "milestone"), for level-of-effort items that demand
+-- evenly across the whole project rather than a window of it.
+--
+-- No column definition changes: `RoadmapItem.kind` has always been an
+-- unconstrained TEXT column (see prisma/schema.prisma — Prisma has no
+-- native enum support on the sqlite connector, so the allowed values are
+-- documented, not database-enforced, exactly as "bar" | "milestone" already
+-- were). This migration is additive documentation only; existing rows and
+-- the "bar" default are unaffected, and `prisma migrate` can apply it as a
+-- no-op against any existing database.

@@ -1456,6 +1456,8 @@ export default function App() {
             project={currentProject}
             wbsItems={wbsItems}
             roadmapLanes={roadmapLanes}
+            resourcePlans={resourcePlans}
+            rateCards={rateCards}
             onAddLane={handleAddRoadmapLane}
             onUpdateLane={handleUpdateRoadmapLane}
             onDeleteLane={handleDeleteRoadmapLane}
@@ -1465,6 +1467,7 @@ export default function App() {
             onReplaceItemLinks={handleReplaceRoadmapItemLinks}
             onBootstrap={handleBootstrapRoadmap}
             onSetStartDate={handleSetProjectStartDate}
+            onGenerateDraftPlan={handleApplyGeneratedPlan}
           />
         </TabsContent>
       </Tabs>

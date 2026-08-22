@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Roadmap } from './Roadmap';
-import { Project, RoadmapLaneWithItems, WbsItem } from '../../services/api';
+import { Project, RoadmapLaneWithItems, WbsItem, GeneratePlanDraft } from '../../services/api';
 import { snapDrag, ZOOM_LADDER, DEFAULT_ZOOM_INDEX, periodX } from '../../utils/roadmapGeometry';
+import { buildRoadmapLoad, buildByPeriodMatrix, demandHours, supplyHours } from '../../utils/roadmapLoad';
+import { ReconciliationPanel } from '../ReconciliationPanel';
 
 /**
  * Drives the KEYBOARD path, not the pointer path — no pointer harness needed,
@@ -78,12 +80,15 @@ function renderRoadmap(lanes = makeLanes()) {
     onReplaceItemLinks: vi.fn(() => Promise.resolve()),
     onBootstrap: vi.fn(() => Promise.resolve()),
     onSetStartDate: vi.fn(() => Promise.resolve()),
+    onGenerateDraftPlan: vi.fn(() => Promise.resolve()),
   };
   render(
     <Roadmap
       project={project}
       wbsItems={wbsItems}
       roadmapLanes={lanes}
+      resourcePlans={[]}
+      rateCards={[]}
       onAddLane={handlers.onAddLane}
       onUpdateLane={handlers.onUpdateLane}
       onDeleteLane={handlers.onDeleteLane}
@@ -93,6 +98,7 @@ function renderRoadmap(lanes = makeLanes()) {
       onReplaceItemLinks={handlers.onReplaceItemLinks}
       onBootstrap={handlers.onBootstrap}
       onSetStartDate={handlers.onSetStartDate}
+      onGenerateDraftPlan={handlers.onGenerateDraftPlan}
     />
   );
   return handlers;
@@ -219,5 +225,370 @@ describe('column grid alignment', () => {
     renderRoadmap();
     const col1 = screen.getByTestId('roadmap-period-col-1');
     expect(col1.style.width).toBe(`${PERIOD_WIDTH}px`);
+  });
+
+  it('the load strip cell for period p shares a left edge and width with the header/row column (third grid)', () => {
+    renderRoadmap();
+    const headerCol = screen.getByTestId('roadmap-period-col-3');
+    const loadCell = screen.getByTestId('roadmap-load-cell-3');
+    // Same fixed-width flow layout as the header/period columns -> same width,
+    // and the same DOM order from period 1 gives it the same left edge.
+    expect(loadCell.style.width).toBe(headerCol.style.width);
+    expect(loadCell.style.width).toBe(`${PERIOD_WIDTH}px`);
+
+    const stripScroll = screen.getByTestId('roadmap-load-strip-scroll');
+    const cellsInOrder = Array.from(stripScroll.querySelectorAll('[data-testid^="roadmap-load-cell-"]'));
+    expect(cellsInOrder[2]).toBe(loadCell); // period 3 is the 3rd cell, same as the header's 3rd column
+  });
+});
+
+describe('CAP-9 over-demand stripe (roadmapLoad wiring)', () => {
+  it('renders a stripe on a bar whose linked demand exceeds zero supply over its whole window', () => {
+    const overDemandWbsItems: WbsItem[] = [
+      {
+        id: 500,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 1, discipline: 'Engineering', role: 'Backend Developer', hours: 400, wbsItemId: 500, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [500];
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={overDemandWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={[]}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn()}
+      />
+    );
+
+    // Item 10 (W5-W8) has 400h of Backend demand and zero resource-plan supply
+    // anywhere -> every period in its window is over-demand.
+    expect(screen.getByTestId('roadmap-stripe-10')).toBeInTheDocument();
+  });
+
+  it('draws no stripe when supply covers demand across the whole window', () => {
+    const coveredWbsItems: WbsItem[] = [
+      {
+        id: 501,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 2, discipline: 'Engineering', role: 'Backend Developer', hours: 40, wbsItemId: 501, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [501];
+    const resourcePlans = [
+      {
+        id: 1,
+        role: 'Backend Developer',
+        intHourlyRate: 0,
+        clientHourlyRate: 0,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        allocations: [5, 6, 7, 8].map((p) => ({
+          id: p,
+          periodNumber: p,
+          allocation: 100,
+          resourcePlanId: 1,
+          createdAt: '',
+          updatedAt: '',
+        })),
+      },
+    ];
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={coveredWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={resourcePlans}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId('roadmap-stripe-10')).not.toBeInTheDocument();
+  });
+});
+
+describe('CAP-9 load strip', () => {
+  it("a cell's demand/supply figures match a direct roadmapLoad.ts call for the same period", () => {
+    const loadWbsItems: WbsItem[] = [
+      {
+        id: 502,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 3, discipline: 'Engineering', role: 'Backend Developer', hours: 200, wbsItemId: 502, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [502];
+    const resourcePlans = [
+      {
+        id: 1,
+        role: 'Backend Developer',
+        intHourlyRate: 0,
+        clientHourlyRate: 0,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        allocations: [{ id: 1, periodNumber: 6, allocation: 50, resourcePlanId: 1, createdAt: '', updatedAt: '' }],
+      },
+    ];
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={loadWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={resourcePlans}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn()}
+      />
+    );
+
+    // Item 10 (W5-W8), 200h Backend Developer -> 50h/period demand.
+    // Period 6 supply: 50% allocation * 40h/period = 20h.
+    const expectedLoad = buildRoadmapLoad({
+      wbsItems: loadWbsItems,
+      roadmapItems: [{ id: 10, name: 'API', kind: 'bar', startPeriod: 5, periodCount: 4 }],
+      links: [{ wbsItemId: 502, roadmapItemId: 10 }],
+      resourcePlans,
+      rateCards: [],
+      phases: JSON.parse(project.phases as string),
+      planningMode: 'weekly',
+      daysInFTE: project.daysInFTE,
+    });
+    const expectedDemand = Math.round(demandHours(expectedLoad, 'role', 'Backend Developer', 6));
+    const expectedSupply = Math.round(supplyHours(expectedLoad, 'role', 'Backend Developer', 6));
+    expect(expectedDemand).toBe(50);
+    expect(expectedSupply).toBe(20);
+
+    const cell = screen.getByTestId('roadmap-load-cell-6');
+    expect(cell).toHaveAccessibleName(`Period 6: ${expectedDemand} of ${expectedSupply} hours`);
+  });
+});
+
+describe('CAP-13 draft plan from the roadmap', () => {
+  it('opens GeneratePlanSheet straight to the preview (no LLM call), and Accept hands off the built draft', async () => {
+    const draftWbsItems: WbsItem[] = [
+      {
+        id: 503,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 4, discipline: 'Engineering', role: 'Backend Developer', hours: 160, wbsItemId: 503, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [503];
+    const onGenerateDraftPlan = vi.fn((_draft: GeneratePlanDraft) => Promise.resolve());
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={draftWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={[]}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={onGenerateDraftPlan}
+      />
+    );
+
+    const button = screen.getByRole('button', { name: 'Draft plan from roadmap' });
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+
+    // Lands directly on the preview/accept view — no "Generate" form, no LLM round trip.
+    const acceptButton = await screen.findByRole('button', { name: 'Accept plan' });
+    expect(screen.queryByRole('button', { name: /generate/i })).not.toBeInTheDocument();
+
+    fireEvent.click(acceptButton);
+
+    expect(onGenerateDraftPlan).toHaveBeenCalledTimes(1);
+    const draft = onGenerateDraftPlan.mock.calls[0][0];
+    expect(draft.resourcePlans).toHaveLength(1);
+    expect(draft.resourcePlans[0].role).toBe('Backend Developer');
+    // 160h / 4 periods (W5-W8) = 40h/period = 1.0 FTE = 100%.
+    expect(draft.resourcePlans[0].allocations).toEqual([5, 6, 7, 8].map((p) => ({ periodNumber: p, allocation: 100 })));
+  });
+
+  it('is disabled when the roadmap has no demand anywhere', () => {
+    renderRoadmap(); // default fixture: empty wbsItems, no linked scope
+    expect(screen.getByRole('button', { name: 'Draft plan from roadmap' })).toBeDisabled();
+  });
+});
+
+describe('Done-means cross-check: stripe, load strip and by-period matrix agree cell-for-cell', () => {
+  it('a deliberately over-committed fixture reads identically in all three places, because all three call buildRoadmapLoad', () => {
+    // One Backend Developer, 700h, over periods 1-4 (175h/period demand) against
+    // 100h/period supply — every period in the window is over-demand.
+    const overCommittedWbsItems: WbsItem[] = [
+      {
+        id: 900,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [{ id: 90, discipline: 'Engineering', role: 'Backend Developer', hours: 700, wbsItemId: 900, createdAt: '', updatedAt: '' }],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].startPeriod = 1;
+    lanes[0].items[0].periodCount = 4;
+    lanes[0].items[0].wbsItemIds = [900];
+    const resourcePlans = [
+      {
+        id: 1,
+        role: 'Backend Developer',
+        intHourlyRate: 0,
+        clientHourlyRate: 0,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        allocations: [1, 2, 3, 4].map((p) => ({ id: p, periodNumber: p, allocation: 250, resourcePlanId: 1, createdAt: '', updatedAt: '' })), // 250% = 100h/period
+      },
+    ];
+
+    // The ONE engine call every reader is supposed to share.
+    const sharedLoad = buildRoadmapLoad({
+      wbsItems: overCommittedWbsItems,
+      roadmapItems: [{ id: 10, name: 'API', kind: 'bar', startPeriod: 1, periodCount: 4 }],
+      links: [{ wbsItemId: 900, roadmapItemId: 10 }],
+      resourcePlans,
+      rateCards: [],
+      phases: JSON.parse(project.phases as string),
+      planningMode: 'weekly',
+      daysInFTE: project.daysInFTE,
+    });
+    const expectedDemandP2 = demandHours(sharedLoad, 'role', 'Backend Developer', 2);
+    const expectedSupplyP2 = supplyHours(sharedLoad, 'role', 'Backend Developer', 2);
+    expect(expectedDemandP2).toBe(175);
+    expect(expectedSupplyP2).toBe(100);
+
+    // 1) The bar's stripe (RoadmapTimeline, via <Roadmap>): covers the whole window.
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={overCommittedWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={resourcePlans}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={vi.fn(() => Promise.resolve())}
+      />
+    );
+    expect(screen.getByTestId('roadmap-stripe-10')).toBeInTheDocument();
+
+    // 2) The load strip's period-2 cell (same render tree): "175/100".
+    const loadCell = screen.getByTestId('roadmap-load-cell-2');
+    expect(loadCell).toHaveAccessibleName(
+      `Period 2: ${Math.round(expectedDemandP2)} of ${Math.round(expectedSupplyP2)} hours`
+    );
+
+    // 3) The by-period matrix (ReconciliationPanel, mounted separately as Wbs.tsx
+    // does): the SAME period-2 cell for the SAME role, from the SAME engine call.
+    const matrix = buildByPeriodMatrix(sharedLoad, 'role');
+    render(
+      <ReconciliationPanel
+        report={{
+          projectTotal: { wbsHours: 0, planHours: 0, varianceHours: 0 },
+          byDiscipline: [],
+          byPhaseDiscipline: [],
+          phaseLevelAvailable: false,
+          unassignedWbs: { totalHours: 0, byDiscipline: [] },
+          unmappedPlan: { totalHours: 0, rows: [] },
+        }}
+        byPeriodRoleMatrix={matrix}
+        byPeriodDisciplineMatrix={buildByPeriodMatrix(sharedLoad, 'discipline')}
+      />
+    );
+    const matrixRow = matrix.rows.find((r) => r.key === 'Backend Developer')!;
+    expect(matrixRow.cells[1].demand).toBe(expectedDemandP2); // index 1 -> period 2
+    expect(matrixRow.cells[1].supply).toBe(expectedSupplyP2);
+    expect(screen.getAllByText(`${Math.round(expectedDemandP2)}/${Math.round(expectedSupplyP2)}`).length).toBeGreaterThan(0);
   });
 });

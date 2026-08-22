@@ -14,10 +14,15 @@ import {
   RoadmapItem,
   RoadmapItemKind,
   BootstrapRoadmapPayload,
+  ResourcePlan,
+  RateCard,
+  GeneratePlanDraft,
 } from '../../services/api';
 import { parsePhases } from '../../utils/phases';
 import { hoursPerPeriod } from '../../utils/calculations';
 import { buildWbsTree, effectivePhases } from '../../utils/wbsTree';
+import { regionForLocationSlug } from '../../utils/regions';
+import { APP_DEFAULTS } from '../../config/defaults';
 import {
   effectiveRoadmapItems,
   itemEffort,
@@ -29,6 +34,15 @@ import {
   RoadmapRowItem,
 } from '../../utils/roadmap';
 import {
+  buildRoadmapLoad,
+  overDemandPeriodsInWindow,
+  roadmapLoadKeys,
+  totalDemandHours,
+  RoadmapLoadDimension,
+  RoadmapLoadItemInput,
+} from '../../utils/roadmapLoad';
+import { buildDraftFromRoadmapLoad } from '../../utils/roadmapDraftPlan';
+import {
   ZOOM_LADDER,
   DEFAULT_ZOOM_INDEX,
   zoomStep,
@@ -36,10 +50,13 @@ import {
 } from '../../utils/roadmapGeometry';
 import { RoadmapGrid } from './RoadmapGrid';
 import { RoadmapTimeline } from './RoadmapTimeline';
+import { RoadmapLoadStrip } from './RoadmapLoadStrip';
+import { GeneratePlanSheet } from '../GeneratePlanSheet';
 import { RoadmapEditorPanel } from './RoadmapEditorPanel';
 import { BootstrapDialog } from './BootstrapDialog';
 import { RoadmapDragCommit } from './useRoadmapDrag';
 import { Button } from '../ui/button';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../ui/select';
 
 type RoadmapItemPatch = Partial<{
   name: string;
@@ -54,6 +71,8 @@ interface RoadmapProps {
   project: Project;
   wbsItems: WbsItem[];
   roadmapLanes: RoadmapLaneWithItems[];
+  resourcePlans: ResourcePlan[];
+  rateCards: RateCard[];
   onAddLane: (name: string) => Promise<void>;
   onUpdateLane: (id: number, data: { name?: string; displayOrder?: number }) => Promise<void>;
   onDeleteLane: (id: number) => Promise<void>;
@@ -66,6 +85,8 @@ interface RoadmapProps {
   onReplaceItemLinks: (itemId: number, wbsItemIds: number[]) => Promise<void>;
   onBootstrap: (payload: BootstrapRoadmapPayload) => Promise<void>;
   onSetStartDate: (startDate: string | null) => Promise<void>;
+  /** CAP-13: accepts a draft built from the roadmap's demand — same contract as `GeneratePlanSheet`'s existing `onAcceptPlan`. */
+  onGenerateDraftPlan: (draft: GeneratePlanDraft) => Promise<void>;
 }
 
 function collapsedStorageKey(projectId: number) {
@@ -95,6 +116,8 @@ export function Roadmap({
   project,
   wbsItems,
   roadmapLanes,
+  resourcePlans,
+  rateCards,
   onAddLane,
   onUpdateLane,
   onDeleteLane,
@@ -104,6 +127,7 @@ export function Roadmap({
   onReplaceItemLinks,
   onBootstrap,
   onSetStartDate,
+  onGenerateDraftPlan,
 }: RoadmapProps) {
   const planningMode = (project.planningMode || 'weekly') as 'weekly' | 'monthly';
   const phases = useMemo(() => parsePhases(project.phases, []), [project.phases]);
@@ -119,6 +143,7 @@ export function Roadmap({
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [editorItemId, setEditorItemId] = useState<number | null>(null);
   const [bootstrapPreview, setBootstrapPreview] = useState<BootstrapPreview | null>(null);
+  const [draftPlan, setDraftPlan] = useState<GeneratePlanDraft | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const loadStripScrollRef = useRef<HTMLDivElement | null>(null);
@@ -159,10 +184,66 @@ export function Roadmap({
       })),
     [allItems]
   );
-  const rows = useMemo(
-    () => toRoadmapRows(rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod),
-    [rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod]
+  // CAP-8/9: one `roadmapLoad` build feeds the bar stripe, the tooltip's
+  // supply lines and (Block 4) the load strip — never re-derived per reader.
+  const loadItems: RoadmapLoadItemInput[] = useMemo(
+    () =>
+      allItems.map((i) => ({
+        id: i.id,
+        name: i.name,
+        kind: i.kind,
+        startPeriod: i.startPeriod,
+        periodCount: i.periodCount,
+      })),
+    [allItems]
   );
+  const roadmapLoad = useMemo(
+    () =>
+      buildRoadmapLoad({
+        wbsItems,
+        roadmapItems: loadItems,
+        links,
+        resourcePlans,
+        rateCards,
+        phases,
+        planningMode,
+        daysInFTE: project.daysInFTE,
+      }),
+    [wbsItems, loadItems, links, resourcePlans, rateCards, phases, planningMode, project.daysInFTE]
+  );
+  const overDemandByItemId = useMemo(() => {
+    const map = new Map<number, number[]>();
+    allItems.forEach((item) => {
+      if (item.kind === 'milestone') return;
+      const effort = effortByItemId.get(item.id) ?? new Map<string, number>();
+      const window =
+        item.kind === 'spread'
+          ? { startPeriod: 1, periodCount: np }
+          : { startPeriod: item.startPeriod, periodCount: item.periodCount };
+      map.set(item.id, overDemandPeriodsInWindow(roadmapLoad, effort, window));
+    });
+    return map;
+  }, [allItems, effortByItemId, roadmapLoad, np]);
+
+  const rows = useMemo(
+    () => toRoadmapRows(rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np, overDemandByItemId),
+    [rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np, overDemandByItemId]
+  );
+
+  // CAP-9's load strip is a SINGLE explicit role/discipline at a time,
+  // switchable from the toolbar (the conservative reading of the open
+  // question — see the Slice B final report). Defaults to the first
+  // available role, falling back to the first discipline, then to nothing.
+  const roleKeys = useMemo(() => roadmapLoadKeys(roadmapLoad, 'role'), [roadmapLoad]);
+  const disciplineKeys = useMemo(() => roadmapLoadKeys(roadmapLoad, 'discipline'), [roadmapLoad]);
+  const [loadSelection, setLoadSelection] = useState<{ dimension: RoadmapLoadDimension; key: string } | null>(null);
+  const effectiveLoadSelection = useMemo(() => {
+    const available = loadSelection?.dimension === 'discipline' ? disciplineKeys : roleKeys;
+    if (loadSelection && available.includes(loadSelection.key)) return loadSelection;
+    if (roleKeys.length > 0) return { dimension: 'role' as const, key: roleKeys[0] };
+    if (disciplineKeys.length > 0) return { dimension: 'discipline' as const, key: disciplineKeys[0] };
+    return null;
+  }, [loadSelection, roleKeys, disciplineKeys]);
 
   const phaseHours = useMemo(() => {
     const phaseNames = new Set(phases.map((p) => p.name));
@@ -291,6 +372,21 @@ export function Roadmap({
     setBootstrapPreview(bootstrapRoadmap(wbsItems, phases));
   }
 
+  // CAP-13: builds the draft straight from the SAME `roadmapLoad` the stripe,
+  // tooltip, load strip and editor already read — then hands it to the
+  // existing `GeneratePlanSheet` draft -> preview -> apply flow unmodified.
+  function openDraftPlan() {
+    const region = regionForLocationSlug(project.defaultLocation);
+    const draft = buildDraftFromRoadmapLoad(
+      roadmapLoad,
+      rateCards,
+      region,
+      project.defaultMargin ?? APP_DEFAULTS.defaultMargin,
+      project.exchangeRate
+    );
+    setDraftPlan(draft);
+  }
+
   function confirmBootstrap() {
     if (!bootstrapPreview) return;
     const payload: BootstrapRoadmapPayload = {
@@ -395,7 +491,49 @@ export function Roadmap({
         >
           Fit
         </Button>
+        <div className="mx-1 h-5 w-px bg-border" aria-hidden />
+        <Select
+          value={effectiveLoadSelection ? `${effectiveLoadSelection.dimension}:${effectiveLoadSelection.key}` : undefined}
+          onValueChange={(v) => {
+            const sep = v.indexOf(':');
+            const dimension = v.slice(0, sep) as RoadmapLoadDimension;
+            const key = v.slice(sep + 1);
+            setLoadSelection({ dimension, key });
+          }}
+          disabled={roleKeys.length === 0 && disciplineKeys.length === 0}
+        >
+          <SelectTrigger size="sm" className="w-[220px]" aria-label="Load strip role or discipline">
+            <SelectValue placeholder="No demand yet">
+              {effectiveLoadSelection ? `Load ${effectiveLoadSelection.key || '(none)'}` : 'No demand yet'}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {roleKeys.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>By role</SelectLabel>
+                {roleKeys.map((r) => (
+                  <SelectItem key={`role:${r}`} value={`role:${r}`}>
+                    {r || '(none)'}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+            {disciplineKeys.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>By discipline</SelectLabel>
+                {disciplineKeys.map((d) => (
+                  <SelectItem key={`discipline:${d}`} value={`discipline:${d}`}>
+                    {d}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+          </SelectContent>
+        </Select>
         <div className="flex-1" />
+        <Button variant="outline" size="sm" onClick={openDraftPlan} disabled={totalDemandHours(roadmapLoad) <= 0}>
+          Draft plan from roadmap
+        </Button>
         <Button variant="outline" size="sm" onClick={handleAddLane}>
           Add lane
         </Button>
@@ -413,35 +551,50 @@ export function Roadmap({
       </div>
 
       <div className="flex" ref={chartRef}>
-        <RoadmapGrid
-          rows={rows}
-          selectedItemId={selectedItemId}
-          onSelectItem={(id) => setSelectedItemId(id)}
-          onToggleLane={toggleLane}
-          onRenameLane={(id, name) => void onUpdateLane(id, { name })}
-          onDeleteLane={handleDeleteLane}
-          onMoveLane={moveLane}
-          onEditItem={(id) => setEditorItemId(id)}
-          onDeleteItem={handleDeleteItem}
-          onMoveItem={moveItem}
-        />
-        <RoadmapTimeline
-          rows={rows}
-          phases={phases}
-          phaseHours={phaseHours}
-          effortByItemId={effortByItemId}
-          periodWidth={periodWidth}
-          np={np}
-          planningMode={planningMode}
-          startDate={project.startDate ?? null}
-          selectedItemId={selectedItemId}
-          onSelectItem={setSelectedItemId}
-          onOpenEditor={(id) => setEditorItemId(id)}
-          onCommit={commitDrag}
-          onScroll={(scrollLeft) => {
-            if (loadStripScrollRef.current) loadStripScrollRef.current.scrollLeft = scrollLeft;
-          }}
-        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex">
+            <RoadmapGrid
+              rows={rows}
+              selectedItemId={selectedItemId}
+              onSelectItem={(id) => setSelectedItemId(id)}
+              onToggleLane={toggleLane}
+              onRenameLane={(id, name) => void onUpdateLane(id, { name })}
+              onDeleteLane={handleDeleteLane}
+              onMoveLane={moveLane}
+              onEditItem={(id) => setEditorItemId(id)}
+              onDeleteItem={handleDeleteItem}
+              onMoveItem={moveItem}
+            />
+            <RoadmapTimeline
+              rows={rows}
+              phases={phases}
+              phaseHours={phaseHours}
+              effortByItemId={effortByItemId}
+              roadmapLoad={roadmapLoad}
+              hrsPerPeriod={hrsPerPeriod}
+              periodWidth={periodWidth}
+              np={np}
+              planningMode={planningMode}
+              startDate={project.startDate ?? null}
+              selectedItemId={selectedItemId}
+              onSelectItem={setSelectedItemId}
+              onOpenEditor={(id) => setEditorItemId(id)}
+              onCommit={commitDrag}
+              onScroll={(scrollLeft) => {
+                if (loadStripScrollRef.current) loadStripScrollRef.current.scrollLeft = scrollLeft;
+              }}
+            />
+          </div>
+          <RoadmapLoadStrip
+            roadmapLoad={roadmapLoad}
+            items={loadItems}
+            dimension={effectiveLoadSelection?.dimension ?? 'role'}
+            dimensionKey={effectiveLoadSelection?.key ?? null}
+            np={np}
+            periodWidth={periodWidth}
+            scrollRef={loadStripScrollRef}
+          />
+        </div>
         {editorItem && (
           <RoadmapEditorPanel
             item={editorItem}
@@ -450,6 +603,10 @@ export function Roadmap({
             allLinks={links}
             itemNames={itemNames}
             np={np}
+            planningMode={planningMode}
+            roadmapLoad={roadmapLoad}
+            roadmapItems={loadItems}
+            hrsPerPeriod={hrsPerPeriod}
             onUpdate={onUpdateItem}
             onReplaceLinks={onReplaceItemLinks}
             onClose={() => setEditorItemId(null)}
@@ -462,6 +619,18 @@ export function Roadmap({
         preview={bootstrapPreview}
         onCancel={() => setBootstrapPreview(null)}
         onConfirm={confirmBootstrap}
+      />
+
+      <GeneratePlanSheet
+        open={draftPlan !== null}
+        onOpenChange={(open) => {
+          if (!open) setDraftPlan(null);
+        }}
+        projectId={project.id}
+        phases={phases}
+        planningMode={planningMode}
+        onAcceptPlan={onGenerateDraftPlan}
+        initialDraft={draftPlan ?? undefined}
       />
     </div>
   );
