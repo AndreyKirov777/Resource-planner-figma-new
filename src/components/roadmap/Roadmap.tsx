@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Minus, Plus, Maximize2, Minimize2, Brackets } from 'lucide-react';
+import { Maximize2, Minimize2, Brackets } from 'lucide-react';
 import {
   Project,
   WbsItem,
@@ -45,7 +45,6 @@ import { buildDraftFromRoadmapLoad } from '../../utils/roadmapDraftPlan';
 import {
   ZOOM_LADDER,
   DEFAULT_ZOOM_INDEX,
-  zoomStep,
   fit as fitZoom,
   RowDescriptor,
   reorderWithin,
@@ -134,14 +133,6 @@ function loadZoomIndex(projectId: number): number {
   }
 }
 
-function saveZoomIndex(projectId: number, index: number) {
-  try {
-    window.localStorage.setItem(zoomStorageKey(projectId), String(index));
-  } catch {
-    /* private mode / quota — the choice simply won't survive a reload */
-  }
-}
-
 function laneBarsStorageKey(projectId: number) {
   return `roadmap-lane-bars:${projectId}`;
 }
@@ -224,29 +215,21 @@ export function Roadmap({
     setEditorItemId(null);
   }, [project.id]);
 
-  // Auto-fit the timeline to the viewport on entry, same as clicking Fit.
+  // Auto-fit the timeline to the viewport on entry.
   useEffect(() => {
     applyFit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
-
-  function applyZoom(next: number) {
-    setFitWidth(null);
-    setZoomIndex(next);
-    saveZoomIndex(project.id, next);
-  }
 
   function applyFit() {
     const el = viewportRef.current;
     if (!el || el.clientWidth <= 0) return;
     const width = Math.max(ZOOM_LADDER[0], Math.floor(el.clientWidth / np));
     setFitWidth(width);
-    setZoomIndex(fitZoom(1, width)); // keep the ladder in sync so +/- steps from here
+    setZoomIndex(fitZoom(1, width));
   }
 
-  // While in fit mode, re-fit as the viewport is resized. A manual zoom
-  // in/out clears fitWidth (see applyZoom), which stops this until Fit
-  // is clicked again.
+  // While in fit mode, re-fit as the viewport is resized.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el || fitWidth === null || typeof ResizeObserver === 'undefined') return;
@@ -724,20 +707,6 @@ export function Roadmap({
           {startDateLabel ? `Start ${startDateLabel}` : 'Set start date'}
         </Button>
         <span className="text-muted-foreground text-xs">{planningMode}</span>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => applyZoom(zoomStep(zoomIndex, -1))}
-          aria-label="Zoom out"
-        >
-          <Minus className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => applyZoom(zoomStep(zoomIndex, 1))} aria-label="Zoom in">
-          <Plus className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="outline" size="sm" onClick={applyFit}>
-          Fit
-        </Button>
         <Button
           variant="outline"
           size="sm"

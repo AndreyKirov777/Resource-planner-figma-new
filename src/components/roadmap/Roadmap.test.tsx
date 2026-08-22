@@ -987,10 +987,12 @@ describe('Roadmap modals replace native browser prompts', () => {
 });
 
 describe('zoom persistence', () => {
-  it('persists the zoom level across unmount/remount (survives a tab switch)', () => {
+  it('restores a stored zoom level across unmount/remount (survives a tab switch)', () => {
+    const zoomedIndex = DEFAULT_ZOOM_INDEX + 1;
+    window.localStorage.setItem(`roadmap-zoom:${project.id}`, String(zoomedIndex));
+    const zoomedWidth = ZOOM_LADDER[zoomedIndex];
+
     const first = renderRoadmap();
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
-    const zoomedWidth = ZOOM_LADDER[DEFAULT_ZOOM_INDEX + 1];
     expect(screen.getByTestId('roadmap-period-col-1').style.width).toBe(`${zoomedWidth}px`);
     first.unmount();
 
