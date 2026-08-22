@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import DataEditor, { GridCellKind, GridColumn, Item } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
-import { GRID_THEME } from './gridTheme';
+import { GRID_THEME, getAllocationBgColor } from './gridTheme';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Label } from './ui/label';
@@ -13,20 +13,6 @@ import { hoursPerPeriod, buildPlanFinancials } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases } from '../utils/phases';
 import { buildClientPngExport, downloadClientViewPng } from '../utils/clientViewPng';
 import * as ExcelJS from 'exceljs';
-
-function getAllocationBgColor(percent: number): string {
-  const p = Math.max(0, Math.min(100, Math.round(percent)));
-  if (p <= 0) return '#ffffff';
-  if (p >= 100) return '#63BE7B';
-  const t = p / 100;
-  const start = { r: 255, g: 255, b: 255 };
-  const end = { r: 0x63, g: 0xBE, b: 0x7B };
-  const r = Math.round(start.r + (end.r - start.r) * t);
-  const g = Math.round(start.g + (end.g - start.g) * t);
-  const b = Math.round(start.b + (end.b - start.b) * t);
-  const toHex = (v: number) => v.toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
 
 export default function ClientView() {
   const { projectId } = useParams<{ projectId: string }>();

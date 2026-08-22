@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import DataEditor, { GridCell, GridCellKind, GridColumn, Item, EditableGridCell, HeaderClickedEventArgs, GridSelection, CustomRenderer } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
-import { GRID_THEME } from './gridTheme';
+import { GRID_THEME, getAllocationBgColor } from './gridTheme';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -74,22 +74,6 @@ interface ResourcePlanProps {
   onUpdateRoadmapItem?: (id: number, data: { startPeriod: number }) => Promise<void>;
 }
 
-// Compute a background color for a percentage value between 0 and 100.
-// 0% -> white (#ffffff), 100% -> #63BE7B, values in-between are linearly interpolated.
-// We do the blending in sRGB for simplicity and performance.
-function getAllocationBgColor(percent: number): string {
-  const p = Math.max(0, Math.min(100, Math.round(percent)));
-  if (p <= 0) return '#ffffff';
-  if (p >= 100) return '#63BE7B';
-  const t = p / 100;
-  const start = { r: 255, g: 255, b: 255 }; // white
-  const end = { r: 0x63, g: 0xBE, b: 0x7B }; // #63BE7B
-  const r = Math.round(start.r + (end.r - start.r) * t);
-  const g = Math.round(start.g + (end.g - start.g) * t);
-  const b = Math.round(start.b + (end.b - start.b) * t);
-  const toHex = (v: number) => v.toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
 
 
 // Custom cell type for actions
