@@ -33,7 +33,7 @@ import { Textarea } from './components/ui/textarea';
 import { Button } from './components/ui/button';
 import { Toaster } from './components/ui/sonner';
 import * as ExcelJS from 'exceljs';
-import { marginPct, estimatedEffortHours, totalInternalCost, totalClientCost, grossMarginPct, hoursPerPeriod } from './utils/calculations';
+import { hoursPerPeriod, buildPlanFinancials } from './utils/calculations';
 import { PHASE_COLORS } from './utils/phases';
 import { getClientRoleFromRole } from './utils/clientRoleMapping';
 import { canonicalLocationLabel, locationAbbr, resolveLocationLabel } from './utils/regions';
@@ -774,6 +774,9 @@ export default function App() {
       const periodLbl = isMonthlyExport ? 'Month' : 'Week';
       const hrsPerPrd = hoursPerPeriod(planMode, currentProject.daysInFTE);
 
+      const financials = buildPlanFinancials(resourcePlans, phases, hrsPerPrd, currentProject.exchangeRate);
+      const financialsByPlan = new Map(financials.rows.map((r) => [r.plan, r]));
+
       const totalWeeks = phases.reduce((s, p) => s + (p.periodCount ?? p.weekCount ?? 0), 0);
       const weekNumbers = Array.from({ length: totalWeeks }, (_, i) => i + 1);
 
@@ -846,15 +849,11 @@ export default function App() {
       resourcePlans.forEach((plan) => {
         const intDailyRate = plan.intHourlyRate * 8;
         const clientDailyRate = plan.clientHourlyRate * 8;
-        const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
-        let totalWeeksEquivalent = 0;
-        weekNumbers.forEach((weekNum) => {
-          const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
-          totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
-        });
-        const totalEfforts = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
-        const totalIntCost = totalInternalCost(totalEfforts, plan.intHourlyRate);
-        const totalPrice = totalClientCost(totalEfforts, plan.clientHourlyRate);
+        const row = financialsByPlan.get(plan)!;
+        const margin = row.margin ?? 0;
+        const totalEfforts = row.effortHours;
+        const totalIntCost = row.intCost;
+        const totalPrice = row.price;
         const rowData = [
           plan.role || '',
           plan.clientRole || '',
@@ -890,32 +889,9 @@ export default function App() {
         '',
         '',
         ...weekNumbers.map(() => ''),
-        resourcePlans.reduce((sum, plan) => {
-          let totalWeeksEquivalent = 0;
-          weekNumbers.forEach((weekNum) => {
-            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
-            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
-          });
-          const hours = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
-          return sum + totalInternalCost(hours, plan.intHourlyRate);
-        }, 0),
-        resourcePlans.reduce((sum, plan) => {
-          let totalWeeksEquivalent = 0;
-          weekNumbers.forEach((weekNum) => {
-            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
-            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
-          });
-          const hours = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
-          return sum + totalClientCost(hours, plan.clientHourlyRate);
-        }, 0),
-        resourcePlans.reduce((sum, plan) => {
-          let totalWeeksEquivalent = 0;
-          weekNumbers.forEach((weekNum) => {
-            const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
-            totalWeeksEquivalent += (allocation?.allocation || 0) / 100;
-          });
-          return sum + estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
-        }, 0),
+        financials.totals.intCost,
+        financials.totals.price,
+        financials.totals.effortHours,
       ];
       const totalsRowIndex = worksheet.addRow(totalsRow);
       const totalsRowObj = worksheet.getRow(totalsRowIndex.number);
@@ -938,28 +914,13 @@ export default function App() {
       const phaseSummaryClientFmt = currentProject.clientCurrency === 'EUR' ? '€#,##0.00'
         : currentProject.clientCurrency === 'GBP' ? '£#,##0.00' : '$#,##0.00';
       const phaseSummaryDataRowNumbers: number[] = [];
-      let startWeek = 1;
-      phases.forEach((phase) => {
-        const endWeek = startWeek + (phase.periodCount ?? phase.weekCount ?? 0) - 1;
-        let cost = 0, price = 0, efforts = 0;
-        resourcePlans.forEach((plan) => {
-          let weeksEquiv = 0;
-          for (let w = startWeek; w <= endWeek; w++) {
-            const alloc = plan.allocations.find((wa) => wa.periodNumber === w);
-            weeksEquiv += (alloc?.allocation || 0) / 100;
-          }
-          const hours = estimatedEffortHours(weeksEquiv, hrsPerPrd);
-          cost += totalInternalCost(hours, plan.intHourlyRate);
-          price += totalClientCost(hours, plan.clientHourlyRate);
-          efforts += hours;
-        });
-        const margin = grossMarginPct(cost, price, currentProject.exchangeRate);
+      financials.phaseTotals.forEach((pt) => {
         const phaseRow = worksheet.addRow([
-          phase.name,
-          Math.round(cost * 100) / 100,
-          Math.round(price * 100) / 100,
-          Math.round(efforts * 100) / 100,
-          Math.round(margin * 100) / 100,
+          pt.name,
+          Math.round(pt.cost * 100) / 100,
+          Math.round(pt.price * 100) / 100,
+          Math.round(pt.efforts * 100) / 100,
+          Math.round(pt.margin * 100) / 100,
         ]);
         phaseSummaryDataRowNumbers.push(phaseRow.number);
         const r = worksheet.getRow(phaseRow.number);
@@ -967,7 +928,6 @@ export default function App() {
         if (r.getCell(3).value != null) r.getCell(3).numFmt = phaseSummaryClientFmt;
         if (r.getCell(4).value != null) r.getCell(4).numFmt = '#,##0.00';
         if (r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
-        startWeek = endWeek + 1;
       });
 
       // Auto-fit columns
@@ -1056,39 +1016,29 @@ export default function App() {
       : currentProject.clientCurrency === 'GBP' ? '£' : '$';
 
     // Per-row financial data
-    const rows = resourcePlans.map((plan) => {
-      let totalWeeksEquivalent = 0;
-      weekNumbers.forEach((weekNum) => {
-        const alloc = plan.allocations.find((wa) => wa.periodNumber === weekNum);
-        totalWeeksEquivalent += (alloc?.allocation || 0) / 100;
-      });
-      const efforts = estimatedEffortHours(totalWeeksEquivalent, hrsPerPrd);
-      const intCost = totalInternalCost(efforts, plan.intHourlyRate);
-      const price = totalClientCost(efforts, plan.clientHourlyRate);
-      const margin = marginPct(plan.clientHourlyRate, plan.intHourlyRate, currentProject.exchangeRate) ?? 0;
-      return {
-        role: plan.role || '',
-        clientRole: plan.clientRole || '',
-        name: plan.name || '',
-        location: locationAbbr(
-          findResourceForPlan(plan.role, plan.intHourlyRate, resourceLists)?.location
-        ),
-        intHourlyRate: plan.intHourlyRate,
-        clientHourlyRate: plan.clientHourlyRate,
-        margin,
-        intCost,
-        price,
-        efforts,
-      };
-    });
+    const financials = buildPlanFinancials(resourcePlans, phases, hrsPerPrd, currentProject.exchangeRate);
+    const rows = financials.rows.map(({ plan, effortHours, intCost, price, margin }) => ({
+      role: plan.role || '',
+      clientRole: plan.clientRole || '',
+      name: plan.name || '',
+      location: locationAbbr(
+        findResourceForPlan(plan.role, plan.intHourlyRate, resourceLists)?.location
+      ),
+      intHourlyRate: plan.intHourlyRate,
+      clientHourlyRate: plan.clientHourlyRate,
+      margin: margin ?? 0,
+      intCost,
+      price,
+      efforts: effortHours,
+    }));
 
     // Project-level totals
-    const grandIntCost = rows.reduce((s, r) => s + r.intCost, 0);
-    const grandPrice = rows.reduce((s, r) => s + r.price, 0);
-    const grandEfforts = rows.reduce((s, r) => s + r.efforts, 0);
-    const projectMargin = grossMarginPct(grandIntCost, grandPrice, currentProject.exchangeRate);
-    const blendedHourlyRate = grandEfforts > 0 ? grandPrice / grandEfforts : 0;
-    const blendedDailyRate = blendedHourlyRate * 8;
+    const grandIntCost = financials.totals.intCost;
+    const grandPrice = financials.totals.price;
+    const grandEfforts = financials.totals.effortHours;
+    const projectMargin = financials.totals.margin;
+    const blendedHourlyRate = financials.totals.blendedHourlyRate;
+    const blendedDailyRate = financials.totals.blendedDailyRate;
 
     // ── Canvas layout constants ──────────────────────────────────────────────
     const SCALE = 2; // retina / HiDPI

@@ -25,7 +25,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collap
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2, GripVertical, SplitSquareHorizontal, Columns3 } from 'lucide-react';
 import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft, RoadmapItem } from '../services/api';
-import { clientHourlyRate as calcClientHourlyRate, totalInternalCost, totalClientCost, marginPct, grossMarginPct, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
+import { clientHourlyRate as calcClientHourlyRate, hoursPerPeriod, buildPlanFinancials } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod, phaseStartOffset, reorderPhases, remapPeriodNumber, splitPhase, uniquePhaseName } from '../utils/phases';
 import { remapRoadmapItemsForPhaseChange } from '../utils/roadmap';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
@@ -255,29 +255,27 @@ export function ResourcePlan({
 
   const hrsPerPeriod = hoursPerPeriod(planningMode, project.daysInFTE);
 
+  const financials = useMemo(
+    () => buildPlanFinancials(resourcePlans, phases, hrsPerPeriod, project.exchangeRate),
+    [resourcePlans, phases, hrsPerPeriod, project.exchangeRate]
+  );
+  const financialsByPlan = useMemo(
+    () => new Map(financials.rows.map((r) => [r.plan, r])),
+    [financials]
+  );
+
   // Calculation functions (shared utils)
-  const calculateEstimatedEfforts = (plan: ResourcePlanType): number => {
-    let totalPeriodsEquivalent = 0;
-    periodNumbers.forEach(periodNum => {
-      const allocation = plan.allocations.find(a => a.periodNumber === periodNum);
-      totalPeriodsEquivalent += (allocation?.allocation || 0) / 100;
-    });
-    return estimatedEffortHours(totalPeriodsEquivalent, hrsPerPeriod);
-  };
+  const calculateEstimatedEfforts = (plan: ResourcePlanType): number =>
+    financialsByPlan.get(plan)?.effortHours ?? 0;
 
-  const calculateTotalIntCost = (plan: ResourcePlanType): number => {
-    const hours = calculateEstimatedEfforts(plan);
-    return totalInternalCost(hours, plan.intHourlyRate);
-  };
+  const calculateTotalIntCost = (plan: ResourcePlanType): number =>
+    financialsByPlan.get(plan)?.intCost ?? 0;
 
-  const calculateTotalPrice = (plan: ResourcePlanType): number => {
-    const hours = calculateEstimatedEfforts(plan);
-    return totalClientCost(hours, plan.clientHourlyRate);
-  };
+  const calculateTotalPrice = (plan: ResourcePlanType): number =>
+    financialsByPlan.get(plan)?.price ?? 0;
 
-  const calculateMargin = (plan: ResourcePlanType): number | null => {
-    return marginPct(plan.clientHourlyRate, plan.intHourlyRate, project.exchangeRate);
-  };
+  const calculateMargin = (plan: ResourcePlanType): number | null =>
+    financialsByPlan.get(plan)?.margin ?? null;
 
   // Period management functions (phase-aware)
   const insertPeriodAfter = useCallback(
@@ -1022,40 +1020,18 @@ export function ResourcePlan({
   }, [contextMenu.periodNumber, periodNumbers, insertPeriodAfter]);
 
   const totals = useMemo(() => {
-    const totalIntCost = resourcePlans.reduce((sum, plan) => sum + calculateTotalIntCost(plan), 0);
-    const totalPrice = resourcePlans.reduce((sum, plan) => sum + calculateTotalPrice(plan), 0);
-    const totalEfforts = resourcePlans.reduce((sum, plan) => sum + calculateEstimatedEfforts(plan), 0);
-    const calculatedMargin = grossMarginPct(totalIntCost, totalPrice, project.exchangeRate);
-    const blendedHourlyRate = totalEfforts > 0 ? totalPrice / totalEfforts : 0;
-    const blendedDailyRate = blendedHourlyRate * 8;
-    return { totalIntCost, totalPrice, totalEfforts, calculatedMargin, blendedHourlyRate, blendedDailyRate };
-  }, [resourcePlans, project.exchangeRate, periodNumbers]);
+    const t = financials.totals;
+    return {
+      totalIntCost: t.intCost,
+      totalPrice: t.price,
+      totalEfforts: t.effortHours,
+      calculatedMargin: t.margin,
+      blendedHourlyRate: t.blendedHourlyRate,
+      blendedDailyRate: t.blendedDailyRate,
+    };
+  }, [financials]);
 
-  const phaseTotals = useMemo(() => {
-    let startPeriod = 1;
-    return phases.map((phase) => {
-      const count = phase.periodCount ?? 0;
-      const endPeriod = startPeriod + count - 1;
-      let cost = 0,
-        price = 0,
-        efforts = 0;
-      resourcePlans.forEach((plan) => {
-        let periodsEquiv = 0;
-        for (let p = startPeriod; p <= endPeriod; p++) {
-          const alloc = plan.allocations.find((a) => a.periodNumber === p);
-          periodsEquiv += (alloc?.allocation || 0) / 100;
-        }
-        const hours = estimatedEffortHours(periodsEquiv, hrsPerPeriod);
-        cost += totalInternalCost(hours, plan.intHourlyRate);
-        price += totalClientCost(hours, plan.clientHourlyRate);
-        efforts += hours;
-      });
-      const margin = grossMarginPct(cost, price, project.exchangeRate);
-      const result = { name: phase.name, cost, price, efforts, margin };
-      startPeriod = endPeriod + 1;
-      return result;
-    });
-  }, [phases, resourcePlans, project.exchangeRate, hrsPerPeriod]);
+  const phaseTotals = financials.phaseTotals;
 
   // Custom cells for actions - simplified implementation
   const customRenderers = [ActionCellRenderer];

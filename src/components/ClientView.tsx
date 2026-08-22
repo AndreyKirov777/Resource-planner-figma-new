@@ -9,7 +9,7 @@ import { Label } from './ui/label';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ChevronDown } from 'lucide-react';
 import { api, Project, Phase, ResourcePlan as ResourcePlanType } from '../services/api';
-import { totalClientCost, estimatedEffortHours, hoursPerPeriod } from '../utils/calculations';
+import { hoursPerPeriod, buildPlanFinancials } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases } from '../utils/phases';
 import { buildClientPngExport, downloadClientViewPng } from '../utils/clientViewPng';
 import * as ExcelJS from 'exceljs';
@@ -75,19 +75,28 @@ export default function ClientView() {
     [totalPeriods]
   );
 
-  // Calculation helpers
-  const calcEfforts = useCallback((plan: ResourcePlanType): number => {
-    let periodsEquiv = 0;
-    periodNumbers.forEach((num) => {
-      const alloc = plan.allocations.find((a) => a.periodNumber === num);
-      periodsEquiv += (alloc?.allocation || 0) / 100;
-    });
-    return estimatedEffortHours(periodsEquiv, hrsPerPeriod);
-  }, [periodNumbers, hrsPerPeriod]);
+  // exchangeRate doesn't affect price/efforts (client-safe fields), so a fixed
+  // value is fine here — buildPlanFinancials also computes intCost/margin,
+  // which this client-facing view never reads.
+  const financials = useMemo(
+    () => buildPlanFinancials(resourcePlans, phases, hrsPerPeriod, project?.exchangeRate ?? 1),
+    [resourcePlans, phases, hrsPerPeriod, project?.exchangeRate]
+  );
+  const financialsByPlan = useMemo(
+    () => new Map(financials.rows.map((r) => [r.plan, r])),
+    [financials]
+  );
 
-  const calcPrice = useCallback((plan: ResourcePlanType): number => {
-    return totalClientCost(calcEfforts(plan), plan.clientHourlyRate);
-  }, [calcEfforts]);
+  // Calculation helpers
+  const calcEfforts = useCallback(
+    (plan: ResourcePlanType): number => financialsByPlan.get(plan)?.effortHours ?? 0,
+    [financialsByPlan]
+  );
+
+  const calcPrice = useCallback(
+    (plan: ResourcePlanType): number => financialsByPlan.get(plan)?.price ?? 0,
+    [financialsByPlan]
+  );
 
   // Column definitions
   const columns = useMemo((): GridColumn[] => {
@@ -194,37 +203,22 @@ export default function ClientView() {
     return { kind: GridCellKind.Text as const, data: '', allowOverlay: false, displayData: '' };
   }, [resourcePlans, periodNumbers, currencySymbol, calcPrice, calcEfforts]);
 
-  // Totals
+  // Totals (client-safe: price/efforts only, never intCost/margin)
   const totals = useMemo(() => {
-    const totalPrice = resourcePlans.reduce((sum, plan) => sum + calcPrice(plan), 0);
-    const totalEfforts = resourcePlans.reduce((sum, plan) => sum + calcEfforts(plan), 0);
-    const blendedHourlyRate = totalEfforts > 0 ? totalPrice / totalEfforts : 0;
-    const blendedDailyRate = blendedHourlyRate * 8;
-    return { totalPrice, totalEfforts, blendedHourlyRate, blendedDailyRate };
-  }, [resourcePlans, calcPrice, calcEfforts]);
+    const t = financials.totals;
+    return {
+      totalPrice: t.price,
+      totalEfforts: t.effortHours,
+      blendedHourlyRate: t.blendedHourlyRate,
+      blendedDailyRate: t.blendedDailyRate,
+    };
+  }, [financials]);
 
-  // Phase totals
-  const phaseTotals = useMemo(() => {
-    let startPeriod = 1;
-    return phases.map((phase) => {
-      const count = phase.periodCount ?? 0;
-      const endPeriod = startPeriod + count - 1;
-      let price = 0, efforts = 0;
-      resourcePlans.forEach((plan) => {
-        let periodsEquiv = 0;
-        for (let p = startPeriod; p <= endPeriod; p++) {
-          const alloc = plan.allocations.find((a) => a.periodNumber === p);
-          periodsEquiv += (alloc?.allocation || 0) / 100;
-        }
-        const hours = estimatedEffortHours(periodsEquiv, hrsPerPeriod);
-        price += totalClientCost(hours, plan.clientHourlyRate);
-        efforts += hours;
-      });
-      const result = { name: phase.name, price, efforts };
-      startPeriod = endPeriod + 1;
-      return result;
-    });
-  }, [phases, resourcePlans, hrsPerPeriod]);
+  // Phase totals (client-safe: price/efforts only, never cost/margin)
+  const phaseTotals = useMemo(
+    () => financials.phaseTotals.map((pt) => ({ name: pt.name, price: pt.price, efforts: pt.efforts })),
+    [financials]
+  );
 
   const handleExportToPNG = () => {
     if (!project || resourcePlans.length === 0) {
@@ -322,13 +316,8 @@ export default function ClientView() {
       // Data rows
       resourcePlans.forEach((plan) => {
         const clientDailyRate = plan.clientHourlyRate * 8;
-        let periodsEquiv = 0;
-        weekNumbers.forEach((weekNum) => {
-          const allocation = plan.allocations.find((a) => a.periodNumber === weekNum);
-          periodsEquiv += (allocation?.allocation || 0) / 100;
-        });
-        const efforts = estimatedEffortHours(periodsEquiv, hrsPerPeriod);
-        const price = totalClientCost(efforts, plan.clientHourlyRate);
+        const efforts = calcEfforts(plan);
+        const price = calcPrice(plan);
         const rowData = [
           plan.clientRole || '',
           plan.name || '',

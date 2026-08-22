@@ -7,7 +7,9 @@ import {
   marginPct,
   hoursPerPeriod,
   estimatedEffortHours,
+  buildPlanFinancials,
 } from './calculations';
+import type { ResourcePlan } from '../services/api';
 
 describe('calculations', () => {
   describe('clientHourlyRate', () => {
@@ -103,6 +105,107 @@ describe('calculations', () => {
 
     it('defaults to 40 hours per week', () => {
       expect(estimatedEffortHours(1)).toBe(40);
+    });
+  });
+
+  describe('buildPlanFinancials', () => {
+    // Fixture: real allocations from a live project (11 resource plans across a
+    // 4-phase, 12-week timeline), captured before the App.tsx/ResourcePlan.tsx/
+    // ClientView.tsx duplicate calculation loops were consolidated into this
+    // function. Expected values below are independently computed from the
+    // pre-refactor formulas against this exact data — a regression anchor, not
+    // a hand-picked toy example.
+    function plan(id: number, intHourlyRate: number, clientHourlyRate: number, allocations: number[]): ResourcePlan {
+      return {
+        id,
+        role: `role-${id}`,
+        intHourlyRate,
+        clientHourlyRate,
+        displayOrder: 0,
+        projectId: 9,
+        createdAt: '',
+        updatedAt: '',
+        allocations: allocations.map((allocation, i) => ({
+          id: id * 100 + i,
+          periodNumber: i + 1,
+          allocation,
+          resourcePlanId: id,
+          createdAt: '',
+          updatedAt: '',
+        })),
+      };
+    }
+
+    const phases = [
+      { name: 'Discovery', periodCount: 2 },
+      { name: 'Implementation', periodCount: 8 },
+      { name: 'UAT', periodCount: 1 },
+      { name: 'Launch & Stabilization', periodCount: 1 },
+    ];
+
+    const plans = [
+      plan(142, 23, 40.94, [50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 60, 60]),
+      plan(143, 31, 55.18, [100, 100, 40, 40, 40, 40, 40, 40, 40, 40, 40, 20]),
+      plan(144, 65, 115.70, [60, 60, 25, 25, 25, 25, 25, 25, 25, 25, 10, 10]),
+      plan(145, 62, 110.36, [50, 50, 35, 35, 35, 35, 35, 35, 35, 35, 10, 10]),
+      plan(146, 38, 67.64, [40, 40, 90, 90, 90, 90, 90, 90, 90, 90, 40, 25]),
+      plan(147, 31, 55.18, [10, 10, 100, 100, 100, 100, 100, 100, 100, 100, 50, 20]),
+      plan(148, 30, 53.40, [25, 25, 100, 100, 100, 100, 100, 100, 100, 100, 60, 30]),
+      plan(149, 22, 39.16, [0, 0, 100, 100, 100, 100, 100, 100, 100, 100, 60, 25]),
+      plan(150, 22, 39.16, [0, 0, 100, 100, 100, 100, 100, 100, 100, 100, 60, 25]),
+      plan(151, 27, 48.06, [15, 15, 35, 35, 35, 35, 35, 35, 35, 35, 50, 70]),
+      plan(152, 14, 24.92, [10, 10, 60, 60, 60, 60, 60, 60, 60, 60, 100, 50]),
+    ];
+
+    const exchangeRate = 0.89;
+    const hrsPerPeriod = 40; // weekly
+
+    it('matches the pre-refactor totals on real project data', () => {
+      const { totals } = buildPlanFinancials(plans, phases, hrsPerPeriod, exchangeRate);
+      expect(totals.intCost).toBeCloseTo(90980, 6);
+      expect(totals.price).toBeCloseTo(161944.4, 6);
+      expect(totals.effortHours).toBeCloseTo(2994, 6);
+      expect(totals.margin).toBeCloseTo(50, 6);
+      expect(totals.blendedHourlyRate).toBeCloseTo(54.089645958583844, 6);
+      expect(totals.blendedDailyRate).toBeCloseTo(432.71716766867075, 6);
+    });
+
+    it('matches the pre-refactor per-phase totals on real project data', () => {
+      const { phaseTotals } = buildPlanFinancials(plans, phases, hrsPerPeriod, exchangeRate);
+      const expected = [
+        { name: 'Discovery', cost: 11500, price: 20470, efforts: 288 },
+        { name: 'Implementation', cost: 70048, price: 124685.44, efforts: 2352 },
+        { name: 'UAT', cost: 5660, price: 10074.8, efforts: 216 },
+        { name: 'Launch & Stabilization', cost: 3772, price: 6714.16, efforts: 138 },
+      ];
+      expect(phaseTotals.map((pt) => pt.name)).toEqual(expected.map((e) => e.name));
+      phaseTotals.forEach((pt, i) => {
+        expect(pt.cost).toBeCloseTo(expected[i].cost, 6);
+        expect(pt.price).toBeCloseTo(expected[i].price, 6);
+        expect(pt.efforts).toBeCloseTo(expected[i].efforts, 6);
+        expect(pt.margin).toBeCloseTo(50, 6);
+      });
+    });
+
+    it('matches the pre-refactor first row on real project data', () => {
+      const { rows } = buildPlanFinancials(plans, phases, hrsPerPeriod, exchangeRate);
+      expect(rows[0].effortHours).toBeCloseTo(247.99999999999997, 6);
+      expect(rows[0].intCost).toBeCloseTo(5703.999999999999, 6);
+      expect(rows[0].price).toBeCloseTo(10153.119999999999, 6);
+      expect(rows[0].margin).toBeCloseTo(50, 6);
+    });
+
+    it('returns a null margin (not 0) when a row has zero client rate — callers apply their own display fallback', () => {
+      const zeroClientPlan = plan(999, 20, 0, [100]);
+      const { rows } = buildPlanFinancials([zeroClientPlan], [{ name: 'Phase 1', periodCount: 1 }], hrsPerPeriod, exchangeRate);
+      expect(rows[0].margin).toBeNull();
+    });
+
+    it('falls back to the legacy weekCount field when periodCount is absent', () => {
+      const legacyPhases = [{ name: 'Phase 1', weekCount: 2 }];
+      const twoWeekPlan = plan(1, 10, 20, [100, 100]);
+      const { totals } = buildPlanFinancials([twoWeekPlan], legacyPhases, hrsPerPeriod, exchangeRate);
+      expect(totals.effortHours).toBe(80); // 2 periods * 100% * 40h
     });
   });
 });
