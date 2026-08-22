@@ -19,6 +19,8 @@ import {
   ROW_HEIGHT,
   HEADER_HEIGHT,
   BAR_HEIGHT,
+  MILESTONE_SIZE,
+  MILESTONE_HIT,
 } from '../../utils/roadmapGeometry';
 import { RoadmapDragCommit, useRoadmapDrag } from './useRoadmapDrag';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
@@ -44,6 +46,7 @@ interface RoadmapTimelineProps {
   onOpenEditor: (id: number) => void;
   onCommit: (commit: RoadmapDragCommit) => void;
   onScroll: (scrollLeft: number) => void;
+  viewportRef: React.MutableRefObject<HTMLDivElement | null>;
 }
 
 
@@ -63,8 +66,8 @@ export function RoadmapTimeline({
   onOpenEditor,
   onCommit,
   onScroll,
+  viewportRef,
 }: RoadmapTimelineProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const rowsWrapRef = useRef<HTMLDivElement | null>(null);
 
   // rows[i] -> the lane id that row belongs to. Same index space `rowAt` resolves
@@ -174,7 +177,7 @@ export function RoadmapTimeline({
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div
-        ref={scrollRef}
+        ref={viewportRef}
         className="min-w-0 flex-1 overflow-x-auto"
         data-testid="roadmap-scroll"
         onScroll={(e) => onScroll(e.currentTarget.scrollLeft)}
@@ -274,18 +277,15 @@ export function RoadmapTimeline({
                         className={cn(
                           'absolute select-none outline-none',
                           row.kind === 'spread' ? 'cursor-pointer' : 'cursor-grab',
-                          isSelected && 'ring-2 ring-offset-1'
+                          row.kind === 'bar' && isSelected && 'ring-2 ring-offset-1'
                         )}
                         style={
                           row.kind === 'milestone'
                             ? {
-                                left: milestoneX(effectiveWindow.startPeriod, periodWidth) - 6,
-                                top: (ROW_HEIGHT - 12) / 2,
-                                width: 12,
-                                height: 12,
-                                background: '#030213',
-                                transform: 'rotate(45deg)',
-                                ...(isSelected ? { boxShadow: `0 0 0 2px ${ACCENT}` } : {}),
+                                left: milestoneX(effectiveWindow.startPeriod, periodWidth) - MILESTONE_HIT / 2,
+                                top: (ROW_HEIGHT - MILESTONE_HIT) / 2,
+                                width: MILESTONE_HIT,
+                                height: MILESTONE_HIT,
                               }
                             : row.kind === 'spread'
                               ? {
@@ -348,6 +348,21 @@ export function RoadmapTimeline({
                           >
                             {row.emptyScope ? 'no scope linked' : `${row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h · ${row.fte.toFixed(1)} FTE`}
                           </span>
+                        )}
+                        {row.kind === 'milestone' && (
+                          <span
+                            className="pointer-events-none absolute left-1/2 top-1/2"
+                            style={{
+                              width: MILESTONE_SIZE,
+                              height: MILESTONE_SIZE,
+                              marginLeft: -MILESTONE_SIZE / 2,
+                              marginTop: -MILESTONE_SIZE / 2,
+                              borderRadius: 1.5,
+                              background: ACCENT,
+                              transform: 'rotate(45deg)',
+                              ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
+                            }}
+                          />
                         )}
                       </div>
                     </TooltipTrigger>

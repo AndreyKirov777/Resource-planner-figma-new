@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Roadmap } from './Roadmap';
 import { Project, RoadmapLaneWithItems, WbsItem, GeneratePlanDraft } from '../../services/api';
 import { snapDrag, ZOOM_LADDER, DEFAULT_ZOOM_INDEX, periodX } from '../../utils/roadmapGeometry';
@@ -13,6 +14,56 @@ import { ReconciliationPanel } from '../ReconciliationPanel';
  * contract: "every one of the six gestures produces the same snapDrag result
  * and the same single PATCH."
  */
+
+// Radix Select/DropdownMenu rely on pointer-capture / scrollIntoView APIs jsdom
+// doesn't implement — both the "Add item" lane picker and the grid's row menus
+// need this, per RolesEditor.test.tsx's precedent.
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {};
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
+/** Node 25+ exposes a stub `localStorage` without Storage methods unless `--localstorage-file` is set. */
+function installMemoryLocalStorage() {
+  const data = new Map<string, string>();
+  const storage: Storage = {
+    get length() {
+      return data.size;
+    },
+    clear() {
+      data.clear();
+    },
+    getItem(key: string) {
+      return data.has(key) ? data.get(key)! : null;
+    },
+    key(index: number) {
+      return [...data.keys()][index] ?? null;
+    },
+    removeItem(key: string) {
+      data.delete(key);
+    },
+    setItem(key: string, value: string) {
+      data.set(String(key), String(value));
+    },
+  };
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: storage,
+  });
+}
+
+beforeEach(() => {
+  installMemoryLocalStorage();
+});
 
 const PERIOD_WIDTH = ZOOM_LADDER[DEFAULT_ZOOM_INDEX];
 const NP = 20; // one 20-period phase
@@ -74,7 +125,21 @@ function renderRoadmap(lanes = makeLanes()) {
     onAddLane: vi.fn(() => Promise.resolve()),
     onUpdateLane: vi.fn(() => Promise.resolve()),
     onDeleteLane: vi.fn(() => Promise.resolve()),
-    onAddItem: vi.fn(),
+    onAddItem: vi.fn(() =>
+      Promise.resolve({
+        id: 999,
+        name: 'New item',
+        kind: 'bar' as const,
+        startPeriod: 1,
+        periodCount: 1,
+        displayOrder: 0,
+        laneId: 1,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        wbsItemIds: [],
+      })
+    ),
     onUpdateItem: vi.fn(() => Promise.resolve()),
     onDeleteItem: vi.fn(() => Promise.resolve()),
     onReplaceItemLinks: vi.fn(() => Promise.resolve()),
@@ -82,7 +147,7 @@ function renderRoadmap(lanes = makeLanes()) {
     onSetStartDate: vi.fn(() => Promise.resolve()),
     onGenerateDraftPlan: vi.fn(() => Promise.resolve()),
   };
-  render(
+  const utils = render(
     <Roadmap
       project={project}
       wbsItems={wbsItems}
@@ -101,7 +166,7 @@ function renderRoadmap(lanes = makeLanes()) {
       onGenerateDraftPlan={handlers.onGenerateDraftPlan}
     />
   );
-  return handlers;
+  return { ...handlers, ...utils };
 }
 
 const ORIGIN = { startPeriod: 5, periodCount: 4 };
@@ -590,5 +655,144 @@ describe('Done-means cross-check: stripe, load strip and by-period matrix agree 
     expect(matrixRow.cells[1].demand).toBe(expectedDemandP2); // index 1 -> period 2
     expect(matrixRow.cells[1].supply).toBe(expectedSupplyP2);
     expect(screen.getAllByText(`${Math.round(expectedDemandP2)}/${Math.round(expectedSupplyP2)}`).length).toBeGreaterThan(0);
+  });
+});
+
+describe('Roadmap modals replace native browser prompts', () => {
+  it('never calls window.prompt, confirm, or alert across add/rename/delete', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt');
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    const alertSpy = vi.spyOn(window, 'alert');
+    const user = userEvent.setup();
+    renderRoadmap();
+
+    await user.click(screen.getByRole('button', { name: 'Add lane' }));
+    await user.type(screen.getByLabelText('Lane name'), 'QA');
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+
+    await user.click(screen.getByRole('button', { name: 'Backend lane menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+
+    await user.click(screen.getByRole('button', { name: 'API item menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(promptSpy).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('Add lane opens a modal and calls onAddLane with the trimmed name', async () => {
+    const user = userEvent.setup();
+    const handlers = renderRoadmap();
+
+    await user.click(screen.getByRole('button', { name: 'Add lane' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Add lane')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    await user.type(screen.getByLabelText('Lane name'), '  QA  ');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(handlers.onAddLane).toHaveBeenCalledWith('QA');
+  });
+
+  it('Rename lane (from the grid row menu) calls onUpdateLane with the new name', async () => {
+    const user = userEvent.setup();
+    const handlers = renderRoadmap();
+
+    await user.click(screen.getByRole('button', { name: 'Backend lane menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Rename' }));
+
+    const input = screen.getByLabelText('Lane name');
+    expect(input).toHaveValue('Backend');
+    await user.clear(input);
+    await user.type(input, 'Platform');
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+
+    expect(handlers.onUpdateLane).toHaveBeenCalledWith(1, { name: 'Platform' });
+    // Regression: a menu item click is a React-tree descendant of the row (via
+    // Radix's portal), so without stopPropagation on the menu content, this
+    // click would also bubble up and fire the row's own onClick (toggleLane).
+    expect(screen.getByTestId('roadmap-grid-lane-1')).toHaveTextContent('▾');
+  });
+
+  it('Delete lane shows a confirm modal; Cancel is a no-op, Delete calls onDeleteLane', async () => {
+    const user = userEvent.setup();
+    const handlers = renderRoadmap();
+
+    await user.click(screen.getByRole('button', { name: 'Backend lane menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete lane' }));
+    const alertDialog = screen.getByRole('alertdialog');
+    expect(within(alertDialog).getByText(/Delete "Backend" and its 1 item\?/)).toBeInTheDocument();
+
+    await user.click(within(alertDialog).getByRole('button', { name: 'Cancel' }));
+    expect(handlers.onDeleteLane).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Backend lane menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete lane' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete lane' }));
+    expect(handlers.onDeleteLane).toHaveBeenCalledWith(1);
+  });
+
+  it('Delete item shows a confirm modal and calls onDeleteItem, clearing selection', async () => {
+    const user = userEvent.setup();
+    const handlers = renderRoadmap();
+    fireEvent.click(screen.getByTestId('roadmap-bar-10'));
+    expect(screen.getByTestId('roadmap-bar-10')).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'API item menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(handlers.onDeleteItem).toHaveBeenCalledWith(10);
+  });
+
+  it('Add item opens a modal with Name + Lane and calls onAddItem with the picked lane', async () => {
+    const user = userEvent.setup();
+    const handlers = renderRoadmap();
+
+    await user.click(screen.getByRole('button', { name: 'Add item' }));
+    const dialog = screen.getByRole('dialog');
+    const nameInput = within(dialog).getByLabelText('Name');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Design review');
+    await user.click(within(dialog).getByRole('button', { name: 'Add item' }));
+
+    expect(handlers.onAddItem).toHaveBeenCalledWith(1, {
+      name: 'Design review',
+      startPeriod: 1,
+      periodCount: 1,
+    });
+  });
+
+  it('Set start date opens a modal; Clear is hidden until a date is set', async () => {
+    const user = userEvent.setup();
+    const handlers = renderRoadmap();
+
+    await user.click(screen.getByRole('button', { name: 'Set start date' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText('Project start date'), {
+      target: { value: '2026-09-01' },
+    });
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(handlers.onSetStartDate).toHaveBeenCalledWith('2026-09-01');
+  });
+});
+
+describe('zoom persistence', () => {
+  it('persists the zoom level across unmount/remount (survives a tab switch)', () => {
+    const first = renderRoadmap();
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    const zoomedWidth = ZOOM_LADDER[DEFAULT_ZOOM_INDEX + 1];
+    expect(screen.getByTestId('roadmap-period-col-1').style.width).toBe(`${zoomedWidth}px`);
+    first.unmount();
+
+    renderRoadmap();
+    expect(screen.getByTestId('roadmap-period-col-1').style.width).toBe(`${zoomedWidth}px`);
   });
 });

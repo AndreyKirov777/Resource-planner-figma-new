@@ -20,6 +20,11 @@ export const BAR_INSET = 2;
 /** Width of the resize grab zone at each end of a bar, in fixed pixels (not a percentage). */
 export const GRAB_ZONE = 8;
 
+/** Visible side of the milestone diamond (before the 45° rotation). */
+export const MILESTONE_SIZE = 9;
+/** Transparent square that catches the pointer — the diamond alone is too small to grab. */
+export const MILESTONE_HIT = 18;
+
 /** Fixed zoom ladder for `periodWidth`, in pixels per period. No free-pixel zoom. */
 export const ZOOM_LADDER: readonly number[] = [8, 12, 16, 24, 32, 40, 56, 72];
 export const DEFAULT_ZOOM_INDEX = 3; // periodWidth = 24

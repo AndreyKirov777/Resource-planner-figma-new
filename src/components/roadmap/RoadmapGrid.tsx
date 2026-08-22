@@ -23,7 +23,7 @@ interface RoadmapGridProps {
   selectedItemId: number | null;
   onSelectItem: (id: number) => void;
   onToggleLane: (laneId: number) => void;
-  onRenameLane: (laneId: number, name: string) => void;
+  onRequestRenameLane: (laneId: number) => void;
   onDeleteLane: (laneId: number) => void;
   onMoveLane: (laneId: number, direction: -1 | 1) => void;
   onEditItem: (itemId: number) => void;
@@ -36,7 +36,7 @@ export function RoadmapGrid({
   selectedItemId,
   onSelectItem,
   onToggleLane,
-  onRenameLane,
+  onRequestRenameLane,
   onDeleteLane,
   onMoveLane,
   onEditItem,
@@ -89,17 +89,10 @@ export function RoadmapGrid({
                     <MoreVertical className="h-3.5 w-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                   {isLane ? (
                     <>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          const next = window.prompt('Rename lane', row.name);
-                          if (next && next.trim()) onRenameLane(row.id, next.trim());
-                        }}
-                      >
-                        Rename
-                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onRequestRenameLane(row.id)}>Rename</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => onMoveLane(row.id, -1)}>Move up</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => onMoveLane(row.id, 1)}>Move down</DropdownMenuItem>
                       <DropdownMenuSeparator />

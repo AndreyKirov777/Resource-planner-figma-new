@@ -54,6 +54,10 @@ import { RoadmapLoadStrip } from './RoadmapLoadStrip';
 import { GeneratePlanSheet } from '../GeneratePlanSheet';
 import { RoadmapEditorPanel } from './RoadmapEditorPanel';
 import { BootstrapDialog } from './BootstrapDialog';
+import { TextPromptDialog } from './TextPromptDialog';
+import { AddItemDialog } from './AddItemDialog';
+import { StartDateDialog } from './StartDateDialog';
+import { ConfirmDialog } from './ConfirmDialog';
 import { RoadmapDragCommit } from './useRoadmapDrag';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../ui/select';
@@ -112,6 +116,28 @@ function saveCollapsedLanes(projectId: number, collapsed: Set<number>) {
   }
 }
 
+function zoomStorageKey(projectId: number) {
+  return `roadmap-zoom:${projectId}`;
+}
+
+function loadZoomIndex(projectId: number): number {
+  try {
+    const raw = window.localStorage.getItem(zoomStorageKey(projectId));
+    const n = raw === null ? NaN : Number.parseInt(raw, 10);
+    return Number.isInteger(n) && n >= 0 && n < ZOOM_LADDER.length ? n : DEFAULT_ZOOM_INDEX;
+  } catch {
+    return DEFAULT_ZOOM_INDEX;
+  }
+}
+
+function saveZoomIndex(projectId: number, index: number) {
+  try {
+    window.localStorage.setItem(zoomStorageKey(projectId), String(index));
+  } catch {
+    /* private mode / quota — the choice simply won't survive a reload */
+  }
+}
+
 export function Roadmap({
   project,
   wbsItems,
@@ -137,7 +163,7 @@ export function Roadmap({
     [planningMode, project.daysInFTE]
   );
 
-  const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
+  const [zoomIndex, setZoomIndex] = useState(() => loadZoomIndex(project.id));
   const periodWidth = ZOOM_LADDER[zoomIndex];
   const [collapsed, setCollapsed] = useState<Set<number>>(() => loadCollapsedLanes(project.id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
@@ -145,14 +171,30 @@ export function Roadmap({
   const [bootstrapPreview, setBootstrapPreview] = useState<BootstrapPreview | null>(null);
   const [draftPlan, setDraftPlan] = useState<GeneratePlanDraft | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const chartRef = useRef<HTMLDivElement | null>(null);
+  const [addLaneOpen, setAddLaneOpen] = useState(false);
+  const [renameLaneId, setRenameLaneId] = useState<number | null>(null);
+  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [startDateOpen, setStartDateOpen] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+  } | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const loadStripScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setCollapsed(loadCollapsedLanes(project.id));
+    setZoomIndex(loadZoomIndex(project.id));
     setSelectedItemId(null);
     setEditorItemId(null);
   }, [project.id]);
+
+  function applyZoom(next: number) {
+    setZoomIndex(next);
+    saveZoomIndex(project.id, next);
+  }
 
   const tree = useMemo(() => buildWbsTree(wbsItems), [wbsItems]);
   const allItems = useMemo(() => roadmapLanes.flatMap((l) => l.items), [roadmapLanes]);
@@ -300,21 +342,35 @@ export function Roadmap({
     const lane = roadmapLanes.find((l) => l.id === laneId);
     if (!lane) return;
     const count = lane.items.length;
-    const message =
+    const description =
       count > 0
-        ? `Delete "${lane.name}" and its ${count} item${count === 1 ? '' : 's'}?`
-        : `Delete "${lane.name}"?`;
-    if (!window.confirm(message)) return;
-    void onDeleteLane(laneId);
+        ? `Delete "${lane.name}" and its ${count} item${count === 1 ? '' : 's'}? This cannot be undone.`
+        : `Delete "${lane.name}"? This cannot be undone.`;
+    setConfirmState({
+      title: 'Delete lane',
+      description,
+      confirmLabel: 'Delete lane',
+      onConfirm: () => {
+        void onDeleteLane(laneId);
+        setConfirmState(null);
+      },
+    });
   }
 
   function handleDeleteItem(itemId: number) {
     const item = allItems.find((i) => i.id === itemId);
     if (!item) return;
-    if (!window.confirm(`Delete "${item.name}"?`)) return;
-    void onDeleteItem(itemId);
-    if (selectedItemId === itemId) setSelectedItemId(null);
-    if (editorItemId === itemId) setEditorItemId(null);
+    setConfirmState({
+      title: 'Delete item',
+      description: `Delete "${item.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      onConfirm: () => {
+        void onDeleteItem(itemId);
+        if (selectedItemId === itemId) setSelectedItemId(null);
+        if (editorItemId === itemId) setEditorItemId(null);
+        setConfirmState(null);
+      },
+    });
   }
 
   function commitDrag(commit: RoadmapDragCommit) {
@@ -346,22 +402,27 @@ export function Roadmap({
   }
 
   function handleAddLane() {
-    const name = window.prompt('Lane name');
-    if (name && name.trim()) void onAddLane(name.trim());
+    setAddLaneOpen(true);
   }
 
+  function submitAddLane(name: string) {
+    void onAddLane(name);
+    setAddLaneOpen(false);
+  }
+
+  const addItemDefaultLaneId =
+    (selectedItemId != null ? allItems.find((i) => i.id === selectedItemId)?.laneId : undefined) ??
+    roadmapLanes[0]?.id;
+
   function handleAddItem() {
-    const laneId = selectedItemId != null ? allItems.find((i) => i.id === selectedItemId)?.laneId : undefined;
-    const targetLaneId = laneId ?? roadmapLanes[0]?.id;
-    if (targetLaneId === undefined) {
-      window.alert('Add a lane first.');
-      return;
-    }
-    const name = window.prompt('Item name', 'New item');
-    if (!name || !name.trim()) return;
-    onAddItem(targetLaneId, { name: name.trim(), startPeriod: 1, periodCount: 1 })
+    setAddItemOpen(true);
+  }
+
+  function submitAddItem(data: { name: string; laneId: number }) {
+    onAddItem(data.laneId, { name: data.name, startPeriod: 1, periodCount: 1 })
       .then((created) => {
         setSelectedItemId(created.id);
+        setAddItemOpen(false);
       })
       .catch((err) => {
         toast.error('Failed to add item', { description: err instanceof Error ? err.message : undefined });
@@ -421,10 +482,12 @@ export function Roadmap({
     : null;
 
   function handleSetStartDate() {
-    const next = window.prompt('Project start date (YYYY-MM-DD)', project.startDate ?? '');
-    if (next === null) return;
-    const trimmed = next.trim();
-    void onSetStartDate(trimmed === '' ? null : trimmed);
+    setStartDateOpen(true);
+  }
+
+  function submitStartDate(next: string | null) {
+    void onSetStartDate(next);
+    setStartDateOpen(false);
   }
 
   if (roadmapLanes.length === 0) {
@@ -453,6 +516,13 @@ export function Roadmap({
           onCancel={() => setBootstrapPreview(null)}
           onConfirm={confirmBootstrap}
         />
+        <TextPromptDialog
+          open={addLaneOpen}
+          title="Add lane"
+          label="Lane name"
+          onCancel={() => setAddLaneOpen(false)}
+          onConfirm={submitAddLane}
+        />
       </div>
     );
   }
@@ -476,18 +546,18 @@ export function Roadmap({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setZoomIndex((i) => zoomStep(i, -1))}
+          onClick={() => applyZoom(zoomStep(zoomIndex, -1))}
           aria-label="Zoom out"
         >
           <Minus className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => zoomStep(i, 1))} aria-label="Zoom in">
+        <Button variant="outline" size="sm" onClick={() => applyZoom(zoomStep(zoomIndex, 1))} aria-label="Zoom in">
           <Plus className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setZoomIndex(fitZoom(np, chartRef.current?.clientWidth ?? 800))}
+          onClick={() => applyZoom(fitZoom(np, viewportRef.current?.clientWidth ?? 800))}
         >
           Fit
         </Button>
@@ -537,7 +607,7 @@ export function Roadmap({
         <Button variant="outline" size="sm" onClick={handleAddLane}>
           Add lane
         </Button>
-        <Button variant="outline" size="sm" onClick={handleAddItem}>
+        <Button variant="outline" size="sm" onClick={handleAddItem} disabled={roadmapLanes.length === 0}>
           Add item
         </Button>
         <Button
@@ -550,7 +620,7 @@ export function Roadmap({
         </Button>
       </div>
 
-      <div className="flex" ref={chartRef}>
+      <div className="flex">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex">
             <RoadmapGrid
@@ -558,7 +628,7 @@ export function Roadmap({
               selectedItemId={selectedItemId}
               onSelectItem={(id) => setSelectedItemId(id)}
               onToggleLane={toggleLane}
-              onRenameLane={(id, name) => void onUpdateLane(id, { name })}
+              onRequestRenameLane={(id) => setRenameLaneId(id)}
               onDeleteLane={handleDeleteLane}
               onMoveLane={moveLane}
               onEditItem={(id) => setEditorItemId(id)}
@@ -583,6 +653,7 @@ export function Roadmap({
               onScroll={(scrollLeft) => {
                 if (loadStripScrollRef.current) loadStripScrollRef.current.scrollLeft = scrollLeft;
               }}
+              viewportRef={viewportRef}
             />
           </div>
           <RoadmapLoadStrip
@@ -620,7 +691,6 @@ export function Roadmap({
         onCancel={() => setBootstrapPreview(null)}
         onConfirm={confirmBootstrap}
       />
-
       <GeneratePlanSheet
         open={draftPlan !== null}
         onOpenChange={(open) => {
@@ -631,6 +701,45 @@ export function Roadmap({
         planningMode={planningMode}
         onAcceptPlan={onGenerateDraftPlan}
         initialDraft={draftPlan ?? undefined}
+      />
+      <TextPromptDialog
+        open={addLaneOpen}
+        title="Add lane"
+        label="Lane name"
+        onCancel={() => setAddLaneOpen(false)}
+        onConfirm={submitAddLane}
+      />
+      <TextPromptDialog
+        open={renameLaneId !== null}
+        title="Rename lane"
+        label="Lane name"
+        initialValue={roadmapLanes.find((l) => l.id === renameLaneId)?.name ?? ''}
+        onCancel={() => setRenameLaneId(null)}
+        onConfirm={(name) => {
+          if (renameLaneId !== null) void onUpdateLane(renameLaneId, { name });
+          setRenameLaneId(null);
+        }}
+      />
+      <AddItemDialog
+        open={addItemOpen}
+        lanes={roadmapLanes}
+        defaultLaneId={addItemDefaultLaneId}
+        onCancel={() => setAddItemOpen(false)}
+        onConfirm={submitAddItem}
+      />
+      <StartDateDialog
+        open={startDateOpen}
+        value={project.startDate ?? null}
+        onCancel={() => setStartDateOpen(false)}
+        onConfirm={submitStartDate}
+      />
+      <ConfirmDialog
+        open={confirmState !== null}
+        title={confirmState?.title ?? ''}
+        description={confirmState?.description ?? ''}
+        confirmLabel={confirmState?.confirmLabel}
+        onCancel={() => setConfirmState(null)}
+        onConfirm={() => confirmState?.onConfirm()}
       />
     </div>
   );
