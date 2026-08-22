@@ -3,6 +3,28 @@ import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
+const projectRoot = path.resolve(__dirname);
+
+// Vite full-reloads on any watched file that is not in the module graph.
+// String globs in server.watch.ignored do not match reliably with Vite's
+// bundled chokidar (absolute paths + disableGlobbing: true), so ignore
+// everything except the frontend surface.
+function ignoreNonFrontend(filePath: string): boolean {
+  const rel = path.relative(projectRoot, filePath);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return true;
+  const posix = rel.split(path.sep).join('/');
+  if (posix === '' || posix === '.') return false;
+  if (posix === 'index.html') return false;
+  if (posix === 'public' || posix.startsWith('public/')) return false;
+  if (posix === 'src' || posix.startsWith('src/')) {
+    if (posix.startsWith('src/generated/')) return true;
+    if (posix === 'src/test' || posix.startsWith('src/test/')) return true;
+    if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(posix)) return true;
+    return false;
+  }
+  return true;
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   optimizeDeps: {
@@ -63,14 +85,7 @@ export default defineConfig({
       '/api': { target: 'http://localhost:3001', changeOrigin: true },
     },
     watch: {
-      ignored: [
-        '**/.claude/**',
-        '**/.agents/**',
-        '**/_bmad/**',
-        '**/_bmad-output/**',
-        '**/docs/**',
-        '**/logs/**',
-      ],
+      ignored: ignoreNonFrontend,
     },
   },
   test: {
