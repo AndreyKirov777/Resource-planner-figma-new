@@ -549,6 +549,54 @@ describe('CAP-13 draft plan from the roadmap', () => {
     expect(draft.resourcePlans[0].allocations).toEqual([5, 6, 7, 8].map((p) => ({ periodNumber: p, allocation: 100 })));
   });
 
+  it('keeps the preview open and shows the error when Accept cannot reach the API', async () => {
+    const draftWbsItems: WbsItem[] = [
+      {
+        id: 503,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 4, discipline: 'Engineering', role: 'Backend Developer', hours: 160, wbsItemId: 503, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [503];
+    const onGenerateDraftPlan = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={draftWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={[]}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+        onGenerateDraftPlan={onGenerateDraftPlan}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Draft plan from roadmap' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept plan' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/cannot reach the api/i);
+    expect(screen.getByRole('button', { name: 'Accept plan' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /proposed plan/i })).toBeInTheDocument();
+  });
+
   it('is disabled when the roadmap has no demand anywhere', () => {
     renderRoadmap(); // default fixture: empty wbsItems, no linked scope
     expect(screen.getByRole('button', { name: 'Draft plan from roadmap' })).toBeDisabled();

@@ -40,6 +40,7 @@ import { canonicalLocationLabel, locationAbbr, resolveLocationLabel } from './ut
 import { findResourceForPlan } from './utils/resourceMatching';
 import { descendantIds } from './utils/wbsTree';
 import { APP_DEFAULTS } from './config/defaults';
+import { describeError } from './utils/apiErrors';
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -127,7 +128,7 @@ export default function App() {
       setRoadmapLanes(roadmapData.lanes);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load project data');
+      setError(describeError(err, 'Failed to load project data'));
       console.error('Error loading project data:', err);
     } finally {
       setLoading(false);
@@ -610,9 +611,8 @@ export default function App() {
               return fallback;
             })();
 
-      for (const entry of [...resourceLists]) {
-        await api.deleteResourceList(entry.id);
-      }
+      const previousListIds = resourceLists.map((entry) => entry.id);
+      const previousPlanIds = resourcePlans.map((plan) => plan.id);
 
       for (const entry of listEntries) {
         await api.createResourceList(currentProject.id, {
@@ -623,13 +623,6 @@ export default function App() {
           location: entry.location || locationLabel,
           description: entry.description ?? undefined,
         });
-      }
-
-      const refreshedResourceLists = await api.getResourceLists(currentProject.id);
-      setResourceLists(refreshedResourceLists);
-
-      for (const plan of [...resourcePlans]) {
-        await api.deleteResourcePlan(plan.id);
       }
 
       const sortedPlans = [...draft.resourcePlans].sort(
@@ -651,12 +644,24 @@ export default function App() {
         });
       }
 
-      const refreshedResourcePlans = await api.getResourcePlans(currentProject.id);
+      for (const id of previousListIds) {
+        await api.deleteResourceList(id);
+      }
+      for (const id of previousPlanIds) {
+        await api.deleteResourcePlan(id);
+      }
+
+      const [refreshedResourceLists, refreshedResourcePlans] = await Promise.all([
+        api.getResourceLists(currentProject.id),
+        api.getResourcePlans(currentProject.id),
+      ]);
+      setResourceLists(refreshedResourceLists);
       setResourcePlans(refreshedResourcePlans);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to apply generated plan';
-      setError(errorMessage);
-      throw err;
+      // Re-throw so GeneratePlanSheet can show the error in-place. Do not
+      // setError here: App's fatal `if (error)` screen would unmount the sheet
+      // and the rest of the project.
+      throw new Error(describeError(err, 'Failed to apply generated plan'));
     }
   };
 
@@ -1308,7 +1313,7 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  if (loading) {
+  if (loading && !currentProject) {
     return (
       <div className="p-6">
         <div className="flex items-center justify-center h-64">
@@ -1318,7 +1323,7 @@ export default function App() {
     );
   }
 
-  if (error) {
+  if (error && !currentProject) {
     return (
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
@@ -1346,6 +1351,25 @@ export default function App() {
 
   return (
     <div className="p-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
+          <div className="text-red-800 font-medium">Error: {error}</div>
+          <div className="mt-2 flex gap-4">
+            <button
+              onClick={() => loadProjectData(currentProject.id)}
+              className="text-red-600 hover:text-red-800 underline"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-600 hover:text-red-800 underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="project-list">Project list</TabsTrigger>

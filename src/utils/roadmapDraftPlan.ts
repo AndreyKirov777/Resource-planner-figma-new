@@ -38,25 +38,28 @@ export function buildDraftFromRoadmapLoad(
   let displayOrder = 0;
 
   roadmapLoadKeys(load, 'role').forEach((role) => {
+    if (!role) return;
     const fteByPeriod = periods.map((p) => demandFte(load, 'role', role, p));
     const peakFte = Math.max(0, ...fteByPeriod);
     if (peakFte <= 1e-9) return;
 
     const internalRate = internalRateForRole(rateCards, role, region);
     const clientRate = clientHourlyRate(internalRate, marginDecimal, exchangeRate);
+    const safeInternal = Number.isFinite(internalRate) ? internalRate : 0;
+    const safeClient = Number.isFinite(clientRate) ? clientRate : 0;
     const rowCount = Math.max(1, Math.ceil(peakFte - 1e-9));
 
     for (let row = 0; row < rowCount; row++) {
       const allocations = periods
         .map((p, i) => ({ periodNumber: p, allocation: Math.round(Math.min(1, Math.max(0, fteByPeriod[i] - row)) * 100) }))
-        .filter((a) => a.allocation > 0);
+        .filter((a) => Number.isFinite(a.allocation) && a.allocation > 0);
       if (allocations.length === 0) continue;
       resourcePlans.push({
         role,
         clientRole: null,
         name: null,
-        intHourlyRate: internalRate,
-        clientHourlyRate: clientRate,
+        intHourlyRate: safeInternal,
+        clientHourlyRate: safeClient,
         displayOrder: displayOrder++,
         rationale: 'Drafted from the roadmap',
         allocations,

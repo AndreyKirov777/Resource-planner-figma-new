@@ -1,3 +1,5 @@
+import { API_UNREACHABLE_MESSAGE, isNetworkFetchError } from '../utils/apiErrors';
+
 // Use relative URL so Vite proxies /api to backend in dev, same server in production
 const API_BASE_URL = '/api';
 
@@ -225,11 +227,32 @@ function toRateCardUpdatePayload(data: Partial<RateCard>) {
   ]);
 }
 
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    if (isNetworkFetchError(err)) {
+      throw new Error(API_UNREACHABLE_MESSAGE);
+    }
+    throw err;
+  }
+}
+
+async function throwIfNotOk(response: Response, fallback: string): Promise<void> {
+  if (response.ok) return;
+  const body = (await response.json().catch(() => ({}))) as { error?: string; details?: unknown };
+  const details =
+    body.details == null
+      ? ''
+      : `: ${typeof body.details === 'string' ? body.details : JSON.stringify(body.details)}`;
+  throw new Error(`${body.error ?? fallback}${details}`);
+}
+
 // API functions
 export const api = {
   // Project endpoints
   async getProjects(): Promise<Project[]> {
-    const response = await fetch(`${API_BASE_URL}/projects`);
+    const response = await apiFetch(`${API_BASE_URL}/projects`);
     if (!response.ok) throw new Error('Failed to fetch projects');
     return response.json();
   },
@@ -238,13 +261,13 @@ export const api = {
     resourceLists: ResourceList[];
     resourcePlans: ResourcePlan[];
   }> {
-    const response = await fetch(`${API_BASE_URL}/projects/${id}`);
+    const response = await apiFetch(`${API_BASE_URL}/projects/${id}`);
     if (!response.ok) throw new Error('Failed to fetch project');
     return response.json();
   },
 
   async createProject(data: Partial<Project>): Promise<Project> {
-    const response = await fetch(`${API_BASE_URL}/projects`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -254,7 +277,7 @@ export const api = {
   },
 
   async updateProject(id: number, data: Partial<Project>): Promise<Project> {
-    const response = await fetch(`${API_BASE_URL}/projects/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -264,14 +287,14 @@ export const api = {
   },
 
   async deleteProject(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/projects/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete project');
   },
 
   async copyProject(id: number, name?: string): Promise<Project> {
-    const response = await fetch(`${API_BASE_URL}/projects/${id}/copy`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${id}/copy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(name ? { name } : {}),
@@ -281,13 +304,13 @@ export const api = {
   },
 
   async exportProject(id: number): Promise<any> {
-    const response = await fetch(`${API_BASE_URL}/projects/${id}/export`);
+    const response = await apiFetch(`${API_BASE_URL}/projects/${id}/export`);
     if (!response.ok) throw new Error('Failed to export project');
     return response.json();
   },
 
   async importProject(payload: any): Promise<{ message: string; projectId: number }> {
-    const response = await fetch(`${API_BASE_URL}/projects/import`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -300,7 +323,7 @@ export const api = {
     resourceLists: ResourceList[];
     resourcePlans: ResourcePlan[];
   }> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/convert-planning-mode`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/convert-planning-mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetMode }),
@@ -311,19 +334,19 @@ export const api = {
 
   // Rate Card endpoints (global: a single shared set common to all projects)
   async getRateCards(): Promise<RateCard[]> {
-    const response = await fetch(`${API_BASE_URL}/rate-cards`);
+    const response = await apiFetch(`${API_BASE_URL}/rate-cards`);
     if (!response.ok) throw new Error('Failed to fetch rate cards');
     return response.json();
   },
 
   async getRateCardMeta(): Promise<RateCardImportMeta> {
-    const response = await fetch(`${API_BASE_URL}/rate-cards/meta`);
+    const response = await apiFetch(`${API_BASE_URL}/rate-cards/meta`);
     if (!response.ok) throw new Error('Failed to fetch rate card import metadata');
     return response.json();
   },
 
   async createRateCard(data: Partial<RateCard>): Promise<RateCard> {
-    const response = await fetch(`${API_BASE_URL}/rate-cards`, {
+    const response = await apiFetch(`${API_BASE_URL}/rate-cards`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -336,7 +359,7 @@ export const api = {
   },
 
   async createRateCardsBulk(data: Partial<RateCard>[], fileName?: string): Promise<{ message: string; count: number }> {
-    const response = await fetch(`${API_BASE_URL}/rate-cards/bulk`, {
+    const response = await apiFetch(`${API_BASE_URL}/rate-cards/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rateCards: data, fileName }),
@@ -349,7 +372,7 @@ export const api = {
   },
 
   async updateRateCard(id: number, data: Partial<RateCard>): Promise<RateCard> {
-    const response = await fetch(`${API_BASE_URL}/rate-cards/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/rate-cards/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(toRateCardUpdatePayload(data)),
@@ -359,14 +382,14 @@ export const api = {
   },
 
   async deleteRateCard(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/rate-cards/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/rate-cards/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete rate card');
   },
 
   async deleteAllRateCards(): Promise<{ message: string }> {
-    const response = await fetch(`${API_BASE_URL}/rate-cards`, {
+    const response = await apiFetch(`${API_BASE_URL}/rate-cards`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete rate cards');
@@ -375,23 +398,23 @@ export const api = {
 
   // Resource List endpoints
   async getResourceLists(projectId: number): Promise<ResourceList[]> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/resource-lists`);
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/resource-lists`);
     if (!response.ok) throw new Error('Failed to fetch resource lists');
     return response.json();
   },
 
   async createResourceList(projectId: number, data: Partial<ResourceList>): Promise<ResourceList> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/resource-lists`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/resource-lists`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(toResourceListUpdatePayload(data)),
     });
-    if (!response.ok) throw new Error('Failed to create resource list');
+    await throwIfNotOk(response, 'Failed to create resource list');
     return response.json();
   },
 
   async updateResourceList(id: number, data: Partial<ResourceList>): Promise<ResourceList> {
-    const response = await fetch(`${API_BASE_URL}/resource-lists/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/resource-lists/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(toResourceListUpdatePayload(data)),
@@ -401,7 +424,7 @@ export const api = {
   },
 
   async deleteResourceList(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/resource-lists/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/resource-lists/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete resource list');
@@ -409,23 +432,23 @@ export const api = {
 
   // Resource Plan endpoints
   async getResourcePlans(projectId: number): Promise<ResourcePlan[]> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/resource-plans`);
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/resource-plans`);
     if (!response.ok) throw new Error('Failed to fetch resource plans');
     return response.json();
   },
 
   async createResourcePlan(projectId: number, data: Omit<Partial<ResourcePlan>, 'allocations'> & { allocations?: Partial<Allocation>[] }): Promise<ResourcePlan> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/resource-plans`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/resource-plans`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Failed to create resource plan');
+    await throwIfNotOk(response, 'Failed to create resource plan');
     return response.json();
   },
 
   async updateResourcePlan(id: number, data: Omit<Partial<ResourcePlan>, 'allocations'> & { allocations?: Partial<Allocation>[] }): Promise<ResourcePlan> {
-    const response = await fetch(`${API_BASE_URL}/resource-plans/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/resource-plans/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -439,14 +462,14 @@ export const api = {
   },
 
   async deleteResourcePlan(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/resource-plans/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/resource-plans/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete resource plan');
   },
 
   async reorderResourcePlans(projectId: number, orderedIds: number[]): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/resource-plans/reorder`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/resource-plans/reorder`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderedIds }),
@@ -455,7 +478,7 @@ export const api = {
   },
 
   async generatePlan(data: GeneratePlanRequest, signal?: AbortSignal): Promise<GeneratePlanResponse> {
-    const response = await fetch(`${API_BASE_URL}/projects/generate-plan`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/generate-plan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -470,13 +493,13 @@ export const api = {
 
   // Allocation endpoints
   async getAllocations(resourcePlanId: number): Promise<Allocation[]> {
-    const response = await fetch(`${API_BASE_URL}/resource-plans/${resourcePlanId}/allocations`);
+    const response = await apiFetch(`${API_BASE_URL}/resource-plans/${resourcePlanId}/allocations`);
     if (!response.ok) throw new Error('Failed to fetch allocations');
     return response.json();
   },
 
   async createAllocation(resourcePlanId: number, data: Partial<Allocation>): Promise<Allocation> {
-    const response = await fetch(`${API_BASE_URL}/resource-plans/${resourcePlanId}/allocations`, {
+    const response = await apiFetch(`${API_BASE_URL}/resource-plans/${resourcePlanId}/allocations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -486,7 +509,7 @@ export const api = {
   },
 
   async updateAllocation(id: number, data: Partial<Allocation>): Promise<Allocation> {
-    const response = await fetch(`${API_BASE_URL}/allocations/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/allocations/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -496,7 +519,7 @@ export const api = {
   },
 
   async deleteAllocation(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/allocations/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/allocations/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete allocation');
@@ -504,7 +527,7 @@ export const api = {
 
   // WBS endpoints
   async getWbsItems(projectId: number): Promise<WbsItem[]> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/wbs`);
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/wbs`);
     if (!response.ok) throw new Error('Failed to fetch WBS items');
     return response.json();
   },
@@ -513,7 +536,7 @@ export const api = {
     projectId: number,
     data: Omit<Partial<WbsItem>, 'estimates'> & { estimates?: Partial<WbsEstimate>[] }
   ): Promise<WbsItem> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/wbs-items`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/wbs-items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -526,7 +549,7 @@ export const api = {
   },
 
   async updateWbsItem(id: number, data: Partial<WbsItem>): Promise<WbsItem> {
-    const response = await fetch(`${API_BASE_URL}/wbs-items/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/wbs-items/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pickDefined(data, ['name', 'parentId', 'phaseName', 'displayOrder'])),
@@ -539,14 +562,14 @@ export const api = {
   },
 
   async deleteWbsItem(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/wbs-items/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/wbs-items/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete WBS item');
   },
 
   async replaceWbsEstimates(wbsItemId: number, estimates: Partial<WbsEstimate>[]): Promise<WbsEstimate[]> {
-    const response = await fetch(`${API_BASE_URL}/wbs-items/${wbsItemId}/estimates`, {
+    const response = await apiFetch(`${API_BASE_URL}/wbs-items/${wbsItemId}/estimates`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(estimates),
@@ -560,13 +583,13 @@ export const api = {
 
   // Roadmap endpoints (Slice A)
   async getRoadmap(projectId: number): Promise<RoadmapPayload> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/roadmap`);
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/roadmap`);
     if (!response.ok) throw new Error('Failed to fetch roadmap');
     return response.json();
   },
 
   async createRoadmapLane(projectId: number, name: string): Promise<RoadmapLaneWithItems> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/roadmap/lanes`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/roadmap/lanes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -579,7 +602,7 @@ export const api = {
   },
 
   async updateRoadmapLane(id: number, data: { name?: string; displayOrder?: number }): Promise<RoadmapLane> {
-    const response = await fetch(`${API_BASE_URL}/roadmap-lanes/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/roadmap-lanes/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pickDefined(data, ['name', 'displayOrder'])),
@@ -592,7 +615,7 @@ export const api = {
   },
 
   async deleteRoadmapLane(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/roadmap-lanes/${id}`, { method: 'DELETE' });
+    const response = await apiFetch(`${API_BASE_URL}/roadmap-lanes/${id}`, { method: 'DELETE' });
     if (!response.ok) throw new Error('Failed to delete lane');
   },
 
@@ -600,7 +623,7 @@ export const api = {
     projectId: number,
     data: { laneId: number; name: string; kind?: RoadmapItemKind; startPeriod: number; periodCount: number }
   ): Promise<RoadmapItem> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/roadmap/items`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/roadmap/items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -623,7 +646,7 @@ export const api = {
       displayOrder: number;
     }>
   ): Promise<RoadmapItem> {
-    const response = await fetch(`${API_BASE_URL}/roadmap-items/${id}`, {
+    const response = await apiFetch(`${API_BASE_URL}/roadmap-items/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(
@@ -638,12 +661,12 @@ export const api = {
   },
 
   async deleteRoadmapItem(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/roadmap-items/${id}`, { method: 'DELETE' });
+    const response = await apiFetch(`${API_BASE_URL}/roadmap-items/${id}`, { method: 'DELETE' });
     if (!response.ok) throw new Error('Failed to delete roadmap item');
   },
 
   async replaceRoadmapItemLinks(id: number, wbsItemIds: number[]): Promise<{ wbsItemIds: number[] }> {
-    const response = await fetch(`${API_BASE_URL}/roadmap-items/${id}/links`, {
+    const response = await apiFetch(`${API_BASE_URL}/roadmap-items/${id}/links`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ wbsItemIds }),
@@ -659,7 +682,7 @@ export const api = {
     wbsItemId: number,
     roadmapItemId: number | null
   ): Promise<{ wbsItemId: number; roadmapItemId: number | null }> {
-    const response = await fetch(`${API_BASE_URL}/wbs-items/${wbsItemId}/roadmap-link`, {
+    const response = await apiFetch(`${API_BASE_URL}/wbs-items/${wbsItemId}/roadmap-link`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roadmapItemId }),
@@ -672,7 +695,7 @@ export const api = {
   },
 
   async bootstrapRoadmap(projectId: number, payload: BootstrapRoadmapPayload): Promise<RoadmapPayload> {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/roadmap/bulk`, {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/roadmap/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

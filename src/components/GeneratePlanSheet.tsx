@@ -22,6 +22,7 @@ import {
 } from '../services/api';
 import { PHASE_COLORS, getPhaseForPeriod, descriptionSuggestsPhaseProposal, isPlaceholderSinglePhase, parsePhasesFromDescription } from '../utils/phases';
 import { GENERATE_PLAN_REGIONS } from '../utils/regions';
+import { describeError } from '../utils/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -397,7 +398,7 @@ export function GeneratePlanSheet({
       if ((err as { name?: string }).name === 'AbortError') {
         // cancelled — restore form silently (no error)
       } else {
-        setError(err instanceof Error ? err.message : 'Unknown error');
+        setError(describeError(err, 'Unknown error'));
       }
     } finally {
       setLoading(false);
@@ -416,7 +417,7 @@ export function GeneratePlanSheet({
       });
       handleOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to apply plan');
+      setError(describeError(err, 'Failed to apply plan'));
     } finally {
       setAccepting(false);
     }

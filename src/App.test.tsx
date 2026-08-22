@@ -15,6 +15,18 @@ vi.mock('./components/ResourcePlan', () => ({
     onProjectNameChange: (name: string) => void;
     onExportProject?: () => void;
     onExportToExcel?: () => void;
+    onApplyGeneratedPlan?: (draft: {
+      resourcePlans: Array<{
+        role: string;
+        clientRole: string | null;
+        name: string | null;
+        intHourlyRate: number;
+        clientHourlyRate: number;
+        displayOrder: number;
+        allocations: Array<{ periodNumber: number; allocation: number }>;
+      }>;
+      resourceLists: [];
+    }) => Promise<void>;
   }) => (
     <div data-testid="resource-plan">
       <input
@@ -31,6 +43,31 @@ vi.mock('./components/ResourcePlan', () => ({
       {props.onExportToExcel && (
         <button type="button" onClick={props.onExportToExcel}>
           Export Excel
+        </button>
+      )}
+      {props.onApplyGeneratedPlan && (
+        <button
+          type="button"
+          onClick={() => {
+            void props.onApplyGeneratedPlan!({
+              resourcePlans: [
+                {
+                  role: 'Backend Developer',
+                  clientRole: null,
+                  name: null,
+                  intHourlyRate: 50,
+                  clientHourlyRate: 80,
+                  displayOrder: 0,
+                  allocations: [{ periodNumber: 1, allocation: 100 }],
+                },
+              ],
+              resourceLists: [],
+            }).catch(() => {
+              /* GeneratePlanSheet swallows this and shows it in the sheet */
+            });
+          }}
+        >
+          Accept plan
         </button>
       )}
     </div>
@@ -76,6 +113,10 @@ vi.mock('./services/api', () => ({
     exportProject: vi.fn(),
     importProject: vi.fn(),
     getRoadmap: vi.fn(),
+    createResourceList: vi.fn(),
+    deleteResourceList: vi.fn(),
+    createResourcePlan: vi.fn(),
+    deleteResourcePlan: vi.fn(),
   },
 }));
 
@@ -258,5 +299,40 @@ describe('App', () => {
       const names = calls.map(c => c[1]?.name).filter(Boolean);
       expect(names.some(n => typeof n === 'string' && n.length > 0)).toBe(true);
     });
+  });
+
+  it('shows a full-page error with Retry when the API is unreachable on load', async () => {
+    const api = await getApi();
+    vi.mocked(api.getProjects).mockRejectedValue(new TypeError('Failed to fetch'));
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText(/cannot reach the api/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /resource plan/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps the project UI when applying a generated plan fails to reach the API', async () => {
+    const user = userEvent.setup();
+    const api = await getApi();
+    vi.mocked(api.createResourceList).mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.mocked(api.createResourcePlan).mockResolvedValue({} as never);
+    vi.mocked(api.deleteResourceList).mockResolvedValue(undefined);
+    vi.mocked(api.deleteResourcePlan).mockResolvedValue(undefined);
+
+    renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /accept plan/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: /accept plan/i }));
+
+    await waitFor(() => {
+      expect(api.createResourceList).toHaveBeenCalled();
+    });
+    expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
+    expect(screen.getByTestId('resource-plan')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
   });
 });
