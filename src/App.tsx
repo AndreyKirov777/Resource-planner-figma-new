@@ -1456,6 +1456,8 @@ export default function App() {
             project={currentProject}
             wbsItems={wbsItems}
             roadmapLanes={roadmapLanes}
+            resourcePlans={resourcePlans}
+            rateCards={rateCards}
             onAddLane={handleAddRoadmapLane}
             onUpdateLane={handleUpdateRoadmapLane}
             onDeleteLane={handleDeleteRoadmapLane}

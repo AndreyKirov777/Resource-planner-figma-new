@@ -14,6 +14,8 @@ import {
   RoadmapItem,
   RoadmapItemKind,
   BootstrapRoadmapPayload,
+  ResourcePlan,
+  RateCard,
 } from '../../services/api';
 import { parsePhases } from '../../utils/phases';
 import { hoursPerPeriod } from '../../utils/calculations';
@@ -28,6 +30,7 @@ import {
   RoadmapRowLane,
   RoadmapRowItem,
 } from '../../utils/roadmap';
+import { buildRoadmapLoad, overDemandPeriodsInWindow, RoadmapLoadItemInput } from '../../utils/roadmapLoad';
 import {
   ZOOM_LADDER,
   DEFAULT_ZOOM_INDEX,
@@ -54,6 +57,8 @@ interface RoadmapProps {
   project: Project;
   wbsItems: WbsItem[];
   roadmapLanes: RoadmapLaneWithItems[];
+  resourcePlans: ResourcePlan[];
+  rateCards: RateCard[];
   onAddLane: (name: string) => Promise<void>;
   onUpdateLane: (id: number, data: { name?: string; displayOrder?: number }) => Promise<void>;
   onDeleteLane: (id: number) => Promise<void>;
@@ -95,6 +100,8 @@ export function Roadmap({
   project,
   wbsItems,
   roadmapLanes,
+  resourcePlans,
+  rateCards,
   onAddLane,
   onUpdateLane,
   onDeleteLane,
@@ -159,9 +166,50 @@ export function Roadmap({
       })),
     [allItems]
   );
+  // CAP-8/9: one `roadmapLoad` build feeds the bar stripe, the tooltip's
+  // supply lines and (Block 4) the load strip — never re-derived per reader.
+  const loadItems: RoadmapLoadItemInput[] = useMemo(
+    () =>
+      allItems.map((i) => ({
+        id: i.id,
+        name: i.name,
+        kind: i.kind,
+        startPeriod: i.startPeriod,
+        periodCount: i.periodCount,
+      })),
+    [allItems]
+  );
+  const roadmapLoad = useMemo(
+    () =>
+      buildRoadmapLoad({
+        wbsItems,
+        roadmapItems: loadItems,
+        links,
+        resourcePlans,
+        rateCards,
+        phases,
+        planningMode,
+        daysInFTE: project.daysInFTE,
+      }),
+    [wbsItems, loadItems, links, resourcePlans, rateCards, phases, planningMode, project.daysInFTE]
+  );
+  const overDemandByItemId = useMemo(() => {
+    const map = new Map<number, number[]>();
+    allItems.forEach((item) => {
+      if (item.kind === 'milestone') return;
+      const effort = effortByItemId.get(item.id) ?? new Map<string, number>();
+      const window =
+        item.kind === 'spread'
+          ? { startPeriod: 1, periodCount: np }
+          : { startPeriod: item.startPeriod, periodCount: item.periodCount };
+      map.set(item.id, overDemandPeriodsInWindow(roadmapLoad, effort, window));
+    });
+    return map;
+  }, [allItems, effortByItemId, roadmapLoad, np]);
+
   const rows = useMemo(
-    () => toRoadmapRows(rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np),
-    [rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np]
+    () => toRoadmapRows(rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np, overDemandByItemId),
+    [rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np, overDemandByItemId]
   );
 
   const phaseHours = useMemo(() => {
@@ -430,6 +478,8 @@ export function Roadmap({
           phases={phases}
           phaseHours={phaseHours}
           effortByItemId={effortByItemId}
+          roadmapLoad={roadmapLoad}
+          hrsPerPeriod={hrsPerPeriod}
           periodWidth={periodWidth}
           np={np}
           planningMode={planningMode}

@@ -450,6 +450,10 @@ function itemFte(hours: number, periodCount: number, hrsPerPeriod: number): numb
  * comment), never a real window, so its RENDER window is synthesized here as
  * the whole project, `[1, np]` — the one place that translates the sentinel
  * into a drawable rect.
+ *
+ * `overDemandByItemId` (Slice B, CAP-9) — periods, within an item's own
+ * window, where `roadmapLoad.ts` reports demand exceeding supply for some
+ * role the item has effort in. Omitted/absent -> `[]`, matching Slice A.
  */
 export function toRoadmapRows(
   lanes: readonly RoadmapRowLane[],
@@ -457,7 +461,8 @@ export function toRoadmapRows(
   effortByItemId: Map<number, Map<string, number>>,
   collapsed: ReadonlySet<number>,
   hrsPerPeriod: number,
-  np: number
+  np: number,
+  overDemandByItemId?: ReadonlyMap<number, readonly number[]>
 ): RoadmapRow[] {
   const rows: RoadmapRow[] = [];
   const sortedLanes = [...lanes].sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
@@ -492,7 +497,7 @@ export function toRoadmapRows(
         hours,
         fte,
         emptyScope: (item.kind === 'bar' || isSpread) && hours === 0,
-        overDemandPeriods: [],
+        overDemandPeriods: [...(overDemandByItemId?.get(item.id) ?? [])],
         collapsed: false,
       };
     });

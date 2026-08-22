@@ -7,6 +7,7 @@
 import React, { useMemo, useRef } from 'react';
 import { Phase } from '../../services/api';
 import { RoadmapRow, periodToDate } from '../../utils/roadmap';
+import { RoadmapLoad, supplyHours } from '../../utils/roadmapLoad';
 import {
   periodX,
   barRect,
@@ -14,6 +15,7 @@ import {
   phaseBands,
   rowAt,
   snapDrag,
+  stripeSegments,
   ROW_HEIGHT,
   HEADER_HEIGHT,
   BAR_HEIGHT,
@@ -23,12 +25,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../ui/utils';
 
 const ACCENT = '#8f4f8f';
+const AMBER = '#d97706';
+const STRIPE_EPSILON = 1e-6;
 
 interface RoadmapTimelineProps {
   rows: RoadmapRow[];
   phases: Phase[];
   phaseHours: Map<string, number>;
   effortByItemId: Map<number, Map<string, number>>;
+  roadmapLoad: RoadmapLoad;
+  hrsPerPeriod: number;
   periodWidth: number;
   np: number;
   planningMode: 'weekly' | 'monthly';
@@ -40,11 +46,28 @@ interface RoadmapTimelineProps {
   onScroll: (scrollLeft: number) => void;
 }
 
+/** Average FTE of a role's supply over a window — the tooltip's "plan X.X FTE" figure. */
+function windowSupplyFte(
+  load: RoadmapLoad,
+  role: string,
+  window: { startPeriod: number; periodCount: number },
+  hrsPerPeriod: number
+): number {
+  if (window.periodCount <= 0 || hrsPerPeriod <= 0) return 0;
+  let sum = 0;
+  for (let p = window.startPeriod; p < window.startPeriod + window.periodCount; p++) {
+    sum += supplyHours(load, 'role', role, p);
+  }
+  return sum / window.periodCount / hrsPerPeriod;
+}
+
 export function RoadmapTimeline({
   rows,
   phases,
   phaseHours,
   effortByItemId,
+  roadmapLoad,
+  hrsPerPeriod,
   periodWidth,
   np,
   planningMode,
@@ -239,6 +262,13 @@ export function RoadmapTimeline({
               const isSelected = row.id === selectedItemId;
               const effort = effortByItemId.get(row.id);
               const roleLines = effort ? Array.from(effort.entries()) : [];
+              // CAP-9: the warning stripe over exactly the over-demand periods,
+              // clipped to the bar's own (possibly ghosted) rect. Never drawn on
+              // a milestone (no window) or while dragging isn't relevant either.
+              const stripeRects =
+                row.kind !== 'milestone' && !isGhosted && row.overDemandPeriods.length > 0
+                  ? stripeSegments(effectiveWindow, row.overDemandPeriods, periodWidth)
+                  : [];
 
               return (
                 <div
@@ -347,15 +377,41 @@ export function RoadmapTimeline({
                           <div>
                             {row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h · {row.fte.toFixed(1)} FTE
                           </div>
-                          {roleLines.map(([role, hours]) => (
-                            <div key={role}>
-                              {role || '(none)'} {hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h
-                            </div>
-                          ))}
+                          {roleLines.map(([role, hours]) => {
+                            const roleFte =
+                              effectiveWindow.periodCount > 0 && hrsPerPeriod > 0
+                                ? hours / (effectiveWindow.periodCount * hrsPerPeriod)
+                                : 0;
+                            const planFte = windowSupplyFte(roadmapLoad, role, effectiveWindow, hrsPerPeriod);
+                            const short = planFte < roleFte - STRIPE_EPSILON;
+                            return (
+                              <div key={role}>
+                                {role || '(none)'} {hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h ·{' '}
+                                {roleFte.toFixed(1)} FTE · plan{' '}
+                                <span style={short ? { color: AMBER, fontWeight: 600 } : undefined}>
+                                  {planFte.toFixed(1)} FTE
+                                </span>
+                              </div>
+                            );
+                          })}
                         </>
                       )}
                     </TooltipContent>
                   </Tooltip>
+                  {stripeRects.map((rect, i) => (
+                    <div
+                      key={i}
+                      className="pointer-events-none absolute rounded-b"
+                      data-testid={`roadmap-stripe-${row.id}`}
+                      style={{
+                        left: rect.left,
+                        width: rect.width,
+                        top: (ROW_HEIGHT + BAR_HEIGHT) / 2 - 3,
+                        height: 3,
+                        background: AMBER,
+                      }}
+                    />
+                  ))}
                 </div>
               );
             })}

@@ -84,6 +84,8 @@ function renderRoadmap(lanes = makeLanes()) {
       project={project}
       wbsItems={wbsItems}
       roadmapLanes={lanes}
+      resourcePlans={[]}
+      rateCards={[]}
       onAddLane={handlers.onAddLane}
       onUpdateLane={handlers.onUpdateLane}
       onDeleteLane={handlers.onDeleteLane}
@@ -219,5 +221,111 @@ describe('column grid alignment', () => {
     renderRoadmap();
     const col1 = screen.getByTestId('roadmap-period-col-1');
     expect(col1.style.width).toBe(`${PERIOD_WIDTH}px`);
+  });
+});
+
+describe('CAP-9 over-demand stripe (roadmapLoad wiring)', () => {
+  it('renders a stripe on a bar whose linked demand exceeds zero supply over its whole window', () => {
+    const overDemandWbsItems: WbsItem[] = [
+      {
+        id: 500,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 1, discipline: 'Engineering', role: 'Backend Developer', hours: 400, wbsItemId: 500, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [500];
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={overDemandWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={[]}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+      />
+    );
+
+    // Item 10 (W5-W8) has 400h of Backend demand and zero resource-plan supply
+    // anywhere -> every period in its window is over-demand.
+    expect(screen.getByTestId('roadmap-stripe-10')).toBeInTheDocument();
+  });
+
+  it('draws no stripe when supply covers demand across the whole window', () => {
+    const coveredWbsItems: WbsItem[] = [
+      {
+        id: 501,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 2, discipline: 'Engineering', role: 'Backend Developer', hours: 40, wbsItemId: 501, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [501];
+    const resourcePlans = [
+      {
+        id: 1,
+        role: 'Backend Developer',
+        intHourlyRate: 0,
+        clientHourlyRate: 0,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        allocations: [5, 6, 7, 8].map((p) => ({
+          id: p,
+          periodNumber: p,
+          allocation: 100,
+          resourcePlanId: 1,
+          createdAt: '',
+          updatedAt: '',
+        })),
+      },
+    ];
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={coveredWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={resourcePlans}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId('roadmap-stripe-10')).not.toBeInTheDocument();
   });
 });
