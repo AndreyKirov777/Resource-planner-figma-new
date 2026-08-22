@@ -1032,7 +1032,7 @@ describe('lane summary bars', () => {
     expect(screen.queryByTestId('roadmap-lane-label-2')).not.toBeInTheDocument();
   });
 
-  it('a lane with only spread items draws no bar — the chip alone marks the row', () => {
+  it('a lane with only spread items draws no bar', () => {
     const lanes: RoadmapLaneWithItems[] = [
       {
         id: 1,
@@ -1060,10 +1060,10 @@ describe('lane summary bars', () => {
     ];
     renderRoadmap(lanes);
     expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
-    expect(screen.getByTestId('roadmap-lane-spread-chip-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-lane-spread-chip-1')).not.toBeInTheDocument();
   });
 
-  it('a spread item never widens the lane bar; the chip appears alongside it', () => {
+  it('a spread item never widens the lane bar', () => {
     const lanes = makeLanesWithTwoBars();
     lanes[0].items.push({
       id: 12,
@@ -1082,7 +1082,7 @@ describe('lane summary bars', () => {
     const laneBar = screen.getByTestId('roadmap-lane-bar-1');
     const item10 = screen.getByTestId('roadmap-bar-10');
     expect(laneBar.style.left).toBe(item10.style.left);
-    expect(screen.getByTestId('roadmap-lane-spread-chip-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-lane-spread-chip-1')).not.toBeInTheDocument();
   });
 
   it('clicking the lane bar toggles collapse and issues no request', () => {

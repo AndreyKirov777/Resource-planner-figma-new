@@ -7,7 +7,6 @@
  * `timeline-component.md` and `spec-roadmap-vertical-drag.md`.
  */
 import React, { useMemo, useRef } from 'react';
-import { GripVertical } from 'lucide-react';
 import { Phase } from '../../services/api';
 import { RoadmapRow, periodToDate, recomputeLaneSpans } from '../../utils/roadmap';
 import { RoadmapLoad, avgSupplyFteOverWindow } from '../../utils/roadmapLoad';
@@ -344,7 +343,7 @@ export function RoadmapTimeline({
                   <div
                     key={`lane-${row.id}`}
                     className={cn(
-                      'group relative border-b bg-[#f6f6f6] dark:bg-[#1f1f1f]',
+                      'relative border-b bg-[#f6f6f6] dark:bg-[#1f1f1f]',
                       isHighlighted && 'ring-2 ring-inset',
                       isTargetLane && !isHighlighted && 'bg-accent/20'
                     )}
@@ -355,21 +354,6 @@ export function RoadmapTimeline({
                     }}
                     data-testid={`roadmap-row-lane-${row.id}`}
                   >
-                    {/* Lane grip: same gesture as the grid's, so a lane drag can start from
-                        either pane on the one shared state machine. */}
-                    <span
-                      className="absolute left-1 top-1/2 z-10 flex h-3.5 w-3.5 -translate-y-1/2 cursor-grab items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100"
-                      data-testid={`roadmap-timeline-lane-grip-${row.id}`}
-                      aria-label={`Drag ${row.name} lane to reorder`}
-                      onPointerDown={(e) => {
-                        onDragPointerDown(e, { entity: 'lane', laneId: row.id, containerEl: rowsWrapRef.current });
-                      }}
-                      onPointerMove={onDragPointerMove}
-                      onPointerUp={onDragPointerUp}
-                      onPointerCancel={onDragPointerCancel}
-                    >
-                      <GripVertical className="h-3.5 w-3.5" aria-hidden />
-                    </span>
                     {rect && (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -448,16 +432,7 @@ export function RoadmapTimeline({
                           maxWidth: Math.max(0, timelineWidth - (rect.left + rect.width + 6)),
                         }}
                       >
-                        {row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h · {row.fte.toFixed(1)} FTE
-                      </span>
-                    )}
-                    {showLaneBars && row.spreadItemCount > 0 && (
-                      <span
-                        data-testid={`roadmap-lane-spread-chip-${row.id}`}
-                        title={`Spread across the whole project: ${row.spreadItemNames.join(', ')}`}
-                        className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 select-none whitespace-nowrap text-[11px] text-muted-foreground"
-                      >
-                        {'»'} {row.spreadItemCount} spread
+                        {row.name}
                       </span>
                     )}
                   </div>
@@ -596,10 +571,10 @@ export function RoadmapTimeline({
                       >
                         {(row.kind === 'bar' || row.kind === 'spread') && (
                           <span
-                            className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] font-medium text-white"
+                            className="pointer-events-none absolute left-1.5 right-1.5 top-1/2 -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-white"
                             style={row.emptyScope ? { color: ACCENT } : undefined}
                           >
-                            {row.emptyScope ? 'no scope linked' : `${row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h · ${row.fte.toFixed(1)} FTE`}
+                            {row.emptyScope ? 'no scope linked' : row.name}
                           </span>
                         )}
                         {row.kind === 'milestone' && (

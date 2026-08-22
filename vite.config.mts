@@ -62,6 +62,16 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:3001', changeOrigin: true },
     },
+    watch: {
+      ignored: [
+        '**/.claude/**',
+        '**/.agents/**',
+        '**/_bmad/**',
+        '**/_bmad-output/**',
+        '**/docs/**',
+        '**/logs/**',
+      ],
+    },
   },
   test: {
     environment: 'jsdom',
