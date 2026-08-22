@@ -190,7 +190,12 @@ export function Roadmap({
   );
 
   const [zoomIndex, setZoomIndex] = useState(() => loadZoomIndex(project.id));
-  const periodWidth = ZOOM_LADDER[zoomIndex];
+  // Fit sets an exact pixel width that stretches the timeline to the viewport —
+  // the ladder alone tops out at 72px/period, which leaves a wide screen with
+  // few periods short of full width. Manual zoom in/out clears it and returns
+  // to ladder stepping.
+  const [fitWidth, setFitWidth] = useState<number | null>(null);
+  const periodWidth = fitWidth ?? ZOOM_LADDER[zoomIndex];
   const [showLaneBars, setShowLaneBars] = useState(() => loadShowLaneBars(project.id));
   const [collapsed, setCollapsed] = useState<Set<number>>(() => loadCollapsedLanes(project.id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
@@ -219,9 +224,24 @@ export function Roadmap({
     setEditorItemId(null);
   }, [project.id]);
 
+  // Auto-fit the timeline to the viewport on entry, same as clicking Fit.
+  useEffect(() => {
+    applyFit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
+
   function applyZoom(next: number) {
+    setFitWidth(null);
     setZoomIndex(next);
     saveZoomIndex(project.id, next);
+  }
+
+  function applyFit() {
+    const el = viewportRef.current;
+    if (!el || el.clientWidth <= 0) return;
+    const width = Math.max(ZOOM_LADDER[0], Math.floor(el.clientWidth / np));
+    setFitWidth(width);
+    setZoomIndex(fitZoom(1, width)); // keep the ladder in sync so +/- steps from here
   }
 
   function applyShowLaneBars(next: boolean) {
@@ -701,11 +721,7 @@ export function Roadmap({
         <Button variant="outline" size="sm" onClick={() => applyZoom(zoomStep(zoomIndex, 1))} aria-label="Zoom in">
           <Plus className="h-3.5 w-3.5" />
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => applyZoom(fitZoom(np, viewportRef.current?.clientWidth ?? 800))}
-        >
+        <Button variant="outline" size="sm" onClick={applyFit}>
           Fit
         </Button>
         <Button
