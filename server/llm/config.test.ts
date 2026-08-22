@@ -1,17 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { defineAIConfig, loadAIConfig, __resetAIConfigCache } from './config';
+import { loadAIConfig, __resetAIConfigCache } from './config';
 
 afterEach(() => {
   __resetAIConfigCache();
   delete process.env.AI_PROVIDER;
   delete process.env.AI_MODEL;
-});
-
-describe('defineAIConfig', () => {
-  it('returns its input unchanged (identity helper for author-time typing)', () => {
-    const cfg = defineAIConfig({ provider: 'openai', model: 'gpt-x' });
-    expect(cfg).toEqual({ provider: 'openai', model: 'gpt-x' });
-  });
 });
 
 describe('loadAIConfig', () => {

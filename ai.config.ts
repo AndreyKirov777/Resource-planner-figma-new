@@ -1,9 +1,9 @@
-import { defineAIConfig } from './server/llm/config';
+import type { AIConfig } from './server/llm/config';
 
 // LLM selection for AI features. NOT secrets — API keys live in `.env`
 // (read automatically by the provider SDK). Swap the vendor by editing
 // `provider`/`model` here; no code changes needed (see server/llm/registry.ts).
-export default defineAIConfig({
+export default {
   provider: 'openai', // anthropic | openai | ollama
   model: 'gpt-5.5',
   maxOutputTokens: 4096,
@@ -12,4 +12,4 @@ export default defineAIConfig({
     maxPerUser: 10,
     windowSeconds: 3600,
   },
-});
+} satisfies Partial<AIConfig>;

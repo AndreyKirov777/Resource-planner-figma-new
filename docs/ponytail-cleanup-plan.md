@@ -90,13 +90,13 @@
 
 ## Phase 4 — Зависимости
 
-- [ ] `npm uninstall better-sqlite3` — нигде не импортируется, Prisma 6 использует свой движок (adapter не настроен)
-- [ ] Заменить `c12`-загрузку `ai.config.ts` на статический импорт (`ai.config.ts` в git, не per-user) — `server/llm/config.ts:1,28`. Удалить `defineAIConfig` (no-op identity wrapper); в `ai.config.ts` писать `export default { ... } satisfies Partial<AIConfig>` с `import type { AIConfig }` — иначе `ai.config.ts` ↔ `server/llm/config.ts` образуют циклический импорт. Затем `npm uninstall c12`.
-- [ ] После Phase 0 пакеты, которые использовались только удалёнными UI-обёртками, **нужно удалить руками** — `npm install` из `package.json` ничего не выкидывает:
+- [x] `npm uninstall better-sqlite3` — нигде не импортируется, Prisma 6 использует свой движок (adapter не настроен)
+- [x] Заменить `c12`-загрузку `ai.config.ts` на статический импорт (`ai.config.ts` в git, не per-user) — `server/llm/config.ts:1,28`. Удалить `defineAIConfig` (no-op identity wrapper); в `ai.config.ts` писать `export default { ... } satisfies Partial<AIConfig>` с `import type { AIConfig }` — иначе `ai.config.ts` ↔ `server/llm/config.ts` образуют циклический импорт. Затем `npm uninstall c12`.
+- [x] После Phase 0 пакеты, которые использовались только удалёнными UI-обёртками, **нужно удалить руками** — `npm install` из `package.json` ничего не выкидывает:
   `npm uninstall recharts react-day-picker embla-carousel-react cmdk react-hook-form vaul input-otp react-resizable-panels @radix-ui/react-accordion @radix-ui/react-aspect-ratio @radix-ui/react-avatar @radix-ui/react-context-menu @radix-ui/react-hover-card @radix-ui/react-menubar @radix-ui/react-navigation-menu @radix-ui/react-progress @radix-ui/react-radio-group @radix-ui/react-scroll-area @radix-ui/react-separator @radix-ui/react-slider @radix-ui/react-switch`
-  (21 пакет; оставшиеся radix — alert-dialog, checkbox, collapsible, dialog, dropdown-menu, label, popover, select, slot, tabs, toggle, toggle-group, tooltip — используются). Закоммитить обновлённые `package.json` и `package-lock.json`.
+  (21 пакет; оставшиеся radix — alert-dialog, checkbox, collapsible, dialog, dropdown-menu, label, popover, select, slot, tabs, toggle, toggle-group, tooltip — используются). `package.json`/`package-lock.json` обновлены, не закоммичено (коммит по плану не делался в этой сессии).
 
-**Проверка Phase 4:** `rm -rf node_modules && npm install && npm run build && npm run typecheck && npm test` — полная чистая пересборка, чтобы убедиться, что ничего не тянуло удалённые пакеты транзитивно. Плюс `npx knip` — список должен быть пустым или содержать только то, что сознательно оставлено.
+**Проверка Phase 4:** `rm -rf node_modules && npm install && npm run build && npm run typecheck && npm test` — зелёные (build/typecheck чистые; тесты 715/727 passed, те же 12 pre-existing localStorage-failures, не связанные с планом). `npx knip` после — deps-список пуст, кроме трёх известных ложных срабатываний (`@ai-sdk/openai` динамический импорт по строке в `server/llm/registry.ts:9`, `@prisma/client` рантайм-зависимость сгенерированного клиента, `@vitest/coverage-v8` через coverage-конфиг). «Unused files» для `ai.config.ts` тоже пропал — подтверждает, что статический импорт встал на место c12. Unused exports/exported types (46+45) — не входят в этот план, см. отдельное обсуждение после Phase 0.
 
 ---
 
