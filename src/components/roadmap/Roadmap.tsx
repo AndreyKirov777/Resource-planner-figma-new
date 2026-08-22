@@ -160,8 +160,8 @@ export function Roadmap({
     [allItems]
   );
   const rows = useMemo(
-    () => toRoadmapRows(rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod),
-    [rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod]
+    () => toRoadmapRows(rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np),
+    [rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np]
   );
 
   const phaseHours = useMemo(() => {

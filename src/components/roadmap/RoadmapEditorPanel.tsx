@@ -97,14 +97,23 @@ export function RoadmapEditorPanel({
   }
 
   function changeKind(kind: string) {
-    if (kind !== 'bar' && kind !== 'milestone') return;
+    if (kind !== 'bar' && kind !== 'milestone' && kind !== 'spread') return;
     if (kind === item.kind) return;
     if (kind === 'milestone' && item.wbsItemIds.length > 0) {
       setKindError('A milestone cannot carry scope — unlink it first.');
       return;
     }
     setKindError(null);
-    void commit({ kind, periodCount: kind === 'milestone' ? 0 : Math.max(1, item.periodCount) }, () => {});
+    // A spread item's window is a fixed (startPeriod: 1, periodCount: 0)
+    // sentinel — it always demands over the whole project (decision 2), never
+    // a draggable window like a bar's.
+    const patch: Partial<{ kind: RoadmapItemKind; startPeriod: number; periodCount: number }> =
+      kind === 'milestone'
+        ? { kind, periodCount: 0 }
+        : kind === 'spread'
+          ? { kind, startPeriod: 1, periodCount: 0 }
+          : { kind, periodCount: Math.max(1, item.kind === 'bar' ? item.periodCount : 1) };
+    void commit(patch, () => {});
   }
 
   return (
@@ -147,22 +156,30 @@ export function RoadmapEditorPanel({
         <ToggleGroup type="single" value={item.kind} onValueChange={changeKind} aria-label="Kind">
           <ToggleGroupItem value="bar">Bar</ToggleGroupItem>
           <ToggleGroupItem value="milestone">Milestone</ToggleGroupItem>
+          <ToggleGroupItem value="spread">Spread</ToggleGroupItem>
         </ToggleGroup>
         {kindError && <p className="text-xs text-red-600">{kindError}</p>}
+        {item.kind === 'spread' && (
+          <p className="text-muted-foreground text-xs">
+            Demands evenly across the whole project — not draggable or resizable.
+          </p>
+        )}
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="roadmap-item-start">Start period</Label>
-        <Input
-          id="roadmap-item-start"
-          type="number"
-          min={1}
-          max={np}
-          value={startPeriod}
-          onChange={(e) => setStartPeriod(e.target.value)}
-          onBlur={commitStartPeriod}
-        />
-      </div>
+      {item.kind !== 'spread' && (
+        <div className="space-y-1.5">
+          <Label htmlFor="roadmap-item-start">Start period</Label>
+          <Input
+            id="roadmap-item-start"
+            type="number"
+            min={1}
+            max={np}
+            value={startPeriod}
+            onChange={(e) => setStartPeriod(e.target.value)}
+            onBlur={commitStartPeriod}
+          />
+        </div>
+      )}
 
       {item.kind === 'bar' && (
         <div className="space-y-1.5">
@@ -180,7 +197,7 @@ export function RoadmapEditorPanel({
 
       {fieldError && <p className="text-xs text-red-600">{fieldError}</p>}
 
-      {item.kind === 'bar' && (
+      {item.kind !== 'milestone' && (
         <ScopePicker
           wbsItems={wbsItems}
           currentItemId={item.id}

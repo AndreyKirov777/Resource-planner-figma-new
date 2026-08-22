@@ -102,6 +102,18 @@ export function RoadmapTimeline({
 
   function handleBarKeyDown(e: React.KeyboardEvent<HTMLDivElement>, row: RoadmapRow, rowIndex: number) {
     if (row.kind === 'lane') return;
+    // A spread item has no meaningful window — it is not draggable, resizable
+    // or re-lanable by keyboard either, only selectable/openable (decision 2).
+    if (row.kind === 'spread') {
+      if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        onOpenEditor(row.id);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onSelectItem(null);
+      }
+      return;
+    }
     const origin = { startPeriod: row.startPeriod, periodCount: row.periodCount };
     const previous = { laneId: row.laneId ?? 0, startPeriod: row.startPeriod, periodCount: row.periodCount };
 
@@ -244,7 +256,8 @@ export function RoadmapTimeline({
                         aria-selected={isSelected}
                         data-testid={`roadmap-bar-${row.id}`}
                         className={cn(
-                          'absolute cursor-grab select-none outline-none',
+                          'absolute select-none outline-none',
+                          row.kind === 'spread' ? 'cursor-pointer' : 'cursor-grab',
                           isSelected && 'ring-2 ring-offset-1'
                         )}
                         style={
@@ -258,19 +271,38 @@ export function RoadmapTimeline({
                                 transform: 'rotate(45deg)',
                                 ...(isSelected ? { boxShadow: `0 0 0 2px ${ACCENT}` } : {}),
                               }
-                            : {
-                                left: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).left,
-                                width: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).width,
-                                top: (ROW_HEIGHT - BAR_HEIGHT) / 2,
-                                height: BAR_HEIGHT,
-                                borderRadius: 4,
-                                ...(row.emptyScope
-                                  ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
-                                  : { background: ACCENT }),
-                                ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
-                              }
+                            : row.kind === 'spread'
+                              ? {
+                                  left: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).left,
+                                  width: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).width,
+                                  top: (ROW_HEIGHT - 10) / 2,
+                                  height: 10,
+                                  borderRadius: 2,
+                                  ...(row.emptyScope
+                                    ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
+                                    : {
+                                        background: 'rgba(143,79,143,0.22)',
+                                        backgroundImage: `repeating-linear-gradient(135deg, ${ACCENT} 0px, ${ACCENT} 3px, transparent 3px, transparent 7px)`,
+                                        border: `1px solid ${ACCENT}`,
+                                      }),
+                                  ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
+                                }
+                              : {
+                                  left: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).left,
+                                  width: barRect(effectiveWindow.startPeriod, effectiveWindow.periodCount, periodWidth).width,
+                                  top: (ROW_HEIGHT - BAR_HEIGHT) / 2,
+                                  height: BAR_HEIGHT,
+                                  borderRadius: 4,
+                                  ...(row.emptyScope
+                                    ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
+                                    : { background: ACCENT }),
+                                  ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
+                                }
                         }
                         onPointerDown={(e) => {
+                          // A spread item has no draggable window (decision 2) — selection
+                          // only, via the plain onClick below.
+                          if (row.kind === 'spread') return;
                           const containerTop = rowsWrapRef.current?.getBoundingClientRect().top ?? 0;
                           if (row.kind === 'milestone') {
                             onPointerDown(e, row, 'move', rowLaneIds, containerTop);
@@ -293,7 +325,7 @@ export function RoadmapTimeline({
                         onDoubleClick={() => onOpenEditor(row.id)}
                         onKeyDown={(e) => handleBarKeyDown(e, row, rowIndex)}
                       >
-                        {row.kind === 'bar' && (
+                        {(row.kind === 'bar' || row.kind === 'spread') && (
                           <span
                             className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] font-medium text-white"
                             style={row.emptyScope ? { color: ACCENT } : undefined}
@@ -306,10 +338,11 @@ export function RoadmapTimeline({
                     <TooltipContent side="top" className="text-xs">
                       <div className="font-medium">{row.name}</div>
                       <div>
-                        W{row.startPeriod}
-                        {row.periodCount > 0 ? `–${row.startPeriod + row.periodCount - 1}` : ''}
+                        {row.kind === 'spread'
+                          ? 'Spread across the whole project'
+                          : `W${row.startPeriod}${row.periodCount > 0 ? `–${row.startPeriod + row.periodCount - 1}` : ''}`}
                       </div>
-                      {row.kind === 'bar' && (
+                      {(row.kind === 'bar' || row.kind === 'spread') && (
                         <>
                           <div>
                             {row.hours.toLocaleString(undefined, { maximumFractionDigits: 0 })} h · {row.fte.toFixed(1)} FTE

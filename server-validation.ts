@@ -255,13 +255,19 @@ export const roadmapLaneUpdateSchema = z.object({
   displayOrder: z.number().int().min(0).optional(),
 }).strict();
 
-const roadmapItemKindSchema = z.enum(['bar', 'milestone']);
+const roadmapItemKindSchema = z.enum(['bar', 'milestone', 'spread']);
 
-// periodCount must be >= 1 for a bar, exactly 0 for a milestone.
+// periodCount must be >= 1 for a bar, exactly 0 for a milestone AND for a
+// spread item (Slice B, decision 2) — a spread item's window is not a bar's
+// window, it always demands over the whole project, so periodCount:0 /
+// startPeriod:1 is a fixed sentinel, exactly like a milestone's periodCount
+// sentinel. `startPeriod` is only checked when provided, so a partial PATCH
+// that omits it is re-checked against the merged row server-side.
 function refineRoadmapItemPeriodCount(
-  kind: 'bar' | 'milestone',
+  kind: 'bar' | 'milestone' | 'spread',
   periodCount: number,
   ctx: z.RefinementCtx,
+  startPeriod?: number,
 ) {
   if (kind === 'bar' && periodCount < 1) {
     ctx.addIssue({
@@ -277,6 +283,20 @@ function refineRoadmapItemPeriodCount(
       path: ['periodCount'],
     });
   }
+  if (kind === 'spread' && periodCount !== 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'periodCount must be 0 for a spread item — it always spans the whole project',
+      path: ['periodCount'],
+    });
+  }
+  if (kind === 'spread' && startPeriod !== undefined && startPeriod !== 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'startPeriod must be 1 for a spread item — it always spans the whole project',
+      path: ['startPeriod'],
+    });
+  }
 }
 
 export const roadmapItemCreateSchema = z.object({
@@ -286,7 +306,7 @@ export const roadmapItemCreateSchema = z.object({
   startPeriod: z.number().int().min(1),
   periodCount: z.number().int().min(0),
 }).strict().superRefine((data, ctx) => {
-  refineRoadmapItemPeriodCount(data.kind ?? 'bar', data.periodCount, ctx);
+  refineRoadmapItemPeriodCount(data.kind ?? 'bar', data.periodCount, ctx, data.startPeriod);
 });
 
 // Partial update: the kind/periodCount pairing is only checkable here when BOTH
@@ -302,7 +322,7 @@ export const roadmapItemUpdateSchema = z.object({
   displayOrder: z.number().int().min(0).optional(),
 }).strict().superRefine((data, ctx) => {
   if (data.kind !== undefined && data.periodCount !== undefined) {
-    refineRoadmapItemPeriodCount(data.kind, data.periodCount, ctx);
+    refineRoadmapItemPeriodCount(data.kind, data.periodCount, ctx, data.startPeriod);
   }
 });
 

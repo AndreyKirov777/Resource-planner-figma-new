@@ -1501,20 +1501,27 @@ app.patch('/api/roadmap-items/:id', async (req, res) => {
 
     const finalKind = kind ?? existing.kind;
     const finalPeriodCount = periodCount ?? existing.periodCount;
+    const finalStartPeriod = startPeriod ?? existing.startPeriod;
     if (finalKind === 'bar' && finalPeriodCount < 1) {
       return res.status(400).json({ error: 'periodCount must be >= 1 for a bar' });
     }
     if (finalKind === 'milestone' && finalPeriodCount !== 0) {
       return res.status(400).json({ error: 'periodCount must be 0 for a milestone' });
     }
+    if (finalKind === 'spread' && finalPeriodCount !== 0) {
+      return res.status(400).json({ error: 'periodCount must be 0 for a spread item — it always spans the whole project' });
+    }
+    if (finalKind === 'spread' && finalStartPeriod !== 1) {
+      return res.status(400).json({ error: 'startPeriod must be 1 for a spread item — it always spans the whole project' });
+    }
     // Turning a scoped bar into a milestone would leave it carrying scope — refuse.
+    // A spread item CAN carry scope (that is its whole point), so no such refusal there.
     if (kind === 'milestone' && existing.kind !== 'milestone') {
       const linkCount = await prisma.roadmapLink.count({ where: { roadmapItemId: id } });
       if (linkCount > 0) {
         return res.status(400).json({ error: 'A milestone cannot carry scope; unlink it first' });
       }
     }
-    void startPeriod; // validated by the schema; no extra cross-field rule needed
 
     const item = await prisma.roadmapItem.update({
       where: { id },

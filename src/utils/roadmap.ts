@@ -145,7 +145,7 @@ export interface CoverageReport {
 
 export interface CoverageRoadmapItem {
   id: number;
-  kind: 'bar' | 'milestone';
+  kind: 'bar' | 'milestone' | 'spread';
   startPeriod: number;
   periodCount: number;
 }
@@ -235,7 +235,10 @@ export function coverage(
     const eff = effective.get(item.id);
     if (eff?.roadmapItemId == null) return;
     const roadmapItem = itemById.get(eff.roadmapItemId);
-    if (roadmapItem === undefined || roadmapItem.kind === 'milestone') return;
+    // A spread item's window IS the whole project by definition (its stored
+    // startPeriod/periodCount are a fixed sentinel, never a real window — see
+    // the schema comment) — it can never mismatch a leaf's phase.
+    if (roadmapItem === undefined || roadmapItem.kind === 'milestone' || roadmapItem.kind === 'spread') return;
     const phase = phaseEff.get(item.id);
     if (phase?.phaseName == null) return;
     const phaseIndex = phases.findIndex((p) => p.name === phase.phaseName);
@@ -410,14 +413,14 @@ export interface RoadmapRowItem {
   id: number;
   laneId: number;
   name: string;
-  kind: 'bar' | 'milestone';
+  kind: 'bar' | 'milestone' | 'spread';
   startPeriod: number;
   periodCount: number;
   displayOrder: number;
 }
 
 export interface RoadmapRow {
-  kind: 'lane' | 'bar' | 'milestone';
+  kind: 'lane' | 'bar' | 'milestone' | 'spread';
   id: number;
   laneId: number | null;
   name: string;
@@ -425,7 +428,7 @@ export interface RoadmapRow {
   periodCount: number;
   hours: number;
   fte: number;
-  /** True for a bar with no scope leaves at all — rendered with the "no scope" style. */
+  /** True for a bar/spread item with no scope leaves at all — rendered with the "no scope" style. */
   emptyScope: boolean;
   /** Periods where demand exceeds supply for this item. Slice A always passes []. */
   overDemandPeriods: number[];
@@ -441,13 +444,20 @@ function itemFte(hours: number, periodCount: number, hrsPerPeriod: number): numb
  * The flat render list the chart draws: one row per lane (in `displayOrder`),
  * then its items (in `displayOrder`) unless the lane is collapsed. Pure —
  * the component maps this straight to DOM with no further derivation.
+ *
+ * `np` is the project's total period count: a spread item's stored
+ * startPeriod/periodCount are a fixed (1, 0) sentinel (see the schema
+ * comment), never a real window, so its RENDER window is synthesized here as
+ * the whole project, `[1, np]` — the one place that translates the sentinel
+ * into a drawable rect.
  */
 export function toRoadmapRows(
   lanes: readonly RoadmapRowLane[],
   items: readonly RoadmapRowItem[],
   effortByItemId: Map<number, Map<string, number>>,
   collapsed: ReadonlySet<number>,
-  hrsPerPeriod: number
+  hrsPerPeriod: number,
+  np: number
 ): RoadmapRow[] {
   const rows: RoadmapRow[] = [];
   const sortedLanes = [...lanes].sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
@@ -466,7 +476,10 @@ export function toRoadmapRows(
     const itemRows: RoadmapRow[] = laneItems.map((item) => {
       const effort = effortByItemId.get(item.id) ?? new Map<string, number>();
       const hours = totalHours(effort);
-      const fte = itemFte(hours, item.periodCount, hrsPerPeriod);
+      const isSpread = item.kind === 'spread';
+      const startPeriod = isSpread ? 1 : item.startPeriod;
+      const periodCount = isSpread ? Math.max(1, np) : item.periodCount;
+      const fte = itemFte(hours, periodCount, hrsPerPeriod);
       laneHours += hours;
       laneFte += fte;
       return {
@@ -474,11 +487,11 @@ export function toRoadmapRows(
         id: item.id,
         laneId: lane.id,
         name: item.name,
-        startPeriod: item.startPeriod,
-        periodCount: item.periodCount,
+        startPeriod,
+        periodCount,
         hours,
         fte,
-        emptyScope: item.kind === 'bar' && hours === 0,
+        emptyScope: (item.kind === 'bar' || isSpread) && hours === 0,
         overDemandPeriods: [],
         collapsed: false,
       };
