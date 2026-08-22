@@ -296,12 +296,13 @@ export function ResourcePlan({
     [onProjectSettingsChange]
   );
 
-  // Roadmap items travel with the phase they were placed under, exactly like
-  // allocations: `startPeriod` is remapped through the same `periodMap`
-  // `reorderPhases`/the delete-phase handler already build; `periodCount` is
-  // untouched. An item whose window falls in periods the map doesn't cover
-  // (e.g. a deleted phase) is left as-is — kept, not clamped or dropped — and
-  // surfaces later in the roadmap's own Phase mismatch coverage card.
+  // Roadmap items travel with the periods they were placed under, exactly like
+  // allocations: `startPeriod` is remapped through a `periodMap` built by the
+  // caller (whole-phase reorder/delete, or a single-period insert/remove);
+  // `periodCount` is untouched. An item whose window falls in periods the map
+  // doesn't cover (e.g. a deleted or removed period) is left as-is — kept, not
+  // clamped or dropped — and surfaces later in the roadmap's own Phase
+  // mismatch coverage card.
   const remapRoadmapAfterPhaseChange = useCallback(
     (periodMap: Map<number, number>) => {
       if (!roadmapItems || !onUpdateRoadmapItem || periodMap.size === 0) return;
@@ -390,8 +391,18 @@ export function ResourcePlan({
         return { ...plan, allocations: newAllocations };
       });
       onResourcePlansChange(updatedResourcePlans);
+
+      // Periods at or before the insertion point keep their number; everything
+      // after it shifts by one. Same remap roadmap items already get on
+      // whole-phase reorder/delete (remapRoadmapAfterPhaseChange), just for a
+      // single-period insert instead of a phase-level change.
+      const periodMap = new Map<number, number>();
+      periodNumbers.forEach((oldNum) => {
+        if (oldNum > afterPosition) periodMap.set(oldNum, oldNum + 1);
+      });
+      remapRoadmapAfterPhaseChange(periodMap);
     },
-    [phases, periodNumbers, resourcePlans, persistPhases, onResourcePlansChange]
+    [phases, periodNumbers, resourcePlans, persistPhases, onResourcePlansChange, remapRoadmapAfterPhaseChange]
   );
 
   const removeSpecificPeriod = useCallback(
@@ -425,8 +436,18 @@ export function ResourcePlan({
         return { ...plan, allocations: newAllocations };
       });
       onResourcePlansChange(updatedResourcePlans);
+
+      // Only surviving periods get a mapping, matching deletePhase: a roadmap
+      // item sitting exactly on the removed period is kept, not clamped, and
+      // everything after it shifts down by one.
+      const periodMap = new Map<number, number>();
+      periodNumbers.forEach((oldNum) => {
+        if (oldNum === weekToRemove) return;
+        if (oldNum > weekToRemove) periodMap.set(oldNum, oldNum - 1);
+      });
+      remapRoadmapAfterPhaseChange(periodMap);
     },
-    [periodNumbers, phases, resourcePlans, persistPhases, onResourcePlansChange]
+    [periodNumbers, phases, resourcePlans, persistPhases, onResourcePlansChange, remapRoadmapAfterPhaseChange]
   );
 
   const removeRole = useCallback((roleId: number) => {

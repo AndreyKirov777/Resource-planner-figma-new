@@ -357,6 +357,45 @@ describe('roadmap items remap with phase changes', () => {
     expect(onUpdateRoadmapItem).not.toHaveBeenCalled();
   });
 
+  it('insert period: items after the insertion point shift by one, items before it do not', async () => {
+    const onUpdateRoadmapItem = vi.fn().mockResolvedValue(undefined);
+    // Build owns periods 3-8; "Add period" appends at position 8 (end of Build).
+    // UAT (periods 9-10) sits entirely after that point and shifts to 10-11.
+    renderPlan(
+      [
+        roadmapItem({ id: 801, startPeriod: 5, periodCount: 1 }), // inside Build, before the insert point
+        roadmapItem({ id: 802, startPeriod: 9, periodCount: 1 }), // start of UAT, after the insert point
+      ],
+      onUpdateRoadmapItem
+    );
+    const chips = phaseChips();
+
+    fireEvent.pointerDown(within(chips[1]).getByRole('button'), { ctrlKey: false, button: 0 });
+    fireEvent.click(await screen.findByText('Add Week'));
+
+    expect(onUpdateRoadmapItem).not.toHaveBeenCalledWith(801, expect.anything());
+    expect(onUpdateRoadmapItem).toHaveBeenCalledWith(802, { startPeriod: 10 });
+  });
+
+  it('remove last period: an item exactly on the removed period is kept unmapped; later items shift down', async () => {
+    const onUpdateRoadmapItem = vi.fn().mockResolvedValue(undefined);
+    // Build owns periods 3-8; "Remove Last period" removes period 8.
+    renderPlan(
+      [
+        roadmapItem({ id: 901, startPeriod: 8, periodCount: 1 }), // exactly the removed period
+        roadmapItem({ id: 902, startPeriod: 9, periodCount: 1 }), // after it, shifts down by one
+      ],
+      onUpdateRoadmapItem
+    );
+    const chips = phaseChips();
+
+    fireEvent.pointerDown(within(chips[1]).getByRole('button'), { ctrlKey: false, button: 0 });
+    fireEvent.click(await screen.findByText('Remove Last Week'));
+
+    expect(onUpdateRoadmapItem).not.toHaveBeenCalledWith(901, expect.anything());
+    expect(onUpdateRoadmapItem).toHaveBeenCalledWith(902, { startPeriod: 8 });
+  });
+
   it('is a no-op entirely when roadmapItems/onUpdateRoadmapItem are omitted (backward compatible)', () => {
     renderPlan(); // no roadmap props at all
     const chips = phaseChips();
