@@ -30,7 +30,13 @@ import {
   RoadmapRowLane,
   RoadmapRowItem,
 } from '../../utils/roadmap';
-import { buildRoadmapLoad, overDemandPeriodsInWindow, RoadmapLoadItemInput } from '../../utils/roadmapLoad';
+import {
+  buildRoadmapLoad,
+  overDemandPeriodsInWindow,
+  roadmapLoadKeys,
+  RoadmapLoadDimension,
+  RoadmapLoadItemInput,
+} from '../../utils/roadmapLoad';
 import {
   ZOOM_LADDER,
   DEFAULT_ZOOM_INDEX,
@@ -39,10 +45,12 @@ import {
 } from '../../utils/roadmapGeometry';
 import { RoadmapGrid } from './RoadmapGrid';
 import { RoadmapTimeline } from './RoadmapTimeline';
+import { RoadmapLoadStrip } from './RoadmapLoadStrip';
 import { RoadmapEditorPanel } from './RoadmapEditorPanel';
 import { BootstrapDialog } from './BootstrapDialog';
 import { RoadmapDragCommit } from './useRoadmapDrag';
 import { Button } from '../ui/button';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../ui/select';
 
 type RoadmapItemPatch = Partial<{
   name: string;
@@ -211,6 +219,21 @@ export function Roadmap({
     () => toRoadmapRows(rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np, overDemandByItemId),
     [rowLanes, rowItems, effortByItemId, collapsed, hrsPerPeriod, np, overDemandByItemId]
   );
+
+  // CAP-9's load strip is a SINGLE explicit role/discipline at a time,
+  // switchable from the toolbar (the conservative reading of the open
+  // question — see the Slice B final report). Defaults to the first
+  // available role, falling back to the first discipline, then to nothing.
+  const roleKeys = useMemo(() => roadmapLoadKeys(roadmapLoad, 'role'), [roadmapLoad]);
+  const disciplineKeys = useMemo(() => roadmapLoadKeys(roadmapLoad, 'discipline'), [roadmapLoad]);
+  const [loadSelection, setLoadSelection] = useState<{ dimension: RoadmapLoadDimension; key: string } | null>(null);
+  const effectiveLoadSelection = useMemo(() => {
+    const available = loadSelection?.dimension === 'discipline' ? disciplineKeys : roleKeys;
+    if (loadSelection && available.includes(loadSelection.key)) return loadSelection;
+    if (roleKeys.length > 0) return { dimension: 'role' as const, key: roleKeys[0] };
+    if (disciplineKeys.length > 0) return { dimension: 'discipline' as const, key: disciplineKeys[0] };
+    return null;
+  }, [loadSelection, roleKeys, disciplineKeys]);
 
   const phaseHours = useMemo(() => {
     const phaseNames = new Set(phases.map((p) => p.name));
@@ -443,6 +466,45 @@ export function Roadmap({
         >
           Fit
         </Button>
+        <div className="mx-1 h-5 w-px bg-border" aria-hidden />
+        <Select
+          value={effectiveLoadSelection ? `${effectiveLoadSelection.dimension}:${effectiveLoadSelection.key}` : undefined}
+          onValueChange={(v) => {
+            const sep = v.indexOf(':');
+            const dimension = v.slice(0, sep) as RoadmapLoadDimension;
+            const key = v.slice(sep + 1);
+            setLoadSelection({ dimension, key });
+          }}
+          disabled={roleKeys.length === 0 && disciplineKeys.length === 0}
+        >
+          <SelectTrigger size="sm" className="w-[220px]" aria-label="Load strip role or discipline">
+            <SelectValue placeholder="No demand yet">
+              {effectiveLoadSelection ? `Load ${effectiveLoadSelection.key || '(none)'}` : 'No demand yet'}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {roleKeys.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>By role</SelectLabel>
+                {roleKeys.map((r) => (
+                  <SelectItem key={`role:${r}`} value={`role:${r}`}>
+                    {r || '(none)'}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+            {disciplineKeys.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>By discipline</SelectLabel>
+                {disciplineKeys.map((d) => (
+                  <SelectItem key={`discipline:${d}`} value={`discipline:${d}`}>
+                    {d}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+          </SelectContent>
+        </Select>
         <div className="flex-1" />
         <Button variant="outline" size="sm" onClick={handleAddLane}>
           Add lane
@@ -461,37 +523,50 @@ export function Roadmap({
       </div>
 
       <div className="flex" ref={chartRef}>
-        <RoadmapGrid
-          rows={rows}
-          selectedItemId={selectedItemId}
-          onSelectItem={(id) => setSelectedItemId(id)}
-          onToggleLane={toggleLane}
-          onRenameLane={(id, name) => void onUpdateLane(id, { name })}
-          onDeleteLane={handleDeleteLane}
-          onMoveLane={moveLane}
-          onEditItem={(id) => setEditorItemId(id)}
-          onDeleteItem={handleDeleteItem}
-          onMoveItem={moveItem}
-        />
-        <RoadmapTimeline
-          rows={rows}
-          phases={phases}
-          phaseHours={phaseHours}
-          effortByItemId={effortByItemId}
-          roadmapLoad={roadmapLoad}
-          hrsPerPeriod={hrsPerPeriod}
-          periodWidth={periodWidth}
-          np={np}
-          planningMode={planningMode}
-          startDate={project.startDate ?? null}
-          selectedItemId={selectedItemId}
-          onSelectItem={setSelectedItemId}
-          onOpenEditor={(id) => setEditorItemId(id)}
-          onCommit={commitDrag}
-          onScroll={(scrollLeft) => {
-            if (loadStripScrollRef.current) loadStripScrollRef.current.scrollLeft = scrollLeft;
-          }}
-        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex">
+            <RoadmapGrid
+              rows={rows}
+              selectedItemId={selectedItemId}
+              onSelectItem={(id) => setSelectedItemId(id)}
+              onToggleLane={toggleLane}
+              onRenameLane={(id, name) => void onUpdateLane(id, { name })}
+              onDeleteLane={handleDeleteLane}
+              onMoveLane={moveLane}
+              onEditItem={(id) => setEditorItemId(id)}
+              onDeleteItem={handleDeleteItem}
+              onMoveItem={moveItem}
+            />
+            <RoadmapTimeline
+              rows={rows}
+              phases={phases}
+              phaseHours={phaseHours}
+              effortByItemId={effortByItemId}
+              roadmapLoad={roadmapLoad}
+              hrsPerPeriod={hrsPerPeriod}
+              periodWidth={periodWidth}
+              np={np}
+              planningMode={planningMode}
+              startDate={project.startDate ?? null}
+              selectedItemId={selectedItemId}
+              onSelectItem={setSelectedItemId}
+              onOpenEditor={(id) => setEditorItemId(id)}
+              onCommit={commitDrag}
+              onScroll={(scrollLeft) => {
+                if (loadStripScrollRef.current) loadStripScrollRef.current.scrollLeft = scrollLeft;
+              }}
+            />
+          </div>
+          <RoadmapLoadStrip
+            roadmapLoad={roadmapLoad}
+            items={loadItems}
+            dimension={effectiveLoadSelection?.dimension ?? 'role'}
+            dimensionKey={effectiveLoadSelection?.key ?? null}
+            np={np}
+            periodWidth={periodWidth}
+            scrollRef={loadStripScrollRef}
+          />
+        </div>
         {editorItem && (
           <RoadmapEditorPanel
             item={editorItem}

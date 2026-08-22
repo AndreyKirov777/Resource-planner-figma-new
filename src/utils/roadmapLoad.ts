@@ -82,6 +82,8 @@ export interface RoadmapLoad {
   itemDistributions: Map<number, Distribution>;
   /** One aggregate distribution across every unplaced-but-phased leaf (producer 2). */
   phaseBaseline: Distribution;
+  /** role -> the discipline recorded on some WbsEstimate carrying that role — the load strip's discipline mode. */
+  roleDiscipline: Map<string, string>;
   /** Item id -> its per-role effort (== `itemEffort` output), so a component doesn't recompute it. */
   itemEffortByRole: Map<number, Map<string, number>>;
 }
@@ -299,6 +301,7 @@ export function buildRoadmapLoad(input: RoadmapLoadInput): RoadmapLoad {
     itemDistributions,
     phaseBaseline,
     itemEffortByRole,
+    roleDiscipline,
   };
 }
 
@@ -396,4 +399,51 @@ export function overDemandPeriodsInWindow(
     if (over) periods.push(p);
   }
   return periods;
+}
+
+export interface LoadContributor {
+  source: 'item' | 'phase-baseline';
+  /** A roadmap item id, or -1 for the synthetic phase-baseline bucket. */
+  id: number;
+  name: string;
+  hours: number;
+}
+
+function rolesForDiscipline(load: RoadmapLoad, discipline: string): string[] {
+  const roles: string[] = [];
+  load.roleDiscipline.forEach((d, role) => {
+    if (d === discipline) roles.push(role);
+  });
+  return roles;
+}
+
+/**
+ * The load strip's per-period popover (CAP-9): every roadmap item (and the
+ * phase-baseline bucket, when unplaced effort contributes) producing demand
+ * for `key`/`period`, largest first. In discipline mode this sums every role
+ * that resolves to that discipline.
+ */
+export function contributorsForPeriod(
+  load: RoadmapLoad,
+  items: readonly RoadmapLoadItemInput[],
+  dimension: RoadmapLoadDimension,
+  key: string,
+  period: number
+): LoadContributor[] {
+  const roles = dimension === 'discipline' ? rolesForDiscipline(load, key) : [key];
+  const contributors: LoadContributor[] = [];
+
+  items.forEach((item) => {
+    const dist = load.itemDistributions.get(item.id);
+    if (!dist) return;
+    const hours = roles.reduce((sum, role) => sum + (dist.get(period)?.get(role) ?? 0), 0);
+    if (hours > 1e-9) contributors.push({ source: 'item', id: item.id, name: item.name, hours });
+  });
+
+  const baselineHours = roles.reduce((sum, role) => sum + (load.phaseBaseline.get(period)?.get(role) ?? 0), 0);
+  if (baselineHours > 1e-9) {
+    contributors.push({ source: 'phase-baseline', id: -1, name: 'Unplaced effort (phase baseline)', hours: baselineHours });
+  }
+
+  return contributors.sort((a, b) => b.hours - a.hours);
 }

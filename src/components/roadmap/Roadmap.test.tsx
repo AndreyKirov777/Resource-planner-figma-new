@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { Roadmap } from './Roadmap';
 import { Project, RoadmapLaneWithItems, WbsItem } from '../../services/api';
 import { snapDrag, ZOOM_LADDER, DEFAULT_ZOOM_INDEX, periodX } from '../../utils/roadmapGeometry';
+import { buildRoadmapLoad, demandHours, supplyHours } from '../../utils/roadmapLoad';
 
 /**
  * Drives the KEYBOARD path, not the pointer path — no pointer harness needed,
@@ -222,6 +223,20 @@ describe('column grid alignment', () => {
     const col1 = screen.getByTestId('roadmap-period-col-1');
     expect(col1.style.width).toBe(`${PERIOD_WIDTH}px`);
   });
+
+  it('the load strip cell for period p shares a left edge and width with the header/row column (third grid)', () => {
+    renderRoadmap();
+    const headerCol = screen.getByTestId('roadmap-period-col-3');
+    const loadCell = screen.getByTestId('roadmap-load-cell-3');
+    // Same fixed-width flow layout as the header/period columns -> same width,
+    // and the same DOM order from period 1 gives it the same left edge.
+    expect(loadCell.style.width).toBe(headerCol.style.width);
+    expect(loadCell.style.width).toBe(`${PERIOD_WIDTH}px`);
+
+    const stripScroll = screen.getByTestId('roadmap-load-strip-scroll');
+    const cellsInOrder = Array.from(stripScroll.querySelectorAll('[data-testid^="roadmap-load-cell-"]'));
+    expect(cellsInOrder[2]).toBe(loadCell); // period 3 is the 3rd cell, same as the header's 3rd column
+  });
 });
 
 describe('CAP-9 over-demand stripe (roadmapLoad wiring)', () => {
@@ -327,5 +342,79 @@ describe('CAP-9 over-demand stripe (roadmapLoad wiring)', () => {
     );
 
     expect(screen.queryByTestId('roadmap-stripe-10')).not.toBeInTheDocument();
+  });
+});
+
+describe('CAP-9 load strip', () => {
+  it("a cell's demand/supply figures match a direct roadmapLoad.ts call for the same period", () => {
+    const loadWbsItems: WbsItem[] = [
+      {
+        id: 502,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          { id: 3, discipline: 'Engineering', role: 'Backend Developer', hours: 200, wbsItemId: 502, createdAt: '', updatedAt: '' },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [502];
+    const resourcePlans = [
+      {
+        id: 1,
+        role: 'Backend Developer',
+        intHourlyRate: 0,
+        clientHourlyRate: 0,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        allocations: [{ id: 1, periodNumber: 6, allocation: 50, resourcePlanId: 1, createdAt: '', updatedAt: '' }],
+      },
+    ];
+
+    render(
+      <Roadmap
+        project={project}
+        wbsItems={loadWbsItems}
+        roadmapLanes={lanes}
+        resourcePlans={resourcePlans}
+        rateCards={[]}
+        onAddLane={vi.fn()}
+        onUpdateLane={vi.fn()}
+        onDeleteLane={vi.fn()}
+        onAddItem={vi.fn()}
+        onUpdateItem={vi.fn(() => Promise.resolve())}
+        onDeleteItem={vi.fn()}
+        onReplaceItemLinks={vi.fn()}
+        onBootstrap={vi.fn()}
+        onSetStartDate={vi.fn()}
+      />
+    );
+
+    // Item 10 (W5-W8), 200h Backend Developer -> 50h/period demand.
+    // Period 6 supply: 50% allocation * 40h/period = 20h.
+    const expectedLoad = buildRoadmapLoad({
+      wbsItems: loadWbsItems,
+      roadmapItems: [{ id: 10, name: 'API', kind: 'bar', startPeriod: 5, periodCount: 4 }],
+      links: [{ wbsItemId: 502, roadmapItemId: 10 }],
+      resourcePlans,
+      rateCards: [],
+      phases: JSON.parse(project.phases as string),
+      planningMode: 'weekly',
+      daysInFTE: project.daysInFTE,
+    });
+    const expectedDemand = Math.round(demandHours(expectedLoad, 'role', 'Backend Developer', 6));
+    const expectedSupply = Math.round(supplyHours(expectedLoad, 'role', 'Backend Developer', 6));
+    expect(expectedDemand).toBe(50);
+    expect(expectedSupply).toBe(20);
+
+    const cell = screen.getByTestId('roadmap-load-cell-6');
+    expect(cell).toHaveAccessibleName(`Period 6: ${expectedDemand} of ${expectedSupply} hours`);
   });
 });

@@ -11,6 +11,7 @@ import {
   feasiblePeriods,
   totalDemandHours,
   spreadDistribution,
+  contributorsForPeriod,
   RoadmapLoadInput,
   RoadmapLoadItemInput,
 } from './roadmapLoad';
@@ -338,5 +339,46 @@ describe('demandFte and discipline dimension', () => {
     const links: RoadmapLinkRecord[] = [{ wbsItemId: 1, roadmapItemId: 100 }];
     const l = load({ wbsItems: [leaf], roadmapItems: items, links });
     expect(demandHours(l, 'discipline', 'Engineering', 1)).toBe(80);
+  });
+});
+
+describe('contributorsForPeriod — load strip popover', () => {
+  it('lists the item and the phase-baseline bucket, largest first, when both contribute to a period', () => {
+    const placedLeaf = wbsItem({ id: 1, estimates: [estimate({ wbsItemId: 1, role: 'Backend Developer', hours: 20 })] });
+    const baselineLeaf = wbsItem({
+      id: 2,
+      phaseName: 'Discovery',
+      estimates: [estimate({ wbsItemId: 2, role: 'Backend Developer', hours: 100 })],
+    });
+    const items: RoadmapLoadItemInput[] = [roadmapItem({ id: 100, name: 'API', startPeriod: 1, periodCount: 1 })];
+    const links: RoadmapLinkRecord[] = [{ wbsItemId: 1, roadmapItemId: 100 }];
+    const l = load({ wbsItems: [placedLeaf, baselineLeaf], roadmapItems: items, links });
+
+    // Discovery = periods 1-2, so baselineLeaf's 100h/2 = 50h lands in period 1.
+    const contributors = contributorsForPeriod(l, items, 'role', 'Backend Developer', 1);
+    expect(contributors).toEqual([
+      { source: 'phase-baseline', id: -1, name: 'Unplaced effort (phase baseline)', hours: 50 },
+      { source: 'item', id: 100, name: 'API', hours: 20 },
+    ]);
+  });
+
+  it('returns an empty list for a period with no demand', () => {
+    const l = load({});
+    expect(contributorsForPeriod(l, [], 'role', 'Backend Developer', 1)).toEqual([]);
+  });
+
+  it('discipline mode sums every role under that discipline from the same item', () => {
+    const leaf = wbsItem({
+      id: 1,
+      estimates: [
+        estimate({ wbsItemId: 1, role: 'Senior Backend Developer', discipline: 'Engineering', hours: 30 }),
+        estimate({ wbsItemId: 1, role: 'Junior Backend Developer', discipline: 'Engineering', hours: 10 }),
+      ],
+    });
+    const items: RoadmapLoadItemInput[] = [roadmapItem({ id: 100, name: 'API', startPeriod: 1, periodCount: 1 })];
+    const links: RoadmapLinkRecord[] = [{ wbsItemId: 1, roadmapItemId: 100 }];
+    const l = load({ wbsItems: [leaf], roadmapItems: items, links });
+    const contributors = contributorsForPeriod(l, items, 'discipline', 'Engineering', 1);
+    expect(contributors).toEqual([{ source: 'item', id: 100, name: 'API', hours: 40 }]);
   });
 });
