@@ -400,6 +400,99 @@ export interface RoadmapRow {
   /** Periods where demand exceeds supply for this item. Slice A always passes []. */
   overDemandPeriods: number[];
   collapsed: boolean;
+  /** Milestone periods rolled up for a collapsed lane's summary bar. Always [] for item rows. */
+  milestonePeriods: number[];
+  /** Spread items owned by a lane, for the spans-project chip. Always 0 for item rows. */
+  spreadItemCount: number;
+  /** Names of the lane's spread items, for the chip's tooltip. Always [] for item rows. */
+  spreadItemNames: string[];
+  /** Total items (bar + milestone + spread) owned by a lane, for the summary tooltip. Always 0 for item rows. */
+  itemCount: number;
+}
+
+interface WindowBearing {
+  kind: string;
+  startPeriod: number;
+  periodCount: number;
+}
+
+/**
+ * Min/max span over the window-bearing items only: a bar contributes its
+ * whole window, a milestone contributes its single period, and a spread item
+ * is filtered out before the min/max ever sees it — its stored `(1, 0)`
+ * sentinel must never reach here. `null` when nothing window-bearing is
+ * left, which is exactly the empty-lane and spread-only-lane case.
+ */
+function computeSpan(items: readonly WindowBearing[]): { startPeriod: number; periodCount: number } | null {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const item of items) {
+    if (item.kind === 'spread') continue;
+    const start = item.startPeriod;
+    const finish = item.kind === 'milestone' ? item.startPeriod : item.startPeriod + item.periodCount - 1;
+    if (start < min) min = start;
+    if (finish > max) max = finish;
+  }
+  return min === Infinity ? null : { startPeriod: min, periodCount: max - min + 1 };
+}
+
+/**
+ * A lane's derived window: the union `[min startPeriod, max finish]` over
+ * its window-bearing items. Deliberately does not take `np` — nothing in
+ * the span rule depends on the project length.
+ */
+export function laneSpan(items: readonly RoadmapRowItem[]): { startPeriod: number; periodCount: number } | null {
+  return computeSpan(items);
+}
+
+export interface LaneSpanGhost {
+  itemId: number;
+  laneId: number;
+  startPeriod: number;
+  periodCount: number;
+}
+
+/**
+ * Live-preview rule: while `ghost` is non-null, the ghosted item's window
+ * (and lane) stand in for its committed values before the span is
+ * recomputed — so a lane's summary bar tracks the drag instead of lagging
+ * until commit. A cross-lane drag recomputes both the source and the
+ * destination lane. `null` ghost returns `rows` unchanged (the settled,
+ * committed spans).
+ */
+export function recomputeLaneSpans(rows: readonly RoadmapRow[], ghost: LaneSpanGhost | null): RoadmapRow[] {
+  if (ghost === null) return rows as RoadmapRow[];
+  const itemRow = rows.find((r) => r.kind !== 'lane' && r.id === ghost.itemId);
+  if (itemRow === undefined || itemRow.laneId === null) return rows as RoadmapRow[];
+
+  const affectedLaneIds = new Set([itemRow.laneId, ghost.laneId]);
+  const itemsByLane = new Map<number, RoadmapRow[]>();
+  rows.forEach((r) => {
+    if (r.kind === 'lane' || r.id === ghost.itemId) return;
+    const list = itemsByLane.get(r.laneId as number) ?? [];
+    list.push(r);
+    itemsByLane.set(r.laneId as number, list);
+  });
+  const ghosted: RoadmapRow = {
+    ...itemRow,
+    laneId: ghost.laneId,
+    startPeriod: ghost.startPeriod,
+    periodCount: ghost.periodCount,
+  };
+  const destList = itemsByLane.get(ghost.laneId) ?? [];
+  destList.push(ghosted);
+  itemsByLane.set(ghost.laneId, destList);
+
+  return rows.map((r) => {
+    if (r.kind !== 'lane' || !affectedLaneIds.has(r.id)) return r;
+    const laneItems = itemsByLane.get(r.id) ?? [];
+    const span = computeSpan(laneItems);
+    const milestonePeriods = laneItems
+      .filter((i) => i.kind === 'milestone')
+      .map((i) => i.startPeriod)
+      .sort((a, b) => a - b);
+    return { ...r, startPeriod: span?.startPeriod ?? 1, periodCount: span?.periodCount ?? 0, milestonePeriods };
+  });
 }
 
 function itemFte(hours: number, periodCount: number, hrsPerPeriod: number): number {
@@ -466,21 +559,40 @@ export function toRoadmapRows(
         emptyScope: (item.kind === 'bar' || isSpread) && hours === 0,
         overDemandPeriods: [...(overDemandByItemId?.get(item.id) ?? [])],
         collapsed: false,
+        milestonePeriods: [],
+        spreadItemCount: 0,
+        spreadItemNames: [],
+        itemCount: 0,
       };
     });
+
+    const span = laneSpan(laneItems);
+    const milestonePeriods = laneItems
+      .filter((item) => item.kind === 'milestone')
+      .map((item) => item.startPeriod)
+      .sort((a, b) => a - b);
+    const spreadItems = laneItems.filter((item) => item.kind === 'spread');
+    const spreadItemCount = spreadItems.length;
+    const spreadItemNames = spreadItems.map((item) => item.name);
+    const overDemandSet = new Set<number>();
+    itemRows.forEach((row) => row.overDemandPeriods.forEach((p) => overDemandSet.add(p)));
 
     rows.push({
       kind: 'lane',
       id: lane.id,
       laneId: null,
       name: lane.name,
-      startPeriod: 1,
-      periodCount: 0,
+      startPeriod: span?.startPeriod ?? 1,
+      periodCount: span?.periodCount ?? 0,
       hours: laneHours,
       fte: laneFte,
       emptyScope: false,
-      overDemandPeriods: [],
+      overDemandPeriods: [...overDemandSet].sort((a, b) => a - b),
       collapsed: collapsed.has(lane.id),
+      milestonePeriods,
+      spreadItemCount,
+      spreadItemNames,
+      itemCount: laneItems.length,
     });
     if (!collapsed.has(lane.id)) rows.push(...itemRows);
   }

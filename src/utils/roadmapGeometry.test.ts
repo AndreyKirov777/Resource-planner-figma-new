@@ -11,6 +11,10 @@ import {
   zoomStep,
   ZOOM_LADDER,
   BAR_INSET,
+  laneBarRect,
+  laneSummaryPath,
+  laneMilestoneXs,
+  LANE_CAP_WIDTH,
 } from './roadmapGeometry';
 
 /** Inverse of `periodX`, reimplemented here since production only needs the forward direction. */
@@ -294,5 +298,54 @@ describe('zoom ladder', () => {
   it('fit falls back to the smallest rung when even that overflows', () => {
     const idx = fit(1000, 100);
     expect(idx).toBe(0);
+  });
+});
+
+describe('laneBarRect', () => {
+  it('agrees with barRect edge for edge — the two agree by construction', () => {
+    const periodWidth = 24;
+    expect(laneBarRect(3, 4, periodWidth)).toEqual(barRect(3, 4, periodWidth));
+  });
+});
+
+describe('laneSummaryPath', () => {
+  it('draws caps LANE_CAP_WIDTH in from each edge at a normal width', () => {
+    const rect = { left: 100, width: 80 }; // >> 2 * LANE_CAP_WIDTH
+    const d = laneSummaryPath(rect);
+    expect(d).toContain(`L ${LANE_CAP_WIDTH} `);
+    expect(d).toContain(`L ${rect.width - LANE_CAP_WIDTH} `);
+  });
+
+  it('shrinks the caps to half the rect when narrower than 2 * LANE_CAP_WIDTH, meeting but never crossing', () => {
+    const rect = { left: 0, width: LANE_CAP_WIDTH }; // < 2 * LANE_CAP_WIDTH
+    const d = laneSummaryPath(rect);
+    const half = rect.width / 2;
+    // both the left cap's inner edge and the right cap's inner edge land on the same x —
+    // they meet exactly, never overlap past each other.
+    const occurrences = d.split(`${half} `).length - 1;
+    expect(occurrences).toBeGreaterThanOrEqual(2);
+  });
+
+  it('at exactly 2 * LANE_CAP_WIDTH the caps meet the un-shrunk boundary', () => {
+    const rect = { left: 0, width: 2 * LANE_CAP_WIDTH };
+    const d = laneSummaryPath(rect);
+    expect(d).toContain(`L ${LANE_CAP_WIDTH} `);
+  });
+
+  it('is drawn in local coordinates starting at 0, independent of rect.left', () => {
+    const a = laneSummaryPath({ left: 0, width: 40 });
+    const b = laneSummaryPath({ left: 500, width: 40 });
+    expect(a).toBe(b);
+  });
+});
+
+describe('laneMilestoneXs', () => {
+  it('reuses milestoneX for each rolled-up period', () => {
+    const periodWidth = 20;
+    expect(laneMilestoneXs([2, 5], periodWidth)).toEqual([milestoneX(2, periodWidth), milestoneX(5, periodWidth)]);
+  });
+
+  it('empty periods -> empty ticks', () => {
+    expect(laneMilestoneXs([], 20)).toEqual([]);
   });
 });

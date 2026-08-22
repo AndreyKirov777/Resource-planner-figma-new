@@ -27,6 +27,9 @@ phaseBands(phases, periodWidth)                 → [{ name, left, width, color,
 rowAt(y, rowHeight)                             → visible-row index
 snapDrag(mode, origin, dxPx, periodWidth, np)   → { startPeriod, periodCount }
 stripeSegments(item, overPeriods, periodWidth)  → [{ left, width }] clipped to the bar
+laneBarRect(startPeriod, periodCount, periodWidth) → { left, width }  (delegates to barRect)
+laneSummaryPath(rect)                           → SVG path 'd' for the bracket-with-end-caps silhouette
+laneMilestoneXs(periods, periodWidth)           → rolled-up tick centres (reuses milestoneX)
 ```
 
 `snapDrag` is the whole interaction rule in one testable function. `mode` is `"move" | "resizeStart" | "resizeEnd"`; `origin` is the item's pre-drag `{ startPeriod, periodCount }`; `np` is the project's period count. Its contract:
@@ -105,6 +108,8 @@ Where a canvas grid would be right — thousands of cells, per-cell text — the
 ## Deliberately not built
 
 Dependency arrows and link handles; progress bars, handles and any percentage-complete affordance; baselines; critical path; nested items; row virtualization; free-pixel zoom (zoom steps `periodWidth` through a fixed ladder and re-renders — there is no separate zoom engine); a canvas renderer; an export-to-image path (`clientViewPng.ts` is the precedent if it is ever wanted).
+
+**The lane summary bar is a read-out, not a control.** It is not draggable or resizable, has no grab cursor and no window key bindings — clicking it (or `Enter`/`Space` while focused) only toggles the lane's collapse, the same action the left grid's lane row already performs. A lane-level scheduling gesture — dragging the bar to shift every child at once — is explicitly out of scope: it is a different feature with its own atomicity and undo story, not "just the pointer part" of this one. Its window is always derived from its children in `roadmap.ts` (`laneSpan`, `recomputeLaneSpans`); there is no stored lane window anywhere.
 
 ## Testing contract
 
