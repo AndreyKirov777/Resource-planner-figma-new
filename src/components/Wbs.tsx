@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import DataEditor, {
   CompactSelection,
   CustomCell,
@@ -552,6 +552,7 @@ export function Wbs({
   const [reconciliationOpen, setReconciliationOpen] = useState(false);
   const [rowMenu, setRowMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<WbsColumnId[]>(() => loadHiddenWbsColumns(project.id));
+  const [gridClientWidth, setGridClientWidth] = useState(0);
   const isMac = useMemo(() => isMacPlatform(), []);
   const gridRef = useRef<DataEditorRef | null>(null);
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
@@ -803,16 +804,39 @@ export function Wbs({
     [rows]
   );
 
-  const columns = useMemo(
-    (): GridColumn[] =>
-      visibleColumns.map((c) => ({
-        title: c.title,
-        id: c.id === 'outline' ? 'wbs' : c.id, // 'wbs' matches the grid id every prior snapshot/test expects
-        width: c.width,
-        ...(c.grow !== undefined ? { grow: c.grow } : {}),
-      })),
-    [visibleColumns]
-  );
+  // Stretch Task Description to fill leftover width ourselves. Glide's `grow`
+  // does the same math only after the first measure, so the column visibly
+  // eases from its base 360px to the grown width on every page entry.
+  useLayoutEffect(() => {
+    const el = gridContainerRef.current;
+    if (el === null) return;
+    const sync = () => {
+      const w = el.clientWidth;
+      setGridClientWidth((prev) => (prev === w ? prev : w));
+    };
+    sync();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [wbsItems.length]);
+
+  const columns = useMemo((): GridColumn[] => {
+    const mapped = visibleColumns.map((c) => ({
+      title: c.title,
+      id: c.id === 'outline' ? 'wbs' : c.id, // 'wbs' matches the grid id every prior snapshot/test expects
+      width: c.width,
+    }));
+    const nameIdx = visibleColumns.findIndex((c) => c.id === 'name');
+    if (nameIdx >= 0 && gridClientWidth > 0) {
+      const rest = mapped.reduce((sum, col, i) => (i === nameIdx ? sum : sum + col.width), 0);
+      mapped[nameIdx] = {
+        ...mapped[nameIdx],
+        width: Math.max(mapped[nameIdx].width, gridClientWidth - rest),
+      };
+    }
+    return mapped;
+  }, [visibleColumns, gridClientWidth]);
 
   const getCellContent = useCallback(
     ([col, row]: Item): GridCell => {
