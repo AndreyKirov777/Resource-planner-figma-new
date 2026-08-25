@@ -134,15 +134,20 @@ beforeEach(async () => {
 });
 
 describe('App', () => {
-  it('renders five tabs including Project list and WBS', async () => {
+  it('renders six tabs with Rate Card last', async () => {
     renderApp();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /project list/i })).toBeInTheDocument();
     });
-    expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /resource list/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /rate card/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /^wbs$/i })).toBeInTheDocument();
+    const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    expect(tabs).toEqual([
+      'Project list',
+      'Resource Plan',
+      'Resource List',
+      'WBS',
+      'Roadmap',
+      'Rate Card',
+    ]);
   });
 
   it('shows Resource Plan by default', async () => {

@@ -1332,9 +1332,9 @@ export default function App() {
           <TabsTrigger value="project-list">Project list</TabsTrigger>
           <TabsTrigger value="resource-plan">Resource Plan</TabsTrigger>
           <TabsTrigger value="resource-list">Resource List</TabsTrigger>
-          <TabsTrigger value="rate-card">Rate Card</TabsTrigger>
           <TabsTrigger value="wbs">WBS</TabsTrigger>
           <TabsTrigger value="roadmap">Roadmap</TabsTrigger>
+          <TabsTrigger value="rate-card">Rate Card</TabsTrigger>
         </TabsList>
 
         <TabsContent value="project-list" className="mt-6">
@@ -1399,21 +1399,6 @@ export default function App() {
           />
         </TabsContent>
 
-        <TabsContent value="rate-card" className="mt-6">
-          <RateCard
-            rateCards={rateCards}
-            importMeta={rateCardMeta}
-            onRateCardsChange={handleRateCardsChange}
-            onRateCardUpdate={handleRateCardUpdate}
-            onAddRateCard={handleAddRateCard}
-            onAddRateCardsBulk={handleAddRateCardsBulk}
-            onDeleteRateCard={handleDeleteRateCard}
-            onDeleteAllRateCards={handleDeleteAllRateCards}
-            onAddResourceList={handleAddResourceList}
-            defaultLocation={currentProject?.defaultLocation}
-          />
-        </TabsContent>
-
         <TabsContent value="wbs" className="mt-6">
           <Wbs
             key={currentProject?.id || 'default'}
@@ -1450,6 +1435,21 @@ export default function App() {
             onBootstrap={handleBootstrapRoadmap}
             onSetStartDate={handleSetProjectStartDate}
             onGenerateDraftPlan={handleApplyGeneratedPlan}
+          />
+        </TabsContent>
+
+        <TabsContent value="rate-card" className="mt-6">
+          <RateCard
+            rateCards={rateCards}
+            importMeta={rateCardMeta}
+            onRateCardsChange={handleRateCardsChange}
+            onRateCardUpdate={handleRateCardUpdate}
+            onAddRateCard={handleAddRateCard}
+            onAddRateCardsBulk={handleAddRateCardsBulk}
+            onDeleteRateCard={handleDeleteRateCard}
+            onDeleteAllRateCards={handleDeleteAllRateCards}
+            onAddResourceList={handleAddResourceList}
+            defaultLocation={currentProject?.defaultLocation}
           />
         </TabsContent>
       </Tabs>
