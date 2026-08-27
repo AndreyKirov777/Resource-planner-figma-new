@@ -1,0 +1,24 @@
+{
+  "schema_version": "0.1.0",
+  "evaluated_at": "2026-08-27T07:00:00.000Z",
+  "repo": "Resource planner",
+  "target": {
+    "type": "release",
+    "id": "v1-shipped",
+    "label": "Resource planner v1 as shipped"
+  },
+  "collection_status": "COLLECTED",
+  "gate_basis": "priority_thresholds",
+  "gate_status": "FAIL",
+  "rationale": "P0 coverage is 100%, but overall FULL coverage is 74% (minimum 80%) and P1 FULL coverage is 71% (minimum 80%). Evidence holes: weekly/monthly conversion has no API or modeConversion unit tests; project copy and generate-plan HTTP/UI are untested; client-view chrome and roadmap editor are only partly proven. This is a test-evidence FAIL, not a finding that WBS or Roadmap A/B are unimplemented.",
+  "p0_status": "MET",
+  "p1_status": "NOT_MET",
+  "overall_status": "NOT_MET",
+  "critical_open": 0,
+  "links": {
+    "trace_report_path": "_bmad-output/test-artifacts/traceability-matrix.md",
+    "trace_report_url": "",
+    "artifact_url": "",
+    "journey_evidence_url": ""
+  }
+}

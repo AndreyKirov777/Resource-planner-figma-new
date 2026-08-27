@@ -2,15 +2,15 @@
 id: SPEC-resource-planner
 companions:
   - ../../project-context.md                          # binding convention catalog (50 rules) — read first when implementing
-  - ../../../docs/architecture.md                     # system design, layers, data flow, gotchas
-  - ../../../docs/data-models.md                      # Prisma schema, 6 tables, period model
-  - ../../../docs/api-contracts.md                    # the 28 REST endpoints + Zod write schemas
-  - ../../../docs/integration-architecture.md         # frontend↔backend seam, shared contract
-  - ../../../docs/component-inventory.md              # feature components + UI primitives
-  - ../../../docs/ai-resource-plan-generation-spec.md # AI plan-generation feature — design of record
+  - ../../../docs/ai-resource-plan-generation-spec.md # AI plan-generation — design of record (Goals 1a/1b/2 shipped; Goal 3 deferred)
 sources:
   - ../../../README.md          # feature list absorbed into Capabilities (partially stale; trust code)
   - ../../../issues-tasks.md    # tech-debt tracker absorbed into Open Questions / Assumptions
+  - ../../../docs/architecture.md                     # 2026-06-30 brownfield scan — stale companion, not system of record
+  - ../../../docs/data-models.md                      # 2026-06-30; still says 6 tables
+  - ../../../docs/api-contracts.md                    # 2026-06-30; still says 28 endpoints
+  - ../../../docs/integration-architecture.md         # 2026-06-30 brownfield scan — stale
+  - ../../../docs/component-inventory.md              # 2026-06-30 brownfield scan — stale
 ---
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability only — consult them only if you need narrative rationale or prose color this contract intentionally omits.
@@ -19,7 +19,17 @@ sources:
 
 ## Why
 
-Resource Planner exists so a delivery lead, pre-sales engineer, or PM can turn the shape of a project into a **defensible, costed, margin-aware staffing plan** in minutes rather than spreadsheets — and present a clean version of the numbers to a client. Internally, a planner builds rows of roles with per-period allocations; the app computes internal cost, client price, margin, and effort in real time, grounded in a shared, org-wide rate card with regional rates imported from Excel. The product already exists and works (a React SPA over a single-file Express/Prisma/SQLite API); the **opportunity now is to remove the blank-page cost** — let a planner describe a project in plain language and get an editable draft plan, with roles and rates constrained to the real rate card so nothing is hallucinated, and a human always accepting before anything is saved. This is the anchor every downstream trade-off resolves against: speed and correctness of *costed staffing plans*, with deterministic money math as the non-negotiable core.
+Resource Planner exists so a delivery lead, pre-sales engineer, or PM can turn the shape of a project into a **defensible, costed, margin-aware staffing plan** in minutes rather than spreadsheets — and present a clean version of the numbers to a client.
+
+The as-built product answers three planning questions, each with its own artifact:
+
+```
+WHAT     WBS       tree → leaves with hours × roles          CAP-11
+WHEN     Roadmap   lanes → windows and milestones on periods  CAP-12
+WHO      Plan      roles × periods × allocation %             CAP-1–10
+```
+
+WHAT ↔ WHO (total / discipline / phase) shipped with WBS-3. WHAT ↔ WHEN (coverage) and WHEN ↔ WHO (demand vs supply per period) shipped with the Roadmap. Internally, a planner still builds rows of roles with per-period allocations; the app computes internal cost, client price, margin, and effort in real time, grounded in a shared, org-wide rate card. The blank-page cost is also removed: a planner can describe a project in plain language and get an editable draft plan, with roles and rates constrained to the real rate card so nothing is hallucinated, and a human always accepting before anything is saved. Deterministic money math remains the non-negotiable core of WHO. WBS and Roadmap detailed contracts live in the files CAP-11 and CAP-12 point at — they are not restated here.
 
 ## Capabilities
 
@@ -57,11 +67,22 @@ Resource Planner exists so a delivery lead, pre-sales engineer, or PM can turn t
 
 - **CAP-9 — Export & import**
   - **intent:** A user can export a plan to Excel, export/import a project as JSON, and capture a PNG snapshot.
-  - **success:** Excel export is phase-grouped with per-row financials and totals; JSON export wraps `{ schemaVersion: 3, exportedAt, data }` and round-trips lists, plans, allocations, and the WBS tree on import (accepting legacy `weeklyAllocations`/`weekNumber` and v2 payloads with no WBS), with the global rate card excluded; PNG renders the table + financial summary.
+  - **success:** Excel export is phase-grouped with per-row financials and totals; JSON export wraps `{ schemaVersion: 4, exportedAt, data }` and round-trips lists, plans, allocations, the WBS tree, and the roadmap (`roadmapLanes`, plus `Project.startDate`) on import, accepting legacy `weeklyAllocations`/`weekNumber`, v2 payloads with no WBS, and v3 payloads with WBS but no roadmap; the global rate card is excluded; PNG renders the table + financial summary.
 
 - **CAP-10 — AI draft plan generation**
   - **intent:** A user can describe a project in natural language, pick a delivery region, and receive an editable draft resource plan to review before anything is saved.
   - **success:** The endpoint returns a **draft that is not persisted** and previews in the real plan grid; proposed roles are constrained to `GlobalRateCard` values; internal rates are resolved deterministically server-side and client rates computed via `calculations.ts`; the plan is saved only on explicit user acceptance; the LLM provider is swappable via config without code changes.
+
+- **CAP-11 — WBS & estimate reconciliation (WHAT)**
+  - **intent:** A planner decomposes the project into an independent work-breakdown tree and estimates hours per discipline (role optional), then sees where that bottom-up estimate disagrees with the resource plan — without either side automatically syncing the other.
+  - **success:** Shipped. The contract is `_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-12.md` (locked D1–D6) plus the delivery log `_bmad-output/implementation-artifacts/spec-wbs-*.md`. This umbrella does not restate that contract. Independent estimates + variance report (total / discipline / phase), with Unassigned and Unmapped buckets visible; hours live on WBS leaves; parents are computed.
+  - **note:** The 2026-08-12 proposal already asked to add this capability here. The code landed; this line is the overdue map entry.
+
+- **CAP-12 — Project roadmap (WHEN)**
+  - **intent:** A planner places WBS effort in time as a separate, flat roadmap of lanes, windows, and milestones (not a Gantt on WBS items), then sees coverage (WHAT ↔ WHEN) and per-period demand vs Resource Plan supply (WHEN ↔ WHO).
+  - **success:** Shipped (slices A/B). The contract is `_bmad-output/specs/spec-roadmap/SPEC.md` (that file’s CAP-1–CAP-12). This umbrella does not restate that contract.
+  - **frozen:** Roadmap **CAP-13** (draft a Resource Plan from the roadmap) is frozen 2026-08-22 on purpose — implementation exists (`buildDraftFromRoadmapLoad`), toolbar entry is disabled. Do not unfreeze from this amend. See `deferred-work.md`.
+  - **archived:** `_bmad-output/specs/spec-wbs-schedule/` (“schedule on WBS items”) is SUPERSEDED. Do not implement from it.
 
 ## Constraints
 
@@ -89,12 +110,18 @@ Resource Planner exists so a delivery lead, pre-sales engineer, or PM can turn t
 
 ## Success signal
 
-A planner starts from a project description and ends with a reviewed, costed, margin-aware staffing plan — built by hand in the grid **or** accepted from an AI-generated draft grounded in the global rate card — then exports it (Excel/JSON/PNG) or hands the client view to a client. Concretely demonstrable end-to-end: create a project, import the rate card from Excel, generate or build a plan with per-period allocations, see correct totals/margins/effort, accept and persist, reload the page and get the identical plan back, and export it to Excel — with every cost/price/margin/effort number produced by the shared calculation module rather than re-derived anywhere.
+A planner starts from a project description and ends with three aligned artifacts — a WBS (WHAT), a roadmap (WHEN), and a reviewed, costed, margin-aware staffing plan (WHO), the last built by hand in the grid **or** accepted from an AI-generated draft grounded in the global rate card — then exports the project (Excel/JSON/PNG) or hands the client view to a client.
+
+Concretely demonstrable end-to-end: create a project, import the rate card from Excel, generate or build a plan with per-period allocations, decompose scope into a WBS and see WHAT ↔ WHO variance, place that WBS on a roadmap and see coverage plus WHEN ↔ WHO demand vs supply, reload and get the identical project back, and export JSON at `schemaVersion: 4` — with every cost/price/margin/effort number produced by the shared calculation module. Roadmap CAP-13 (draft plan from roadmap) is not part of this signal while frozen.
 
 ## Assumptions
 
-- The AI feature reflects `docs/ai-resource-plan-generation-spec.md` as its design of record and is **planned/unbuilt** — no AI endpoint exists among the current 28 routes.
-- The rate card is **global** per the 2026-06-30 brownfield docs and `prisma/schema.prisma`; the older `issues-tasks.md` "project-scoped rate card" fix (C3) is superseded and does not reflect current code.
+- The AI feature reflects `docs/ai-resource-plan-generation-spec.md` as its design of record. **Goals 1a / 1b / 2 are shipped** (`POST /api/projects/generate-plan`). Goal 3 (transactional apply + undo) remains deferred — see `deferred-work.md`. Do not treat “AI unbuilt” as an app defect.
+- JSON project export is **`schemaVersion: 4`** (WBS + roadmap). v2 (no WBS) and v3 (WBS, no roadmap) still import. Do not treat CAP-9’s old “3” as an app defect.
+- Roadmap **CAP-13** is frozen on purpose (2026-08-22). Unfreezing is out of scope for this amend.
+- `_bmad-output/specs/spec-wbs-schedule/` is archived (SUPERSEDED 2026-08-21 by `spec-roadmap`). Do not implement from it.
+- `docs/` brownfield files dated 2026-06-30 (architecture, data-models, api-contracts, …) are **stale sources**, not the system of record. Trust this SPEC, the files CAP-11/CAP-12 point at, and the code.
+- The rate card is **global** per `prisma/schema.prisma`; the older `issues-tasks.md` “project-scoped rate card” fix (C3) is superseded and does not reflect current code.
 - The tool is single-user / internal, inferred from the absence of an auth layer, open CORS, and a single SQLite file.
 
 ## Open Questions

@@ -11,6 +11,8 @@ companions:
 sources: []
 ---
 
+> **ARCHIVED.** Do not implement from this folder. Retained for rationale only.
+>
 > **SUPERSEDED (2026-08-21)** by [`../spec-roadmap/SPEC.md`](../spec-roadmap/SPEC.md). The "schedule on WBS items" model was rejected: a WBS leaf is the unit of estimation, not of time. The replacement keeps the WBS unchanged and adds a separate, flat project roadmap linked N:1 to WBS subtrees. This file is retained for rationale and traceability only; do not implement from it.
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability — consult them only if you need narrative rationale or prose color this contract intentionally omits.

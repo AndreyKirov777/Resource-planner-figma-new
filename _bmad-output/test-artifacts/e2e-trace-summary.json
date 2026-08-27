@@ -1,0 +1,121 @@
+{
+  "schema_version": "0.2.0",
+  "snapshot_at": "2026-08-27T07:00:00.000Z",
+  "repo": "Resource planner",
+  "collection_mode": "contract_static",
+  "collection_status": "COLLECTED",
+  "inventory_basis": "acceptance_criteria",
+  "gate_basis": "priority_thresholds",
+  "source_sha": "7075f3bc94e7c89b5f37304a78ac6c5fa454d3dc",
+  "target": {
+    "type": "release",
+    "id": "v1-shipped",
+    "label": "Resource planner v1 as shipped"
+  },
+  "decision_mode": "deterministic",
+  "evaluator": "Andrey",
+  "confidence": "high",
+  "oracle": {
+    "resolution_mode": "formal_requirements",
+    "confidence": "high",
+    "sources": [
+      "_bmad-output/specs/spec-resource-planner/SPEC.md",
+      "_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-12.md",
+      "_bmad-output/specs/spec-roadmap/SPEC.md"
+    ],
+    "external_pointer_status": "not_used",
+    "synthetic": false
+  },
+  "gate_status": "FAIL",
+  "coverage": {
+    "inventory": { "covered": 25, "total": 34, "pct": 74 },
+    "priority_breakdown": {
+      "P0": { "total": 10, "covered": 10, "pct": 100 },
+      "P1": { "total": 21, "covered": 15, "pct": 71 },
+      "P2": { "total": 3, "covered": 0, "pct": 0 },
+      "P3": { "total": 0, "covered": 0, "pct": 100 }
+    },
+    "by_level": {
+      "e2e": { "tests": 0, "criteria_covered": 0 },
+      "api": { "tests": 83, "criteria_covered": 12 },
+      "component": { "tests": 213, "criteria_covered": 14 },
+      "unit": { "tests": 509, "criteria_covered": 18 },
+      "live": { "tests": 0, "criteria_covered": 0 },
+      "other": { "tests": 0, "criteria_covered": 0 }
+    }
+  },
+  "tests": {
+    "files": 41,
+    "cases": 805,
+    "skipped_cases": 0,
+    "fixme_cases": 0,
+    "pending_cases": 0
+  },
+  "risk_summary": {
+    "critical_open": 0,
+    "high_open": 0,
+    "medium_open": 2,
+    "low_open": 0
+  },
+  "heuristics": {
+    "endpoint_gaps": 7,
+    "auth_negative_path_status": "present",
+    "error_path_status": "partial",
+    "ui_journey_status": "not_applicable",
+    "ui_state_status": "not_applicable"
+  },
+  "live_evidence": {
+    "present": false,
+    "results_file": "_bmad-output/test-artifacts/live-verification-results.json",
+    "freshness": "not_present",
+    "recorded_source_sha": "",
+    "current_source_sha": "7075f3bc94e7c89b5f37304a78ac6c5fa454d3dc",
+    "producer": "",
+    "counted": 0,
+    "stale": 0,
+    "unverifiable": 0,
+    "failed": 0,
+    "contradicted": 0,
+    "blocked": 0,
+    "skipped": 0,
+    "unmatched": 0,
+    "invalid": 0,
+    "requirements_live_only": 0
+  },
+  "gate_criteria": {
+    "p0_coverage_required": "100%",
+    "p0_coverage_actual": "100%",
+    "p0_status": "MET",
+    "p1_coverage_target": "90%",
+    "p1_coverage_minimum": "80%",
+    "p1_coverage_actual": "71%",
+    "p1_status": "NOT_MET",
+    "overall_coverage_minimum": "80%",
+    "overall_coverage_actual": "74%",
+    "overall_status": "NOT_MET"
+  },
+  "blockers": [],
+  "recommendations": [
+    {
+      "priority": "HIGH",
+      "action": "Add API tests for copy, convert-planning-mode, generate-plan",
+      "requirements": ["RP-1", "RP-7", "RP-10"]
+    },
+    {
+      "priority": "HIGH",
+      "action": "Add modeConversion.ts unit tests",
+      "requirements": ["RP-7", "NFR-6"]
+    },
+    {
+      "priority": "MEDIUM",
+      "action": "Component-test GeneratePlanSheet draft preview + accept/discard",
+      "requirements": ["RP-10"]
+    }
+  ],
+  "links": {
+    "trace_report_path": "_bmad-output/test-artifacts/traceability-matrix.md",
+    "trace_report_url": "",
+    "artifact_url": "",
+    "journey_evidence_url": ""
+  }
+}
