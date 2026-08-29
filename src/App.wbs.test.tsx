@@ -73,18 +73,23 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
               >
                 {`rename row ${r}`}
               </button>
-              <button
-                onClick={() =>
-                  // The Roles cell persists through the committer it is handed,
-                  // not through onCellEdited — drive it the same way the
-                  // overlay editor does.
-                  cells[3].data.committer.commit(cells[3].data.itemId, [
-                    { role: 'BA', discipline: 'Analysis', hours: Number(draft) },
-                  ])
-                }
-              >
-                {`set roles row ${r}`}
-              </button>
+              {(() => {
+                const roleCol = columns.findIndex((column: { id?: string }) => column.id === 'role:BA');
+                if (roleCol < 0) return null;
+                return (
+                  <button
+                    onClick={() =>
+                      onCellEdited([roleCol, r], {
+                        ...cells[roleCol],
+                        data: draft,
+                        displayData: draft,
+                      })
+                    }
+                  >
+                    {`set BA row ${r}`}
+                  </button>
+                );
+              })()}
             </div>
           );
         })}
@@ -164,7 +169,16 @@ const getApi = () => import('./services/api').then((m) => m.api);
 beforeEach(async () => {
   const api = await getApi();
   vi.mocked(api.getProjects).mockResolvedValue([mockProject]);
-  vi.mocked(api.getResourceLists).mockResolvedValue([]);
+  vi.mocked(api.getResourceLists).mockResolvedValue([
+    {
+      id: 1,
+      role: 'BA',
+      intRate: 0,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+    },
+  ]);
   vi.mocked(api.getRateCards).mockResolvedValue([]);
   vi.mocked(api.getRateCardMeta).mockResolvedValue({ fileName: null, importedAt: null });
   vi.mocked(api.getResourcePlans).mockResolvedValue([]);
@@ -290,16 +304,18 @@ describe('App WBS handler wiring', () => {
 
     const user = await openWbsTab();
 
-    await waitFor(() => expect(screen.getByTestId('cell-3-0')).toHaveTextContent('BA ×5'));
+    await waitFor(() => expect(screen.getByTestId('cell-3-0')).toHaveTextContent('5'));
+    expect(screen.getByTestId('cell-4-0')).toHaveTextContent('5');
     await user.type(screen.getByLabelText('harness edit value'), '12');
-    await user.click(screen.getByRole('button', { name: 'set roles row 0' }));
+    await user.click(screen.getByRole('button', { name: 'set BA row 0' }));
 
     await waitFor(() =>
       expect(api.replaceWbsEstimates).toHaveBeenCalledWith(1, [
         { discipline: 'Analysis', role: 'BA', hours: 12 },
       ])
     );
-    // The Hours rollup reflects the server confirmed value after the state update.
-    await waitFor(() => expect(screen.getByTestId('cell-4-0')).toHaveTextContent('12'));
+    // TOTAL and the BA role column reflect the server-confirmed value.
+    await waitFor(() => expect(screen.getByTestId('cell-3-0')).toHaveTextContent('12'));
+    expect(screen.getByTestId('cell-4-0')).toHaveTextContent('12');
   });
 });

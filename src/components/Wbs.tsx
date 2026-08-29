@@ -12,8 +12,6 @@ import DataEditor, {
   Item,
   Theme,
   getMiddleCenterBias,
-  measureTextCached,
-  roundedRect,
 } from '@glideapps/glide-data-grid';
 import type { GridMouseEventArgs, Highlight } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
@@ -42,10 +40,7 @@ import {
 import {
   CELL_PAD,
   CHEVRON_SIZE,
-  CHIP_HEIGHT,
-  CHIP_PAD,
   EstimateCommitter,
-  RolePair,
   buildGridRows,
   createEstimateCommitter,
   deleteConfirmMessage,
@@ -56,16 +51,16 @@ import {
   indentPlacement,
   kebabLeft,
   KEBAB_SIZE,
-  layoutChips,
   firstUnseenId,
   nameEditFor,
   newWbsItemFields,
   nextDisplayOrder,
   outdentPlacement,
-  pairsSummary,
   phaseEditFor,
   phaseLabel,
   pruneCollapsedIds,
+  resourceListRoles,
+  roleEditFor,
   selectionAfterDelete,
   siblingBelowPlacement,
   structureActionFromKey,
@@ -79,7 +74,7 @@ import {
 import { wouldCreateCycle } from '../utils/wbsTree';
 import { GRID_THEME } from './gridTheme';
 import { ReconciliationPanel, reconciliationSummary } from './ReconciliationPanel';
-import { NameEditor, PhaseEditor, RolesEditor, RoadmapLinkEditor, isInsidePortaledMenu } from './RolesEditor';
+import { NameEditor, PhaseEditor, RoadmapLinkEditor, isInsidePortaledMenu } from './WbsEditors';
 import { WbsRowMenu } from './WbsRowMenu';
 import { Button } from './ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
@@ -126,7 +121,7 @@ interface WbsProps {
   onSetWbsRoadmapLink?: (wbsItemId: number, roadmapItemId: number | null) => Promise<void>;
 }
 
-const HEADER_HEIGHT = 36;
+const HEADER_HEIGHT = 44;
 const ROW_HEIGHT = 34;
 const GRID_PADDING = 20;
 const MIN_GRID_HEIGHT = 200;
@@ -183,18 +178,8 @@ interface RoadmapLinkCellData {
   readonly options: { id: number; name: string }[];
 }
 
-interface RolesCellData {
-  readonly kind: 'wbs-roles';
-  readonly itemId: number;
-  readonly pairs: RolePair[];
-  readonly resourceLists: ResourceListType[];
-  readonly rateCards: RateCardType[];
-  readonly committer: EstimateCommitter;
-}
-
 type TaskCell = CustomCell<TaskCellData>;
 type PhaseCell = CustomCell<PhaseCellData>;
-type RolesCell = CustomCell<RolesCellData>;
 type RoadmapLinkCell = CustomCell<RoadmapLinkCellData>;
 
 /**
@@ -403,79 +388,6 @@ const RoadmapLinkCellRenderer: CustomRenderer<RoadmapLinkCell> = {
   }),
 };
 
-const RolesCellRenderer: CustomRenderer<RolesCell> = {
-  kind: GridCellKind.Custom,
-  isMatch: (cell: CustomCell): cell is RolesCell =>
-    (cell.data as { kind?: string })?.kind === 'wbs-roles',
-  draw: (args, cell) => {
-    const { ctx, rect, theme } = args;
-    clipToCell(ctx, rect, () => {
-      ctx.font = theme.baseFontFull;
-      const bias = getMiddleCenterBias(ctx, theme.baseFontFull);
-      const chipY = rect.y + (rect.height - CHIP_HEIGHT) / 2;
-      const midY = rect.y + rect.height / 2 + bias;
-
-      // Layout is pure and lives in `wbsGrid.ts`; only the measurement needs a
-      // canvas. Anything that does not fit becomes a `+N` badge, so a cell can
-      // never quietly look as though it holds fewer roles than it does.
-      const layout = layoutChips(
-        cell.data.pairs,
-        rect.width,
-        (label) => measureTextCached(label, ctx, theme.baseFontFull).width
-      );
-
-      const drawChip = (label: string, x: number, width: number, muted: boolean) => {
-        ctx.fillStyle = theme.bgBubble;
-        ctx.strokeStyle = theme.borderColor;
-        ctx.beginPath();
-        roundedRect(ctx, rect.x + x, chipY, width, CHIP_HEIGHT, CHIP_HEIGHT / 2);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = muted ? theme.textMedium : theme.textDark;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText(label, rect.x + x + CHIP_PAD, midY);
-      };
-
-      for (const chip of layout.chips) {
-        drawChip(chip.label, chip.x, chip.width, false);
-      }
-      if (layout.overflow > 0) {
-        drawChip(layout.overflowLabel, layout.overflowX, layout.overflowWidth, true);
-      }
-
-      if (cell.data.pairs.length === 0) {
-        ctx.fillStyle = theme.textLight;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText('Add roles', rect.x + CELL_PAD, midY);
-      }
-    });
-    return true;
-  },
-  provideEditor: () => ({
-    disablePadding: true,
-    editor: (p) => {
-      const cell = p.value;
-      return (
-        <OverlayTracker>
-          <RolesEditor
-            itemId={cell.data.itemId}
-            pairs={cell.data.pairs}
-            resourceLists={cell.data.resourceLists}
-            rateCards={cell.data.rateCards}
-            committer={cell.data.committer}
-            // The editor persists through the committer, not through a cell
-            // edit, so it closes without handing Glide a new value.
-            onClose={() => p.onFinishedEditing(undefined, [0, 0])}
-          />
-        </OverlayTracker>
-      );
-    },
-  }),
-};
-
 // `CustomRenderer<T>` is invariant in T under `strictFunctionTypes` (its `draw`
 // is a function-typed property, not a method), so a heterogeneous renderer list
 // can only be handed to `customRenderers` through a widening cast. Each
@@ -483,7 +395,6 @@ const RolesCellRenderer: CustomRenderer<RolesCell> = {
 const CUSTOM_RENDERERS = [
   TaskCellRenderer,
   PhaseCellRenderer,
-  RolesCellRenderer,
   RoadmapLinkCellRenderer,
 ] as unknown as readonly CustomRenderer[];
 
@@ -594,9 +505,10 @@ export function Wbs({
     [wbsItems, phaseNames, resourcePlans, rateCards, phases, hrsPerPeriod]
   );
 
+  const roles = useMemo(() => resourceListRoles(resourceLists), [resourceLists]);
   const rows = useMemo(
-    () => buildGridRows(wbsItems, collapsedIds, phaseNames),
-    [wbsItems, collapsedIds, phaseNames]
+    () => buildGridRows(wbsItems, collapsedIds, phaseNames, roles),
+    [wbsItems, collapsedIds, phaseNames, roles]
   );
 
   // Roadmap link data (CAP-5, CAP-7) for the optional Roadmap column and the
@@ -625,7 +537,10 @@ export function Wbs({
     [roadmapAllItems]
   );
 
-  const visibleColumns = useMemo(() => getVisibleWbsColumns(hiddenColumns), [hiddenColumns]);
+  const visibleColumns = useMemo(
+    () => getVisibleWbsColumns(hiddenColumns, roles),
+    [hiddenColumns, roles]
+  );
   const columnCount = visibleColumns.length;
   const roadmapColumnVisible = visibleColumns.some((c) => c.id === 'roadmap');
 
@@ -690,9 +605,8 @@ export function Wbs({
   const byPeriodRoleMatrix = useMemo(() => buildByPeriodMatrix(roadmapLoad, 'role'), [roadmapLoad]);
   const byPeriodDisciplineMatrix = useMemo(() => buildByPeriodMatrix(roadmapLoad, 'discipline'), [roadmapLoad]);
 
-  // The committer must outlive the overlay: `provideEditor` mounts and
-  // unmounts `RolesEditor` on every open/close, so an editor-owned committer
-  // would reset the per-item chain and reopen the lost-update race.
+  // The committer must outlive individual cell edits so rapid writes on the
+  // same row share one merge basis and one serialized request chain.
   const replaceRef = useRef(onReplaceWbsEstimates);
   replaceRef.current = onReplaceWbsEstimates;
   const committerRef = useRef<EstimateCommitter | null>(null);
@@ -822,10 +736,18 @@ export function Wbs({
   }, [wbsItems.length]);
 
   const columns = useMemo((): GridColumn[] => {
-    const mapped = visibleColumns.map((c) => ({
+    const mapped: GridColumn[] = visibleColumns.map((c) => ({
       title: c.title,
       id: c.id === 'outline' ? 'wbs' : c.id, // 'wbs' matches the grid id every prior snapshot/test expects
       width: c.width,
+      themeOverride:
+        c.id === 'total'
+          ? {
+              bgHeader: '#d9dde5',
+              textHeader: '#2a2a2a',
+              headerFontStyle: '700 11px',
+            }
+          : undefined,
     }));
     const nameIdx = visibleColumns.findIndex((c) => c.id === 'name');
     if (nameIdx >= 0 && gridClientWidth > 0) {
@@ -894,22 +816,6 @@ export function Wbs({
           };
           return cell;
         }
-        case 'roles': {
-          const cell: RolesCell = {
-            kind: GridCellKind.Custom,
-            allowOverlay: true,
-            copyData: pairsSummary(gridRow.pairs),
-            data: {
-              kind: 'wbs-roles',
-              itemId: gridRow.id,
-              pairs: gridRow.pairs,
-              resourceLists,
-              rateCards,
-              committer,
-            },
-          };
-          return cell;
-        }
         case 'roadmap': {
           const effective = roadmapEffective.get(gridRow.id);
           const effectiveId = effective?.roadmapItemId ?? null;
@@ -929,8 +835,7 @@ export function Wbs({
           };
           return cell;
         }
-        case 'hours':
-        default: {
+        case 'total': {
           const hours = formatHours(gridRow.totalHours);
           return {
             kind: GridCellKind.Text,
@@ -939,6 +844,31 @@ export function Wbs({
             allowOverlay: false,
             readonly: true,
             contentAlign: 'right',
+            themeOverride: {
+              bgCell: gridRow.isSection ? '#dfe3ea' : '#eceef2',
+              baseFontStyle: '700 14px',
+              textDark: '#2a2a2a',
+              textMedium: '#2a2a2a',
+            },
+          };
+        }
+        default: {
+          if (columnDef.role === undefined) {
+            return { kind: GridCellKind.Loading, allowOverlay: false };
+          }
+          const value = gridRow.roleHours[columnDef.role] ?? 0;
+          const hours = formatHours(value);
+          return {
+            kind: GridCellKind.Text,
+            data: hours,
+            displayData: hours,
+            allowOverlay: !gridRow.hasChildren,
+            readonly: gridRow.hasChildren,
+            contentAlign: 'right',
+            cursor: gridRow.hasChildren ? 'default' : 'text',
+            themeOverride: {
+              textDark: value === 0 ? '#737373' : '#313131',
+            },
           };
         }
       }
@@ -947,9 +877,6 @@ export function Wbs({
       rows,
       visibleColumns,
       phaseNames,
-      resourceLists,
-      rateCards,
-      committer,
       toggleCollapse,
       openRowMenu,
       roadmapEffective,
@@ -981,9 +908,21 @@ export function Wbs({
   );
 
   const onCellEdited = useCallback(
-    ([, row]: Item, newValue: EditableGridCell) => {
+    ([col, row]: Item, newValue: EditableGridCell) => {
+      const columnDef = visibleColumns[col];
+      const indexedRow = rows[row];
+      if (columnDef?.role !== undefined && newValue.kind === GridCellKind.Text) {
+        if (indexedRow === undefined || indexedRow.hasChildren) return;
+        const basis = committer.basisFor(indexedRow.id, indexedRow.pairs);
+        const next = roleEditFor(columnDef.role, newValue.data, basis, rateCards);
+        if (next !== null) {
+          committer.commit(indexedRow.id, next).catch(() => {});
+        }
+        return;
+      }
+
       if (newValue.kind !== GridCellKind.Custom) return;
-      const data = newValue.data as TaskCellData | PhaseCellData | RolesCellData | RoadmapLinkCellData;
+      const data = newValue.data as TaskCellData | PhaseCellData | RoadmapLinkCellData;
 
       // The cell carries the id it was opened on. The row INDEX does not
       // survive a shifting row set — a `+ Child` or delete round-trip landing
@@ -1008,9 +947,16 @@ export function Wbs({
           onSetWbsRoadmapLink(gridRow.id, data.ownRoadmapItemId).catch(() => {});
         }
       }
-      // Roles persist through the committer, never through a cell edit.
     },
-    [rows, issueUpdate, roadmapOwnLinkByWbsId, onSetWbsRoadmapLink]
+    [
+      visibleColumns,
+      rows,
+      committer,
+      rateCards,
+      issueUpdate,
+      roadmapOwnLinkByWbsId,
+      onSetWbsRoadmapLink,
+    ]
   );
 
   const getRowThemeOverride = useCallback(

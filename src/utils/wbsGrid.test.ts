@@ -2,13 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   CELL_PAD,
   CHEVRON_SIZE,
-  CHIP_GAP,
-  CHIP_PAD,
   INDENT_PX,
   MAX_HOURS,
   MAX_INDENT_DEPTH,
   MIN_LABEL_WIDTH,
-  availableRoles,
   buildGridRows,
   createEstimateCommitter,
   deleteConfirmMessage,
@@ -23,7 +20,6 @@ import {
   indentPlacement,
   kebabLeft,
   KEBAB_SIZE,
-  layoutChips,
   nameEditFor,
   nextDisplayOrder,
   newWbsItemFields,
@@ -34,18 +30,14 @@ import {
   structureActionFromKey,
   structureHintText,
   structureShortcutLabel,
-  pairKey,
-  pairLabel,
   pairsFromEstimates,
-  pairsSummary,
   pairsToPayload,
   parseHours,
   phaseEditFor,
   phaseLabel,
   pruneCollapsedIds,
-  rateCardRoles,
   resourceListRoles,
-  rolesUseFreeText,
+  roleEditFor,
   sameHours,
   samePairs,
   RolePair,
@@ -183,6 +175,39 @@ describe('samePairs', () => {
   });
 });
 
+describe('roleEditFor', () => {
+  const basis: RolePair[] = [
+    { role: 'BA', discipline: 'Analysis', hours: 16 },
+    { role: 'Removed', discipline: 'Legacy', hours: 8 },
+  ];
+
+  it('replaces one role while preserving estimates for roles no longer visible', () => {
+    expect(roleEditFor('BA', '24', basis, [rateCard({ role: 'BA', discipline: 'Analysis' })])).toEqual([
+      { role: 'Removed', discipline: 'Legacy', hours: 8 },
+      { role: 'BA', discipline: 'Analysis', hours: 24 },
+    ]);
+  });
+
+  it('adds a Resource List role using its derived discipline', () => {
+    expect(roleEditFor('QA', '8', basis, [rateCard({ role: 'QA', discipline: 'Quality' })])).toEqual([
+      ...basis,
+      { role: 'QA', discipline: 'Quality', hours: 8 },
+    ]);
+  });
+
+  it('treats blank as zero and omits the cleared pair', () => {
+    expect(roleEditFor('BA', '', basis, [])).toEqual([
+      { role: 'Removed', discipline: 'Legacy', hours: 8 },
+    ]);
+  });
+
+  it('returns null for invalid and unchanged edits', () => {
+    expect(roleEditFor('BA', '-1', basis, [])).toBeNull();
+    expect(roleEditFor('BA', 'nope', basis, [])).toBeNull();
+    expect(roleEditFor('BA', '16', basis, [])).toBeNull();
+  });
+});
+
 describe('formatHours / formatHoursInput', () => {
   it('rounds display hours to one decimal', () => {
     expect(formatHours(0.1 + 0.2)).toBe('0.3');
@@ -200,21 +225,6 @@ describe('formatHours / formatHoursInput', () => {
 });
 
 describe('pair helpers', () => {
-  it('labels a chip as role x hours, rounded', () => {
-    expect(pairLabel({ role: 'BA', discipline: 'Engineering', hours: 16 })).toBe('BA ×16');
-    expect(pairLabel({ role: 'UX', discipline: 'Design', hours: 0.1 + 0.2 })).toBe('UX ×0.3');
-  });
-
-  it('falls back to the discipline for pre-redesign estimates with an empty role', () => {
-    expect(pairLabel({ role: '', discipline: 'Engineering', hours: 4 })).toBe('Engineering ×4');
-  });
-
-  it('keys pairs unambiguously even when several share an empty role', () => {
-    const a = pairKey({ role: '', discipline: 'Engineering', hours: 1 });
-    const b = pairKey({ role: '', discipline: 'Design', hours: 1 });
-    expect(a).not.toBe(b);
-  });
-
   it('round-trips estimates to pairs to a replace payload', () => {
     const estimates = [
       estimate({ id: 1, discipline: 'Engineering', role: 'BA', hours: 16 }),
@@ -230,7 +240,6 @@ describe('pair helpers', () => {
       { discipline: 'Engineering', role: 'BA', hours: 16 },
       { discipline: 'Design', role: 'UX', hours: 8 },
     ]);
-    expect(pairsSummary(pairs)).toBe('BA ×16, UX ×8');
   });
 });
 
@@ -258,101 +267,19 @@ describe('deriveDiscipline', () => {
   });
 });
 
-describe('availableRoles', () => {
-  it('offers distinct resource-list roles alphabetically', () => {
-    const list = [
-      resourceList({ id: 1, role: 'UX' }),
-      resourceList({ id: 2, role: 'BA' }),
-      resourceList({ id: 3, role: 'BA' }),
-    ];
-    const cards = [
-      rateCard({ id: 1, role: 'UX', discipline: 'Design' }),
-      rateCard({ id: 2, role: 'BA', discipline: 'Analysis' }),
-    ];
-    expect(availableRoles(list, [], cards)).toEqual(['BA', 'UX']);
-  });
-
-  it('excludes roles already on the item', () => {
-    const list = [resourceList({ id: 1, role: 'UX' }), resourceList({ id: 2, role: 'BA' })];
-    const cards = [
-      rateCard({ id: 1, role: 'UX', discipline: 'Design' }),
-      rateCard({ id: 2, role: 'BA', discipline: 'Analysis' }),
-    ];
-    const taken: RolePair[] = [{ role: 'BA', discipline: 'Analysis', hours: 4 }];
-    expect(availableRoles(list, taken, cards)).toEqual(['UX']);
-  });
-
-  it('omits a list role that the non-empty rate card cannot map', () => {
-    const list = [
-      resourceList({ id: 1, role: 'BA' }),
-      resourceList({ id: 2, role: 'Contractor' }),
-    ];
-    const cards = [rateCard({ id: 1, role: 'BA', discipline: 'Analysis' })];
-    expect(availableRoles(list, [], cards)).toEqual(['BA']);
-  });
-
-  it('omits a list role whose rate-card row has an empty discipline', () => {
-    const list = [resourceList({ id: 1, role: 'BA' })];
-    const cards = [rateCard({ id: 1, role: 'BA', discipline: '' })];
-    expect(availableRoles(list, [], cards)).toEqual([]);
-  });
-
-  it('keeps unmapped list roles when the rate card is empty', () => {
-    const list = [resourceList({ id: 1, role: 'Contractor' })];
-    expect(availableRoles(list, [], [])).toEqual(['Contractor']);
-  });
-
-  it('is empty for an empty resource list', () => {
-    expect(availableRoles([], [], [])).toEqual([]);
-    expect(availableRoles([], [], [rateCard({ role: 'BA' })])).toEqual([]);
-  });
-});
-
 describe('resourceListRoles', () => {
-  it('lists every distinct role the roster names, alphabetically', () => {
+  it('lists every distinct role in first-seen list order', () => {
     const list = [
       resourceList({ id: 1, role: 'UX' }),
       resourceList({ id: 2, role: 'BA' }),
       resourceList({ id: 3, role: 'BA', location: 'London' }),
     ];
-    expect(resourceListRoles(list)).toEqual(['BA', 'UX']);
+    expect(resourceListRoles(list)).toEqual(['UX', 'BA']);
   });
 
   it('is empty only for a genuinely empty roster', () => {
     expect(resourceListRoles([])).toEqual([]);
     expect(resourceListRoles([resourceList({ id: 1, role: '' })])).toEqual([]);
-  });
-});
-
-describe('rolesUseFreeText', () => {
-  it('is true only when both the roster and the rate card are empty', () => {
-    expect(rolesUseFreeText([], [])).toBe(true);
-    expect(rolesUseFreeText([], [rateCard({ role: 'BA' })])).toBe(false);
-    expect(rolesUseFreeText([resourceList({ role: 'BA' })], [])).toBe(false);
-    expect(rolesUseFreeText([resourceList({ role: 'BA' })], [rateCard({ role: 'BA' })])).toBe(false);
-  });
-});
-
-describe('rateCardRoles', () => {
-  it('lists every distinct role the card names, alphabetically', () => {
-    const cards = [rateCard({ id: 1, role: 'UX' }), rateCard({ id: 2, role: 'BA' }), rateCard({ id: 3, role: 'BA' })];
-    expect(rateCardRoles(cards)).toEqual(['BA', 'UX']);
-  });
-
-  it('is empty only for a genuinely empty card', () => {
-    expect(rateCardRoles([])).toEqual([]);
-    expect(rateCardRoles([rateCard({ id: 1, role: '' })])).toEqual([]);
-  });
-
-  // This is the distinction the free-text gate depends on: a non-empty card
-  // whose roles are all taken leaves `availableRoles` empty but is NOT empty,
-  // and free text against it derives a discipline the server rejects with 400.
-  it('stays non-empty when every card role is already on the item, unlike availableRoles', () => {
-    const list = [resourceList({ id: 1, role: 'BA' })];
-    const cards = [rateCard({ id: 1, role: 'BA' })];
-    const taken: RolePair[] = [{ role: 'BA', discipline: 'Analysis', hours: 4 }];
-    expect(availableRoles(list, taken, cards)).toEqual([]);
-    expect(rateCardRoles(cards)).toEqual(['BA']);
   });
 });
 
@@ -378,7 +305,7 @@ describe('buildGridRows', () => {
   const phaseNames = ['Phase 1', 'Phase 2'];
 
   it('derives outline, indent depth, phase inheritance, pairs and the hours rollup in one pass', () => {
-    const rows = buildGridRows(items, new Set(), phaseNames);
+    const rows = buildGridRows(items, new Set(), phaseNames, ['BA', 'UX']);
 
     expect(rows.map((r) => [r.outline, r.name, r.depth])).toEqual([
       ['1', 'Root', 0],
@@ -387,9 +314,12 @@ describe('buildGridRows', () => {
       ['2', 'Second root', 0],
     ]);
 
-    // Hours are own + all descendants, all roles merged.
-    expect(rows[0].totalHours).toBe(24);
-    expect(rows[1].totalHours).toBe(24);
+    // Parent rows ignore their own estimates and sum descendants only.
+    expect(rows[0].roleHours).toEqual({ BA: 0, UX: 8 });
+    expect(rows[1].roleHours).toEqual({ BA: 0, UX: 8 });
+    expect(rows[2].roleHours).toEqual({ BA: 0, UX: 8 });
+    expect(rows[0].totalHours).toBe(8);
+    expect(rows[1].totalHours).toBe(8);
     expect(rows[2].totalHours).toBe(8);
 
     // Only depth-0 rows are section rows.
@@ -400,8 +330,30 @@ describe('buildGridRows', () => {
     expect(rows[1].pairs).toEqual([{ role: 'BA', discipline: 'Engineering', hours: 16 }]);
   });
 
+  it('ignores parent-owned estimates and roles not present in the Resource List', () => {
+    const withParentEstimate = [
+      item({
+        id: 1,
+        estimates: [estimate({ role: 'BA', hours: 99, wbsItemId: 1 })],
+      }),
+      item({
+        id: 2,
+        parentId: 1,
+        estimates: [
+          estimate({ id: 2, role: 'BA', hours: 16, wbsItemId: 2 }),
+          estimate({ id: 3, role: 'Removed', hours: 40, wbsItemId: 2 }),
+        ],
+      }),
+    ];
+
+    const rows = buildGridRows(withParentEstimate, new Set(), phaseNames, ['BA', 'QA']);
+    expect(rows[0].roleHours).toEqual({ BA: 16, QA: 0 });
+    expect(rows[0].totalHours).toBe(16);
+    expect(rows[1].totalHours).toBe(16);
+  });
+
   it('marks inherited phases and leaves an explicit one alone', () => {
-    const rows = buildGridRows(items, new Set(), phaseNames);
+    const rows = buildGridRows(items, new Set(), phaseNames, ['BA', 'UX']);
 
     expect([rows[0].phaseName, rows[0].phaseInherited, rows[0].ownPhaseName]).toEqual([
       'Phase 1',
@@ -422,7 +374,7 @@ describe('buildGridRows', () => {
 
   it('renders a stale phase as Unassigned and never offers it as the picker value', () => {
     const stale = [item({ id: 1, name: 'Root', parentId: null, phaseName: 'Deleted phase' })];
-    const [row] = buildGridRows(stale, new Set(), phaseNames);
+    const [row] = buildGridRows(stale, new Set(), phaseNames, ['BA', 'UX']);
 
     expect(phaseLabel(row)).toBe('Unassigned');
     expect(row.ownPhaseName).toBeNull();
@@ -432,13 +384,13 @@ describe('buildGridRows', () => {
   });
 
   it('does not call a never-set or a live phase stale', () => {
-    const rows = buildGridRows(items, new Set(), phaseNames);
+    const rows = buildGridRows(items, new Set(), phaseNames, ['BA', 'UX']);
     expect(rows.map((r) => r.phaseStale)).toEqual([false, false, false, false]);
   });
 
   // Matrix row "Collapsed subtree": descendants hidden, numbers unchanged.
   it('hides descendants of a collapsed row without renumbering the rest', () => {
-    const rows = buildGridRows(items, new Set([1]), phaseNames);
+    const rows = buildGridRows(items, new Set([1]), phaseNames, ['BA', 'UX']);
 
     expect(rows.map((r) => [r.outline, r.name])).toEqual([
       ['1', 'Root'],
@@ -447,7 +399,7 @@ describe('buildGridRows', () => {
     expect(rows[0].collapsed).toBe(true);
     expect(rows[0].hasChildren).toBe(true);
     // A collapsed parent still reports the whole subtree's hours.
-    expect(rows[0].totalHours).toBe(24);
+    expect(rows[0].totalHours).toBe(8);
   });
 
   it('returns no rows for an empty item list', () => {
@@ -850,65 +802,6 @@ describe('hitsChevron', () => {
     const deep = CELL_PAD + indentFor(3, WIDTH);
     expect(hitsChevron(3, WIDTH, HEIGHT, deep + 1, middle)).toBe(true);
     expect(hitsChevron(3, WIDTH, HEIGHT, left + 1, middle)).toBe(false);
-  });
-});
-
-describe('layoutChips', () => {
-  const pair = (role: string, hours: number): RolePair => ({ role, discipline: 'D', hours });
-  // Deterministic stand-in for the canvas metric: 10px per character.
-  const measure = (label: string) => label.length * 10;
-  const chipWidth = (label: string) => label.length * 10 + CHIP_PAD * 2;
-
-  it('places every chip when they all fit', () => {
-    const layout = layoutChips([pair('BA', 16), pair('UX', 8)], 1000, measure);
-
-    expect(layout.chips.map((c) => c.label)).toEqual(['BA ×16', 'UX ×8']);
-    expect(layout.chips[0].x).toBe(CELL_PAD);
-    expect(layout.chips[1].x).toBe(CELL_PAD + chipWidth('BA ×16') + CHIP_GAP);
-    expect(layout.overflow).toBe(0);
-    expect(layout.overflowLabel).toBe('');
-  });
-
-  // Chips clipped at the column edge give no sign that roles are hidden.
-  it('replaces what does not fit with a +N badge', () => {
-    const pairs = [pair('BA', 16), pair('UX', 8), pair('QA', 4), pair('PM', 2)];
-    const layout = layoutChips(pairs, 140, measure);
-
-    expect(layout.chips.length).toBeLessThan(pairs.length);
-    expect(layout.overflow).toBe(pairs.length - layout.chips.length);
-    expect(layout.overflowLabel).toBe(`+${layout.overflow}`);
-  });
-
-  it('keeps the badge inside the cell', () => {
-    const pairs = [pair('BA', 16), pair('UX', 8), pair('QA', 4)];
-    const layout = layoutChips(pairs, 140, measure);
-
-    expect(layout.overflowX).toBeGreaterThanOrEqual(CELL_PAD);
-    expect(layout.overflowX + layout.overflowWidth).toBeLessThanOrEqual(140 - CELL_PAD);
-  });
-
-  // Dropping it instead would render an empty-looking cell for a row that has
-  // roles; the renderer's clip is what keeps it off the Hours column.
-  it('still places a first chip wider than the whole cell, leaving the clip to cut it', () => {
-    const layout = layoutChips([pair('A very long role name indeed', 16)], 80, measure);
-
-    expect(layout.chips).toHaveLength(1);
-    expect(layout.chips[0].x).toBe(CELL_PAD);
-    expect(layout.chips[0].x + layout.chips[0].width).toBeGreaterThan(80);
-    expect(layout.overflow).toBe(0);
-  });
-
-  it('badges the rest even when the first chip alone overflows', () => {
-    const wide = pair('A very long role name indeed', 16);
-    const layout = layoutChips([wide, pair('UX', 8)], 80, measure);
-
-    expect(layout.chips).toHaveLength(1);
-    expect(layout.overflow).toBe(1);
-    expect(layout.overflowX + layout.overflowWidth).toBeLessThanOrEqual(80 - CELL_PAD);
-  });
-
-  it('lays out nothing for a row with no roles', () => {
-    expect(layoutChips([], 320, measure)).toMatchObject({ chips: [], overflow: 0, overflowLabel: '' });
   });
 });
 

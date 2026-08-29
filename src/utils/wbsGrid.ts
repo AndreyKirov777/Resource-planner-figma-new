@@ -11,7 +11,6 @@ import { WbsItem, WbsEstimate, RateCard as RateCardType, ResourceList as Resourc
 import {
   buildWbsTree,
   flattenVisibleTree,
-  rollupHours,
   descendantIds,
   outlineNumbers,
   effectivePhases,
@@ -26,7 +25,7 @@ export interface RolePair {
   hours: number;
 }
 
-/** One rendered grid row: everything the five columns need, already derived. */
+/** One rendered grid row: everything the dynamic column set needs, already derived. */
 export interface WbsGridRow {
   id: number;
   /** Outline number from tree position (`1`, `1.2.1`). Never persisted. */
@@ -54,7 +53,9 @@ export interface WbsGridRow {
   phaseStale: boolean;
   /** This row's own role x hours pairs (not descendants'). */
   pairs: RolePair[];
-  /** Own + all descendants' hours, all roles merged. Never persisted. */
+  /** Hours for each currently visible Resource List role. */
+  roleHours: Record<string, number>;
+  /** Sum of the currently visible role columns. Never persisted. */
   totalHours: number;
   /** Depth-0 rows read as document sections and get their own row theme. */
   isSection: boolean;
@@ -97,41 +98,6 @@ export function formatHoursInput(hours: number): string {
 }
 
 /**
- * A pair's user-facing name. Falls back to the discipline for estimates
- * written by the pre-redesign matrix, which persisted `role: ''`.
- */
-export function pairDisplayName(pair: RolePair): string {
-  return pair.role.trim() === '' ? pair.discipline : pair.role;
-}
-
-/**
- * A stable React/draft key for one pair. `role` alone is not unique: the
- * pre-redesign matrix wrote one `(discipline, role: '')` row per discipline,
- * so several of an item's pairs can share an empty role. JSON-encoding both
- * fields keeps the key unambiguous and plain text.
- */
-export function pairKey(pair: RolePair): string {
-  return JSON.stringify([pair.discipline, pair.role]);
-}
-
-/** The label for one role chip. */
-export function pairLabel(pair: RolePair): string {
-  return `${pairDisplayName(pair)} ${MULTIPLY_SIGN}${formatHours(pair.hours)}`;
-}
-
-// Written as an escape rather than the literal glyph: this file must stay
-// plain, reviewable text (see the spec's iteration-1 note on a stray NUL byte).
-export const MULTIPLY_SIGN = '\u00d7';
-
-/**
- * A row's Roles cell as plain text (chips joined) — the cell's `copyData`, and
- * what the harness tests read.
- */
-export function pairsSummary(pairs: RolePair[]): string {
-  return pairs.map(pairLabel).join(', ');
-}
-
-/**
  * The discipline for a role, taken from the rate-card row the role came from,
  * so it can never drift from the card (which is what keeps the server's
  * `validWbsDisciplines` check and per-discipline reconciliation working).
@@ -143,72 +109,34 @@ export function pairsSummary(pairs: RolePair[]): string {
  * That fallback is ONLY ever valid for a genuinely empty card. The server's
  * bypass in `validWbsDisciplines` keys off the rate-card table being empty, so
  * a typed-role discipline against a non-empty card is rejected 400 every time.
- * The editor therefore offers free text only when BOTH the resource list and
- * the rate card are empty — not merely when `availableRoles` is, which also
- * happens when every list role is already on the item, or when a populated
- * card maps none of them.
  */
 export function deriveDiscipline(role: string, rateCards: RateCardType[]): string {
   return resolveDiscipline(role, rateCards) || role;
 }
 
-/** Every distinct, non-empty role the rate card names, alphabetised. */
-export function rateCardRoles(rateCards: RateCardType[]): string[] {
-  return distinctRoles(rateCards);
-}
-
 /**
- * Every distinct, non-empty role the project's resource list names, alphabetised.
+ * Every distinct, non-empty role the project's resource list names, in the
+ * order each role first appears.
  *
  * Duplicate list rows (same role, different location/rate) collapse to one
  * string — WBS stores a role, not a list `id`.
  */
 export function resourceListRoles(resourceLists: ResourceListType[]): string[] {
-  return distinctRoles(resourceLists);
-}
-
-function distinctRoles(rows: { role: string }[]): string[] {
-  const roles = new Set(
-    rows.map((row) => row.role).filter((role): role is string => !!role && role.trim() !== '')
-  );
-  return Array.from(roles).sort((a, b) => a.localeCompare(b));
-}
-
-/**
- * Roles the overlay Select may offer: distinct resource-list roles, minus any
- * already on the item. When the rate card is non-empty, also drop list roles
- * that `resolveDiscipline` cannot map — those writes would 400.
- */
-export function availableRoles(
-  resourceLists: ResourceListType[],
-  taken: RolePair[],
-  rateCards: RateCardType[]
-): string[] {
-  const used = new Set(taken.map((pair) => pair.role));
-  const cardEmpty = rateCardRoles(rateCards).length === 0;
-  return resourceListRoles(resourceLists).filter((role) => {
-    if (used.has(role)) return false;
-    // Falsy (undefined or '') is not a usable mapping — `deriveDiscipline`
-    // would fall back to the role string and a non-empty card would 400.
-    if (!cardEmpty && !resolveDiscipline(role, rateCards)) return false;
-    return true;
+  const seen = new Set<string>();
+  const roles: string[] = [];
+  resourceLists.forEach((row) => {
+    const role = row.role?.trim();
+    if (!role || seen.has(role)) return;
+    seen.add(role);
+    roles.push(role);
   });
-}
-
-/**
- * Free-text is accepted by the server only when the rate card is empty. An
- * empty roster with a populated card must not open that input — it would 400.
- */
-export function rolesUseFreeText(
-  resourceLists: ResourceListType[],
-  rateCards: RateCardType[]
-): boolean {
-  return resourceListRoles(resourceLists).length === 0 && rateCardRoles(rateCards).length === 0;
+  return roles;
 }
 
 /**
  * The single pass that turns server state into rendered rows: tree assembly,
- * outline numbering, phase inheritance, role pairs and the hours rollup.
+ * outline numbering, phase inheritance, role pairs and children-only role
+ * rollups.
  *
  * `phaseNames` are the project's live phase names; a row naming any other
  * phase is treated as unset (see `effectivePhases`).
@@ -216,22 +144,52 @@ export function rolesUseFreeText(
 export function buildGridRows(
   items: WbsItem[],
   collapsedIds: Set<number>,
-  phaseNames: readonly string[]
+  phaseNames: readonly string[],
+  roles: readonly string[] = []
 ): WbsGridRow[] {
   const tree = buildWbsTree(items);
   const outlines = outlineNumbers(tree);
   const phases = effectivePhases(tree, phaseNames);
   const livePhaseNames = new Set(phaseNames);
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const childIds = new Map<number, number[]>();
+  items.forEach((item) => {
+    if (item.parentId == null) return;
+    childIds.set(item.parentId, [...(childIds.get(item.parentId) ?? []), item.id]);
+  });
+  const roleHoursById = new Map<number, Record<string, number>>();
+
+  const roleHoursFor = (itemId: number): Record<string, number> => {
+    const cached = roleHoursById.get(itemId);
+    if (cached !== undefined) return cached;
+    const children = childIds.get(itemId) ?? [];
+    const hours = Object.fromEntries(roles.map((role) => [role, 0])) as Record<string, number>;
+    if (children.length > 0) {
+      children.forEach((childId) => {
+        const childHours = roleHoursFor(childId);
+        roles.forEach((role) => {
+          hours[role] += childHours[role] ?? 0;
+        });
+      });
+    } else {
+      const item = itemById.get(itemId);
+      item?.estimates.forEach((estimate) => {
+        if (Object.prototype.hasOwnProperty.call(hours, estimate.role)) {
+          hours[estimate.role] += estimate.hours;
+        }
+      });
+    }
+    roleHoursById.set(itemId, hours);
+    return hours;
+  };
 
   return flattenVisibleTree(tree, collapsedIds).map(({ node, depth, hasChildren }) => {
     const effective = phases.get(node.id) ?? { phaseName: null, inherited: false };
     const ownPhaseName =
       node.phaseName != null && livePhaseNames.has(node.phaseName) ? node.phaseName : null;
 
-    let totalHours = 0;
-    rollupHours(node).forEach((hours) => {
-      totalHours += hours;
-    });
+    const roleHours = roleHoursFor(node.id);
+    const totalHours = roles.reduce((sum, role) => sum + (roleHours[role] ?? 0), 0);
 
     return {
       id: node.id,
@@ -245,6 +203,7 @@ export function buildGridRows(
       phaseName: effective.phaseName,
       phaseInherited: effective.inherited,
       pairs: pairsFromEstimates(node.estimates),
+      roleHours,
       totalHours,
       isSection: depth === 0,
     };
@@ -286,6 +245,36 @@ export function parseHours(raw: string): ParsedHours {
   const hours = Number(trimmed);
   if (!Number.isFinite(hours) || hours < 0 || hours > MAX_HOURS) return { ok: false };
   return { ok: true, hours };
+}
+
+/**
+ * The next full estimate set for one leaf role-cell edit.
+ * Invalid and unchanged edits return `null`, so callers issue no request.
+ */
+export function roleEditFor(
+  role: string,
+  raw: string,
+  basis: RolePair[],
+  rateCards: RateCardType[]
+): RolePair[] | null {
+  const parsed = parseHours(raw);
+  if (!parsed.ok) return null;
+
+  const currentHours = basis
+    .filter((pair) => pair.role === role)
+    .reduce((sum, pair) => sum + pair.hours, 0);
+  if (sameHours(currentHours, parsed.hours)) return null;
+
+  const withoutRole = basis.filter((pair) => pair.role !== role);
+  if (parsed.hours === 0) return withoutRole;
+  return [
+    ...withoutRole,
+    {
+      role,
+      discipline: deriveDiscipline(role, rateCards),
+      hours: parsed.hours,
+    },
+  ];
 }
 
 /**
@@ -751,78 +740,4 @@ export function hitsChevron(
     posY >= top &&
     posY <= top + CHEVRON_SIZE
   );
-}
-
-/** Horizontal padding inside a role chip. */
-export const CHIP_PAD = 6;
-/** Gap between adjacent role chips. */
-export const CHIP_GAP = 4;
-/** Height of a role chip. */
-export const CHIP_HEIGHT = 20;
-
-export interface ChipPlacement {
-  label: string;
-  x: number;
-  width: number;
-}
-
-export interface ChipLayout {
-  /** Chips that fit, in order, with cell-local x offsets. */
-  chips: ChipPlacement[];
-  /** How many pairs did not fit. */
-  overflow: number;
-  /** `+N` badge, or `''` when everything fitted. */
-  overflowLabel: string;
-  overflowX: number;
-  overflowWidth: number;
-}
-
-/**
- * Lay out the role chips for one cell.
- *
- * `measure` is the caller's text metric (the grid passes Glide's cached canvas
- * measurement), which is the only part of this that needs a canvas.
- *
- * Two rules: chips that do not fit are REPLACED by a `+N` badge, so a cell that
- * silently drops roles is impossible to mistake for a cell that has none; and
- * the first chip is always placed even when it is wider than the whole cell —
- * the renderer's clip is what stops it painting over `Hours`, because dropping
- * it instead would render an empty-looking cell for a row that has roles.
- */
-export function layoutChips(
-  pairs: RolePair[],
-  cellWidth: number,
-  measure: (label: string) => number
-): ChipLayout {
-  const limit = cellWidth - CELL_PAD;
-  const chipWidthOf = (label: string) => measure(label) + CHIP_PAD * 2;
-
-  const chips: ChipPlacement[] = [];
-  let x = CELL_PAD;
-
-  for (let i = 0; i < pairs.length; i++) {
-    const label = pairLabel(pairs[i]);
-    const width = chipWidthOf(label);
-    const remaining = pairs.length - i - 1;
-    // Reserve room for the badge whenever something would be left over.
-    const badge = remaining > 0 ? CHIP_GAP + chipWidthOf(overflowLabel(remaining)) : 0;
-    if (chips.length > 0 && x + width + badge > limit) break;
-    chips.push({ label, x, width });
-    x += width + CHIP_GAP;
-  }
-
-  const overflow = pairs.length - chips.length;
-  if (overflow === 0) {
-    return { chips, overflow: 0, overflowLabel: '', overflowX: x, overflowWidth: 0 };
-  }
-  const label = overflowLabel(overflow);
-  const width = chipWidthOf(label);
-  // Keep the badge inside the cell even when an oversized first chip pushed the
-  // cursor past the limit; the clip handles the chip, the badge must stay read-able.
-  const badgeX = Math.max(CELL_PAD, Math.min(x, limit - width));
-  return { chips, overflow, overflowLabel: label, overflowX: badgeX, overflowWidth: width };
-}
-
-function overflowLabel(count: number): string {
-  return `+${count}`;
 }

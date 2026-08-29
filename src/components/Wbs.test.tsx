@@ -118,9 +118,29 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
               data-phase-inherited={String(phaseData.inherited)}
             >
               {cells.map((cell: any, ci: number) => (
-                <span key={ci} data-testid={`cell-${ci}-${r}`}>
-                  {cellText(cell)}
-                </span>
+                <React.Fragment key={ci}>
+                  <span
+                    data-testid={`cell-${ci}-${r}`}
+                    data-readonly={String(cell.readonly)}
+                    data-bg={cell.themeOverride?.bgCell ?? ''}
+                    data-text={cell.themeOverride?.textDark ?? ''}
+                  >
+                    {cellText(cell)}
+                  </span>
+                  {columns[ci].id?.startsWith('role:') && (
+                    <button
+                      onClick={() =>
+                        onCellEdited([ci, r], {
+                          ...cell,
+                          data: draft,
+                          displayData: draft,
+                        })
+                      }
+                    >
+                      {`set ${columns[ci].id} row ${r}`}
+                    </button>
+                  )}
+                </React.Fragment>
               ))}
               <button
                 onClick={() =>
@@ -249,6 +269,18 @@ function rateCard(overrides: Partial<RateCard>): RateCard {
   };
 }
 
+function resourceList(overrides: Partial<ResourceList>): ResourceList {
+  return {
+    id: 1,
+    role: 'Role',
+    intRate: 0,
+    projectId: 1,
+    createdAt: '',
+    updatedAt: '',
+    ...overrides,
+  };
+}
+
 const mockProject: Project = {
   id: 1,
   name: 'Test Project',
@@ -270,7 +302,10 @@ function defaultProps(wbsItems: WbsItem[]) {
   return {
     project: mockProject,
     resourcePlans: [],
-    resourceLists: [] as ResourceList[],
+    resourceLists: [
+      resourceList({ id: 1, role: 'BA' }),
+      resourceList({ id: 2, role: 'UX' }),
+    ],
     rateCards: [] as RateCard[],
     wbsItems,
     onAddWbsItem: vi.fn().mockResolvedValue(wbsItem({ id: 999 })),
@@ -310,7 +345,7 @@ describe('Wbs — rendering', () => {
     expect(screen.getByRole('button', { name: /add root item/i })).toBeInTheDocument();
   });
 
-  it('gives every row its outline number, name, effective phase, role chips and rolled-up hours', () => {
+  it('renders TOTAL and one numeric column per Resource List role', () => {
     render(<Wbs {...defaultProps(threeLevelTree)} />);
 
     // WBS column: outline numbers derived from tree position.
@@ -325,25 +360,29 @@ describe('Wbs — rendering', () => {
     expect(screen.getByTestId('row-1')).toHaveAttribute('data-depth', '1');
     expect(screen.getByTestId('row-2')).toHaveAttribute('data-depth', '2');
 
-    // Roles: composite role x hours chips, no per-discipline columns anywhere.
-    expect(screen.getByTestId('cell-3-1')).toHaveTextContent('BA ×16');
-    expect(screen.getByTestId('cell-3-2')).toHaveTextContent('UX ×8');
+    // TOTAL ignores estimates owned by parents and sums visible role columns.
+    expect(screen.getByTestId('cell-3-0')).toHaveTextContent('8');
+    expect(screen.getByTestId('cell-3-1')).toHaveTextContent('8');
+    expect(screen.getByTestId('cell-3-2')).toHaveTextContent('8');
+    expect(screen.getByTestId('cell-3-0')).toHaveAttribute('data-bg', '#dfe3ea');
+    expect(screen.getByTestId('cell-3-1')).toHaveAttribute('data-bg', '#eceef2');
 
-    // Hours: own + all descendants.
-    expect(screen.getByTestId('cell-4-0')).toHaveTextContent('24');
-    expect(screen.getByTestId('cell-4-1')).toHaveTextContent('24');
-    expect(screen.getByTestId('cell-4-2')).toHaveTextContent('8');
+    // BA is parent-owned on row 1, so it is ignored; UX belongs to the leaf.
+    expect(screen.getByTestId('cell-4-1')).toHaveTextContent('0');
+    expect(screen.getByTestId('cell-5-0')).toHaveTextContent('8');
+    expect(screen.getByTestId('cell-5-2')).toHaveTextContent('8');
+    expect(screen.getByTestId('cell-4-1')).toHaveAttribute('data-text', '#737373');
   });
 
-  it('renders exactly five columns, none of them a discipline', () => {
+  it('renders fixed columns plus first-seen Resource List roles', () => {
     render(<Wbs {...defaultProps(threeLevelTree)} />);
 
     // Asserted on the real column titles, not on how many spans the harness
     // happened to render: counting alone passes for any five columns at all.
     expect(screen.getByTestId('grid-columns')).toHaveTextContent(
-      'WBS|Task Description|Phase|Roles|Hours'
+      'WBS|Task Description|Phase|TOTAL|BA|UX'
     );
-    expect(screen.queryByTestId('cell-5-0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cell-6-0')).not.toBeInTheDocument();
   });
 
   it('inherits a phase down the tree and marks the inherited ones', () => {
@@ -736,6 +775,35 @@ describe('Wbs — drag-and-drop from the outline column', () => {
 });
 
 describe('Wbs — cell edits', () => {
+  it('commits a valid leaf role edit through the estimate committer', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    await user.type(screen.getByLabelText('harness edit value'), '32');
+    await user.click(screen.getByRole('button', { name: 'set role:BA row 2' }));
+
+    await waitFor(() =>
+      expect(props.onReplaceWbsEstimates).toHaveBeenCalledWith(3, [
+        { discipline: 'Design', role: 'UX', hours: 8 },
+        { discipline: 'BA', role: 'BA', hours: 32 },
+      ])
+    );
+  });
+
+  it('does not edit parent role cells or send invalid leaf values', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps(threeLevelTree);
+    render(<Wbs {...props} />);
+
+    expect(screen.getByTestId('cell-4-1')).toHaveAttribute('data-readonly', 'true');
+    await user.type(screen.getByLabelText('harness edit value'), '-1');
+    await user.click(screen.getByRole('button', { name: 'set role:BA row 1' }));
+    await user.click(screen.getByRole('button', { name: 'set role:BA row 2' }));
+
+    expect(props.onReplaceWbsEstimates).not.toHaveBeenCalled();
+  });
+
   it('renames an item through the real onCellEdited path', async () => {
     const user = userEvent.setup();
     const props = defaultProps(threeLevelTree);

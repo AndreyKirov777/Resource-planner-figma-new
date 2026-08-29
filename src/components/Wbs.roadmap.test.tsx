@@ -73,6 +73,17 @@ function wbsItem(overrides: Partial<WbsItem>): WbsItem {
   };
 }
 
+function resourceList(id: number, role: string): ResourceList {
+  return {
+    id,
+    role,
+    intRate: 0,
+    projectId: 1,
+    createdAt: '',
+    updatedAt: '',
+  };
+}
+
 const mockProject: Project = {
   id: 1,
   name: 'Test Project',
@@ -89,7 +100,7 @@ function defaultProps(wbsItems: WbsItem[], roadmapLanes: RoadmapLaneWithItems[] 
   return {
     project: mockProject,
     resourcePlans: [],
-    resourceLists: [] as ResourceList[],
+    resourceLists: [resourceList(1, 'BA'), resourceList(2, 'Dev Sr')],
     rateCards: [] as RateCard[],
     wbsItems,
     onAddWbsItem: vi.fn().mockResolvedValue(wbsItem({ id: 999 })),
@@ -133,15 +144,15 @@ const lanes: RoadmapLaneWithItems[] = [
 ];
 
 describe('Wbs — optional Roadmap column', () => {
-  it('is hidden by default: the grid still shows exactly the original five columns', () => {
+  it('is hidden by default after TOTAL and Resource List role columns', () => {
     window.localStorage.clear();
     render(<Wbs {...defaultProps(tree, lanes)} />);
     expect(screen.getByTestId('grid-columns').textContent).toBe(
-      'WBS|Task Description|Phase|Roles|Hours'
+      'WBS|Task Description|Phase|TOTAL|BA|Dev\nSr'
     );
   });
 
-  it('shows the Roadmap column as the 6th, with names resolved for own and inherited links', async () => {
+  it('shows Roadmap last, with names resolved for own and inherited links', async () => {
     window.localStorage.clear();
     const user = userEvent.setup();
     render(<Wbs {...defaultProps(tree, lanes)} />);
@@ -150,11 +161,11 @@ describe('Wbs — optional Roadmap column', () => {
     await user.click(screen.getByRole('menuitemcheckbox', { name: 'Roadmap' }));
 
     expect(screen.getByTestId('grid-columns').textContent).toBe(
-      'WBS|Task Description|Phase|Roles|Hours|Roadmap'
+      'WBS|Task Description|Phase|TOTAL|BA|Dev\nSr|Roadmap'
     );
     // Row 0 = Root (directly linked to "API"), row 1 = Child (inherits it).
-    expect(screen.getByTestId('cell-5-0').textContent).toBe('API');
-    expect(screen.getByTestId('cell-5-1').textContent).toBe('↑ API');
+    expect(screen.getByTestId('cell-6-0').textContent).toBe('API');
+    expect(screen.getByTestId('cell-6-1').textContent).toBe('↑ API');
   });
 
   it('unlinking writes null through onSetWbsRoadmapLink', async () => {
@@ -175,7 +186,7 @@ describe('Wbs — optional Roadmap column', () => {
     const { roadmapLanes: _omit, onSetWbsRoadmapLink: _omit2, ...propsWithoutRoadmap } = defaultProps(tree);
     render(<Wbs {...propsWithoutRoadmap} />);
     expect(screen.getByTestId('grid-columns').textContent).toBe(
-      'WBS|Task Description|Phase|Roles|Hours'
+      'WBS|Task Description|Phase|TOTAL|BA|Dev\nSr'
     );
   });
 });

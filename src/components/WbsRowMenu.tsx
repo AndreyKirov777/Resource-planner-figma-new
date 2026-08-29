@@ -1,5 +1,5 @@
 import React from 'react';
-import { OVERLAY_MENU_CLASS } from './RolesEditor';
+import { OVERLAY_MENU_CLASS } from './WbsEditors';
 import {
   DropdownMenu,
   DropdownMenuContent,
