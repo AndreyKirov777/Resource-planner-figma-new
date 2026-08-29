@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WBS · Role columns mockup</title>
+<style>
+  :root{
+    --font: Inter, Roboto, -apple-system, BlinkMacSystemFont, 'avenir next', avenir, 'segoe ui', 'helvetica neue', helvetica, Ubuntu, noto, arial, sans-serif;
+    --accent: #8f4f8f;
+    --accent-light: rgba(62, 116, 253, 0.1);
+    --text-dark: #313131;
+    --text-medium: #737373;
+    --text-light: #b1b1b1;
+    --text-header: #4a4a4a;
+    --bg-header: #f6f6f6;
+    --bg-header-focus: #e1e1e1;
+    --bg-cell: #ffffff;
+    --bg-section: #f6f6f6;
+    --bg-total: #eceef2;
+    --bg-total-header: #d9dde5;
+    --bg-total-section: #dfe3ea;
+    --border: rgba(115,115,115,0.16);
+    --ui-border: #e4e4e7;
+    --ui-muted: #71717a;
+    --ui-hover: #f4f4f5;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:28px 32px 80px;
+    font-family:var(--font); font-size:14px; color:var(--text-dark);
+    background:#fff;
+  }
+  .page{max-width:1180px; margin:0 auto}
+  .note{
+    font-size:13px; color:var(--ui-muted); line-height:1.6;
+    border-left:3px solid var(--ui-border); padding:2px 0 2px 12px; margin:0 0 28px;
+  }
+  h2{font-size:20px; font-weight:600; margin:0}
+  h3.section{
+    font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;
+    color:var(--ui-muted); margin:40px 0 12px;
+  }
+  .toolbar{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:8px}
+  .toolbar-left{display:flex; align-items:baseline; gap:12px; min-width:0}
+  .hint{font-size:12px; color:var(--ui-muted); margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .btn{
+    display:inline-flex; align-items:center; height:32px; padding:0 12px; border-radius:6px;
+    font-size:14px; font-weight:500; font-family:inherit;
+    background:#fff; color:#18181b; border:1px solid var(--ui-border); cursor:pointer;
+  }
+  .btn:hover{background:var(--ui-hover)}
+
+  .source{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    margin:0 0 12px; font-size:13px; color:var(--ui-muted);
+  }
+  .source b{color:var(--text-dark); font-weight:500}
+  .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    height:26px; padding:0 8px 0 10px; border-radius:6px;
+    border:1px solid var(--ui-border); background:#fff; color:var(--text-dark); font-size:13px;
+  }
+  .chip button{
+    width:16px; height:16px; border:0; background:transparent; color:var(--text-medium);
+    cursor:pointer; font-size:14px; line-height:1; padding:0;
+  }
+  .chip button:hover{color:var(--text-dark)}
+  .add-role{
+    height:26px; padding:0 8px; border-radius:6px; border:1px dashed var(--ui-border);
+    background:transparent; color:var(--ui-muted); font:inherit; font-size:13px; cursor:pointer;
+  }
+  .add-role:hover{background:var(--ui-hover); color:var(--text-dark)}
+
+  .grid-shell{border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; background:#fff}
+  .grid-scroll{overflow-x:auto}
+  table{border-collapse:separate; border-spacing:0; table-layout:fixed; width:100%}
+  col.wbs{width:72px}
+  col.name{width:auto}
+  col.phase{width:140px}
+  col.total{width:80px}
+  col.role{width:72px}
+  th, td{
+    border-right:1px solid var(--border); border-bottom:1px solid var(--border);
+    padding:0 8px; background:var(--bg-cell); color:var(--text-dark);
+  }
+  thead th{
+    background:var(--bg-header); color:var(--text-header);
+    font:600 13px var(--font); text-align:left; height:44px; vertical-align:middle;
+  }
+  thead th.role{
+    text-align:center; font:600 12px/1.15 var(--font); width:72px;
+  }
+  thead th.total{
+    text-align:right; width:80px;
+    background:var(--bg-total-header); color:#2a2a2a;
+    letter-spacing:.06em; font:700 11px var(--font);
+  }
+  td{height:34px}
+  td.outline{width:72px; color:var(--text-medium); font-variant-numeric:tabular-nums}
+  td.name{min-width:280px}
+  td.phase{width:140px}
+  td.hours, td.total{
+    width:72px; text-align:right; font-variant-numeric:tabular-nums;
+  }
+  td.total{
+    width:80px; cursor:default; font-weight:700;
+    background:var(--bg-total); color:#2a2a2a;
+  }
+  td.hours{cursor:text}
+  td.hours.zero{color:var(--text-medium)}
+  td.hours.parent{
+    cursor:default; font-weight:500; background:var(--bg-section);
+  }
+  tr.section td{background:var(--bg-section); font-weight:600}
+  tr.section td.outline, tr.section td.phase{font-weight:500}
+  tr.section td.hours.parent{font-weight:600}
+  tr.section td.total{background:var(--bg-total-section); font-weight:700}
+  td.phase.inherited{color:var(--text-medium); font-weight:400}
+  tbody tr:last-child td{border-bottom:0}
+  .task{
+    display:flex; align-items:center; gap:6px; min-width:0;
+  }
+  .chev{width:14px; color:var(--text-medium); flex:none}
+  .pad-1{padding-left:18px}
+  .pad-2{padding-left:36px}
+  .kebab{color:var(--text-light); letter-spacing:1px; font-size:12px; flex:none}
+
+  td.hours.editing{padding:2px 4px; background:#fff}
+  td.hours input{
+    width:100%; height:28px; border:1px solid var(--accent); border-radius:3px;
+    text-align:right; font:inherit; font-variant-numeric:tabular-nums;
+    color:var(--text-dark); outline:none; padding:0 6px; background:#fff;
+  }
+  td.hours.selected{outline:2px solid var(--accent); outline-offset:-2px}
+
+  .legend{display:flex; gap:20px; flex-wrap:wrap; font-size:13px; color:var(--ui-muted); margin-top:10px}
+  .legend b{color:var(--text-dark); font-weight:500}
+  .qa{margin:12px 0 0; padding:0; list-style:none; font-size:14px; line-height:1.7}
+  .qa li{padding-left:18px; position:relative; color:#3f3f46}
+  .qa li::before{content:'—'; position:absolute; left:0; color:#a1a1aa}
+
+  .compare{
+    display:grid; grid-template-columns:1fr; gap:8px;
+    margin:0 0 28px; padding:12px 14px; border:1px solid var(--ui-border); border-radius:8px;
+    background:#fafafa; font-size:13px; color:var(--ui-muted);
+  }
+  .compare strong{color:var(--text-dark); font-weight:500}
+  .chips-demo{display:flex; gap:6px; flex-wrap:wrap; margin-top:6px}
+  .old-chip{
+    display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:999px;
+    background:#ececf0; color:var(--text-dark); font-size:12px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <p class="note">
+    Static mockup of the WBS grid after dropping the composite <b>Roles</b> chip
+    column. A read-only <b>TOTAL</b> column sits immediately before the role
+    columns. Role columns come from the Resource List table. Click a leaf role
+    cell and type; parent rows and TOTAL stay read-only sums. Tokens
+    match <code>GRID_THEME</code>.
+  </p>
+
+  <div class="compare">
+    <div>
+      <strong>Today</strong> — one Roles cell stacks chips, plus a separate Hours rollup.
+      <div class="chips-demo">
+        <span class="old-chip">SA ×16</span>
+        <span class="old-chip">Dev Sr ×40</span>
+        <span class="old-chip">Dev Md ×40</span>
+        <span class="old-chip">QA ×24</span>
+        <span style="align-self:center;margin-left:8px">Hours 120</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <h2>Work Breakdown Structure</h2>
+      <p class="hint">Tab indent · Shift-Tab outdent · Enter add sibling</p>
+    </div>
+    <button class="btn" type="button">Columns</button>
+  </div>
+
+  <div class="source">
+    <b>Resource List</b>
+    <span id="roleChips"></span>
+    <button class="add-role" type="button" id="addRole">+ Add role</button>
+  </div>
+
+  <div class="grid-shell">
+    <div class="grid-scroll">
+      <table id="grid"></table>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><b>Leaf:</b> click a cell, type hours, Enter or click away</span>
+    <span><b>Parent:</b> sum of children, not editable</span>
+    <span><b>Empty:</b> stored and shown as 0</span>
+    <span><b>TOTAL:</b> slate band + heavier type; same borders as every other column</span>
+    <span><b>Columns:</b> TOTAL, then one per Resource List role, in list order</span>
+  </div>
+
+  <h3 class="section">Locked for this mockup</h3>
+  <ul class="qa">
+    <li>WBS, Task Description, and Phase stay. The Roles chip column goes away. TOTAL is a read-only sum, immediately before the role columns. Roadmap stays optional via Columns.</li>
+    <li>A role column exists only while that role is a row on the Resource List. Removing the last Resource List row for a role removes the column.</li>
+    <li>Estimates live on the leaf (or any row without children). Parents never own hours; they only add children.</li>
+    <li>Typing in a cell writes that role’s hours for that WBS item. No overlay chip editor.</li>
+  </ul>
+
+  <h3 class="section">Still open after the mockup</h3>
+  <ul class="qa">
+    <li>Header wrap: two-line labels like the reference (<b>Dev<br>Sr</b>) vs a single truncated line at 36px.</li>
+    <li>Zeros: medium gray (as drawn) vs the same weight as non-zero hours.</li>
+    <li>A parent that also has its own leftover estimates from today — drop them, or keep them until the row is edited?</li>
+  </ul>
+</div>
+
+<script>
+const ROLES = [
+  { id: 'sa', label: 'SA' },
+  { id: 'dev-sr', label: 'Dev Sr' },
+  { id: 'dev-md', label: 'Dev Md' },
+  { id: 'qa', label: 'QA' },
+];
+
+const EXTRA = { id: 'ux', label: 'UX' };
+
+const ITEMS = [
+  { id: 1, outline: '1', name: 'Discovery', depth: 0, section: true, phase: 'Phase 1', inherited: false, parent: null },
+  { id: 2, outline: '1.1', name: 'Kickoff', depth: 1, section: false, phase: 'Phase 1', inherited: true, parent: 1 },
+  { id: 3, outline: '1.2', name: 'Workshops', depth: 1, section: false, phase: 'Phase 1', inherited: true, parent: 1 },
+  { id: 4, outline: '2', name: 'Build', depth: 0, section: true, phase: 'Phase 2', inherited: false, parent: null },
+  { id: 5, outline: '2.1', name: 'API', depth: 1, section: false, phase: 'Phase 2', inherited: true, parent: 4 },
+  { id: 6, outline: '2.2', name: 'UI', depth: 1, section: false, phase: 'Phase 2', inherited: true, parent: 4 },
+  { id: 7, outline: '2.3', name: 'Test pack', depth: 1, section: false, phase: 'Phase 2', inherited: true, parent: 4 },
+];
+
+const OWN = {
+  2: { sa: 16, 'dev-sr': 0, 'dev-md': 0, qa: 0 },
+  3: { sa: 0, 'dev-sr': 8, 'dev-md': 0, qa: 8 },
+  5: { sa: 0, 'dev-sr': 32, 'dev-md': 16, qa: 8 },
+  6: { sa: 0, 'dev-sr': 8, 'dev-md': 24, qa: 8 },
+  7: { sa: 0, 'dev-sr': 0, 'dev-md': 0, qa: 8 },
+};
+
+function childrenOf(id){
+  return ITEMS.filter((item) => item.parent === id);
+}
+
+function hoursFor(itemId, roleId){
+  const kids = childrenOf(itemId);
+  if (kids.length) return kids.reduce((sum, child) => sum + hoursFor(child.id, roleId), 0);
+  return OWN[itemId]?.[roleId] ?? 0;
+}
+
+function totalHours(itemId){
+  return ROLES.reduce((sum, role) => sum + hoursFor(itemId, role.id), 0);
+}
+
+function headerLabel(label){
+  const parts = label.split(' ');
+  if (parts.length === 1) return parts[0];
+  return parts[0] + '<br>' + parts.slice(1).join(' ');
+}
+
+let editing = null;
+
+function renderChips(){
+  const wrap = document.getElementById('roleChips');
+  wrap.innerHTML = ROLES.map((role, i) =>
+    `<span class="chip">${role.label}<button type="button" data-remove="${i}" aria-label="Remove ${role.label}">×</button></span>`
+  ).join('');
+}
+
+function renderGrid(){
+  const table = document.getElementById('grid');
+  const roleHeads = ROLES.map((role) =>
+    `<th class="role">${headerLabel(role.label)}</th>`
+  ).join('');
+
+  const body = ITEMS.map((item) => {
+    const namePad = item.depth === 0 ? '' : ` pad-${item.depth}`;
+    const chev = item.section ? '▾' : '';
+    const phaseClass = item.inherited ? 'phase inherited' : 'phase';
+    const isParent = childrenOf(item.id).length > 0;
+    const total = totalHours(item.id);
+    const totalCls = ['total', total === 0 ? 'zero' : '', isParent ? 'parent' : '']
+      .filter(Boolean).join(' ');
+    const cells = ROLES.map((role) => {
+      const value = hoursFor(item.id, role.id);
+      const isEdit = editing && editing.itemId === item.id && editing.roleId === role.id;
+      const cls = ['hours', value === 0 && !isEdit ? 'zero' : '', isParent ? 'parent' : '']
+        .filter(Boolean).join(' ');
+      if (isEdit) {
+        return `<td class="${cls} editing"><input id="hourInput" value="${value}" inputmode="numeric"></td>`;
+      }
+      return `<td class="${cls}" data-item="${item.id}" data-role="${role.id}">${value}</td>`;
+    }).join('');
+
+    return `<tr class="${item.section ? 'section' : ''}">
+      <td class="outline">${item.outline}</td>
+      <td class="name"><div class="task${namePad}"><span class="chev">${chev}</span><span>${item.name}</span><span class="kebab">···</span></div></td>
+      <td class="${phaseClass}">${item.phase}</td>
+      <td class="${totalCls}">${total}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  const cols = [
+    '<col class="wbs">',
+    '<col class="name">',
+    '<col class="phase">',
+    '<col class="total">',
+    ...ROLES.map(() => '<col class="role">'),
+  ].join('');
+
+  table.innerHTML = `
+    <colgroup>${cols}</colgroup>
+    <thead>
+      <tr>
+        <th>WBS</th>
+        <th>Task Description</th>
+        <th>Phase</th>
+        <th class="total">TOTAL</th>
+        ${roleHeads}
+      </tr>
+    </thead>
+    <tbody>${body}</tbody>
+  `;
+
+  const input = document.getElementById('hourInput');
+  if (input) {
+    input.focus();
+    input.select();
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') commitEdit(input.value);
+      if (event.key === 'Escape') { editing = null; renderGrid(); }
+    });
+    input.addEventListener('blur', () => commitEdit(input.value));
+  }
+}
+
+function parseHours(raw){
+  const trimmed = String(raw).trim();
+  if (trimmed === '') return 0;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function commitEdit(raw){
+  if (!editing) return;
+  const parsed = parseHours(raw);
+  if (parsed !== null) {
+    const bucket = OWN[editing.itemId] || (OWN[editing.itemId] = {});
+    bucket[editing.roleId] = parsed;
+  }
+  editing = null;
+  renderGrid();
+}
+
+function startEdit(itemId, roleId){
+  if (childrenOf(itemId).length) return;
+  editing = { itemId, roleId };
+  renderGrid();
+}
+
+document.getElementById('grid').addEventListener('click', (event) => {
+  const cell = event.target.closest('td.hours');
+  if (!cell || cell.classList.contains('parent') || cell.classList.contains('editing')) return;
+  startEdit(Number(cell.dataset.item), cell.dataset.role);
+});
+
+document.getElementById('roleChips').addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-remove]');
+  if (!btn) return;
+  ROLES.splice(Number(btn.dataset.remove), 1);
+  renderChips();
+  renderGrid();
+});
+
+document.getElementById('addRole').addEventListener('click', () => {
+  if (ROLES.some((role) => role.id === EXTRA.id)) return;
+  ROLES.push({ ...EXTRA });
+  ITEMS.forEach((item) => {
+    if (!childrenOf(item.id).length) {
+      const bucket = OWN[item.id] || (OWN[item.id] = {});
+      if (bucket[EXTRA.id] == null) bucket[EXTRA.id] = 0;
+    }
+  });
+  renderChips();
+  renderGrid();
+});
+
+renderChips();
+renderGrid();
+</script>
+</body>
+</html>
