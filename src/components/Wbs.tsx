@@ -736,7 +736,7 @@ export function Wbs({
   }, [wbsItems.length]);
 
   const columns = useMemo((): GridColumn[] => {
-    const mapped: GridColumn[] = visibleColumns.map((c) => ({
+    const mapped: Array<GridColumn & { width: number }> = visibleColumns.map((c) => ({
       title: c.title,
       id: c.id === 'outline' ? 'wbs' : c.id, // 'wbs' matches the grid id every prior snapshot/test expects
       width: c.width,

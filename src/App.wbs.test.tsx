@@ -311,7 +311,7 @@ describe('App WBS handler wiring', () => {
 
     await waitFor(() =>
       expect(api.replaceWbsEstimates).toHaveBeenCalledWith(1, [
-        { discipline: 'Analysis', role: 'BA', hours: 12 },
+        { discipline: 'BA', role: 'BA', hours: 12 },
       ])
     );
     // TOTAL and the BA role column reflect the server-confirmed value.
