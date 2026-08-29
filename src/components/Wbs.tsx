@@ -13,7 +13,7 @@ import DataEditor, {
   Theme,
   getMiddleCenterBias,
 } from '@glideapps/glide-data-grid';
-import type { GridMouseEventArgs, Highlight } from '@glideapps/glide-data-grid';
+import type { DrawHeaderCallback, GridMouseEventArgs, Highlight } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
 import { ChevronDown } from 'lucide-react';
 import {
@@ -735,6 +735,30 @@ export function Wbs({
     return () => ro.disconnect();
   }, [wbsItems.length]);
 
+  const drawHeader = useCallback<DrawHeaderCallback>((args, drawContent) => {
+    const id = String(args.column.id ?? '');
+    const isRole = id.startsWith('role:');
+    if (!isRole && id !== 'total') {
+      drawContent();
+      return;
+    }
+
+    const { ctx, rect, theme } = args;
+    const lines = args.column.title.split('\n');
+    ctx.save();
+    ctx.font = `${theme.headerFontStyle} ${theme.fontFamily}`;
+    ctx.fillStyle = theme.textHeader;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = id === 'total' ? 'right' : 'center';
+    const x = id === 'total' ? rect.x + rect.width - CELL_PAD : rect.x + rect.width / 2;
+    const lineHeight = 13;
+    const firstY = rect.y + rect.height / 2 - ((lines.length - 1) * lineHeight) / 2;
+    lines.forEach((line, index) => {
+      ctx.fillText(line, x, firstY + index * lineHeight);
+    });
+    ctx.restore();
+  }, []);
+
   const columns = useMemo((): GridColumn[] => {
     const mapped: Array<GridColumn & { width: number }> = visibleColumns.map((c) => ({
       title: c.title,
@@ -1312,6 +1336,7 @@ export function Wbs({
           <DataEditor
             ref={gridRef}
             columns={columns}
+            drawHeader={drawHeader}
             rows={rows.length}
             getCellContent={getCellContent}
             onCellEdited={onCellEdited}
