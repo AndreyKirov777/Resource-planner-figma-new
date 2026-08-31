@@ -498,3 +498,38 @@ matched rather than fixed. None are regressions caused by this change.
 - source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`
   summary: No guard prevents two overlapping drag/keyboard reorder commits from firing concurrent `PATCH .../reorder` requests whose responses could resolve out of order.
   evidence: Confirmed via `git show` on the pre-story baseline that the old two-PATCH `commitDrag` path had no such guard either — pre-existing gap in the commit path this story generalized, not introduced by it.
+
+## Open: consolidate product settings (parked 2026-08-31)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-wbs-role-columns.md`
+  summary: Whether to extract WBS role-abbreviation dictionaries (and later all product settings) into a shared config is parked — do not extract `ROLE_LEVELS` / `ROLE_FILLERS` yet.
+  evidence: Surfaced while shipping UI-only WBS role-header abbreviations. User asked if the rules should live in a separate config file, then whether scattered settings can later be found and merged; decided to defer.
+
+**Trigger:** abbreviations are UI-only (not DB). User asked whether the rules should live in a separate config file, then whether scattered settings can later be found and merged.
+
+**Current home of the rules**
+
+- Algorithm + dictionaries: `src/utils/wbsGrid.ts` (`ROLE_LEVELS`, `ROLE_FILLERS`, `abbreviateRole` / `abbreviateRoles`, seniority-first reorder, collision expand).
+- Headers consume that via `getVisibleWbsColumns` in `src/components/wbsColumns.ts`. Column identity and estimates stay the full Resource List `role`.
+
+**Why a separate file is not justified yet**
+
+- Dictionaries are small; the load-bearing part is the algorithm (tokenize, keep ≤3, initials, glue `DE`, seniority first, collisions).
+- That does not serialize cleanly to JSON without duplicating logic.
+- Extract when: non-devs edit the list, locale/client variants appear, or the dictionary grows far past ~10 words.
+- Incremental step if it grows: `export const ROLE_LEVELS` in the same file, not a new `.json`.
+
+**Existing config landscape (do not dump into one bag)**
+
+- Product policy already has a home: `src/config/defaults.ts` (`APP_DEFAULTS`, `LOCATIONS`, `SUPPORTED_CURRENCIES`).
+- Related mappings: `src/utils/regions.ts`, `src/utils/phases.ts`.
+- Feature chrome (keep with the feature): `wbsColumns.ts`, `planningColumns.ts`, `gridTheme.ts`, `roadmapGeometry.ts`.
+- Other contours: `ai.config.ts` + `server/llm/config.ts`; `.env`; `prisma/client_roles.json` (Role → Naming in PM → Client role data).
+
+**Later merge cost**
+
+- *Finding* settings stays cheap: `export const [A-Z_]+` in `.ts`.
+- *Moving* product values into `src/config/` is a half-day re-export.
+- *One file for everything* is the expensive/wrong end state (`MAX_HOURS` next to `accentColor` and the planner prompt).
+
+**When this comes back:** treat product values as `src/config/*`; leave pixel/algorithm limits next to the feature. Do not persist abbreviations. Fresh window + `bmad-help`, or `bmad-build` / `bmad-architecture` with this section as input.
