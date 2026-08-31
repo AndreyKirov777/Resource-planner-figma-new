@@ -421,7 +421,7 @@ describe('Wbs — rendering', () => {
       />
     );
 
-    expect(screen.getByTestId('grid-columns')).toHaveTextContent(
+    expect(screen.getByTestId('grid-columns').textContent).toBe(
       'WBS|Task Description|Phase|TOTAL|Sr\nDE|BA'
     );
     expect(screen.queryByTestId('wbs-role-header-tip')).not.toBeInTheDocument();
