@@ -136,16 +136,26 @@ export function resourceListRoles(resourceLists: ResourceListType[]): string[] {
 /** Words dropped before initials so "Engineer of Data" does not become "EoD". */
 const ROLE_FILLERS = new Set(['and', 'of', 'the', 'for', 'a', 'an', 'or', 'to', 'in', 'on']);
 
-/** Seniority / level words stay as short words instead of collapsing to one letter. */
+/**
+ * Seniority / level words stay as short words instead of collapsing to one
+ * letter. Short forms are listed too so `Dev Sr` is recognized as seniority.
+ */
 const ROLE_LEVELS: Record<string, string> = {
   senior: 'Sr',
+  sr: 'Sr',
   junior: 'Jr',
+  jr: 'Jr',
   middle: 'Md',
   mid: 'Md',
+  md: 'Md',
   principal: 'Pr',
+  pr: 'Pr',
   lead: 'Ld',
+  ld: 'Ld',
   associate: 'As',
+  as: 'As',
   staff: 'St',
+  st: 'St',
 };
 
 interface RoleAbbrevPart {
@@ -170,6 +180,14 @@ function roleAbbrevParts(tokens: readonly string[]): RoleAbbrevPart[] {
   });
 }
 
+/** Seniority always leads; the rest of the role follows in source order. */
+function seniorityFirst(parts: readonly RoleAbbrevPart[]): RoleAbbrevPart[] {
+  return [
+    ...parts.filter((part) => part.kind === 'level'),
+    ...parts.filter((part) => part.kind !== 'level'),
+  ];
+}
+
 /** Adjacent single-letter pieces glue together (`D`+`E` → `DE`); longer pieces stay words. */
 function joinRoleAbbrevParts(parts: readonly RoleAbbrevPart[]): string {
   const words: string[] = [];
@@ -179,7 +197,7 @@ function joinRoleAbbrevParts(parts: readonly RoleAbbrevPart[]): string {
     words.push(initials);
     initials = '';
   };
-  parts.forEach((part) => {
+  seniorityFirst(parts).forEach((part) => {
     if (part.text.length === 1) {
       initials += part.text;
       return;
@@ -206,8 +224,9 @@ function expandLastInitial(parts: RoleAbbrevPart[]): boolean {
  * UI-only short form of a Resource List role. Identity and estimates still
  * use the full string — this never goes to the server.
  *
- * Seniority words become `Sr`/`Jr`/…; leftover words longer than 3 letters
- * collapse to initials (`Senior Data Engineer` → `Sr DE`).
+ * Seniority words become `Sr`/`Jr`/… and always lead the label, even when
+ * they were written last (`Dev Sr` → `Sr Dev`). Leftover words longer than
+ * 3 letters collapse to initials (`Senior Data Engineer` → `Sr DE`).
  */
 export function abbreviateRole(role: string): string {
   const tokens = roleTokens(role);

@@ -148,7 +148,7 @@ describe('Wbs — optional Roadmap column', () => {
     window.localStorage.clear();
     render(<Wbs {...defaultProps(tree, lanes)} />);
     expect(screen.getByTestId('grid-columns').textContent).toBe(
-      'WBS|Task Description|Phase|TOTAL|BA|Dev\nSr'
+      'WBS|Task Description|Phase|TOTAL|BA|Sr\nDev'
     );
   });
 
@@ -161,7 +161,7 @@ describe('Wbs — optional Roadmap column', () => {
     await user.click(screen.getByRole('menuitemcheckbox', { name: 'Roadmap' }));
 
     expect(screen.getByTestId('grid-columns').textContent).toBe(
-      'WBS|Task Description|Phase|TOTAL|BA|Dev\nSr|Roadmap'
+      'WBS|Task Description|Phase|TOTAL|BA|Sr\nDev|Roadmap'
     );
     // Row 0 = Root (directly linked to "API"), row 1 = Child (inherits it).
     expect(screen.getByTestId('cell-6-0').textContent).toBe('API');
@@ -186,7 +186,7 @@ describe('Wbs — optional Roadmap column', () => {
     const { roadmapLanes: _omit, onSetWbsRoadmapLink: _omit2, ...propsWithoutRoadmap } = defaultProps(tree);
     render(<Wbs {...propsWithoutRoadmap} />);
     expect(screen.getByTestId('grid-columns').textContent).toBe(
-      'WBS|Task Description|Phase|TOTAL|BA|Dev\nSr'
+      'WBS|Task Description|Phase|TOTAL|BA|Sr\nDev'
     );
   });
 });

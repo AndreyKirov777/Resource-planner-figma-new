@@ -275,7 +275,6 @@ describe('abbreviateRole', () => {
     expect(abbreviateRole('UX')).toBe('UX');
     expect(abbreviateRole('QA')).toBe('QA');
     expect(abbreviateRole('SA')).toBe('SA');
-    expect(abbreviateRole('Dev Sr')).toBe('Dev Sr');
   });
 
   it('turns seniority plus leftover words into Sr + initials', () => {
@@ -287,6 +286,13 @@ describe('abbreviateRole', () => {
     expect(abbreviateRole('Lead UX Designer')).toBe('Ld UX D');
     expect(abbreviateRole('Staff Engineer')).toBe('St E');
     expect(abbreviateRole('Associate Product Manager')).toBe('As PM');
+  });
+
+  it('puts seniority first even when it was written last', () => {
+    expect(abbreviateRole('Dev Sr')).toBe('Sr Dev');
+    expect(abbreviateRole('Data Engineer Senior')).toBe('Sr DE');
+    expect(abbreviateRole('Software Engineer Junior')).toBe('Jr SE');
+    expect(abbreviateRole('UX Designer Lead')).toBe('Ld UX D');
   });
 
   it('drops filler words and treats & / as separators', () => {
