@@ -37,6 +37,8 @@ import {
   phaseLabel,
   pruneCollapsedIds,
   resourceListRoles,
+  abbreviateRole,
+  abbreviateRoles,
   roleEditFor,
   sameHours,
   samePairs,
@@ -264,6 +266,43 @@ describe('deriveDiscipline', () => {
   // Matrix row "Empty rate card": free text, accepted by the server's bypass.
   it('falls back to the role itself when the rate card is empty', () => {
     expect(deriveDiscipline('Freelancer', [])).toBe('Freelancer');
+  });
+});
+
+describe('abbreviateRole', () => {
+  it('keeps already-short role names', () => {
+    expect(abbreviateRole('BA')).toBe('BA');
+    expect(abbreviateRole('UX')).toBe('UX');
+    expect(abbreviateRole('QA')).toBe('QA');
+    expect(abbreviateRole('SA')).toBe('SA');
+    expect(abbreviateRole('Dev Sr')).toBe('Dev Sr');
+  });
+
+  it('turns seniority plus leftover words into Sr + initials', () => {
+    expect(abbreviateRole('Senior Data Engineer')).toBe('Sr DE');
+    expect(abbreviateRole('Junior Software Engineer')).toBe('Jr SE');
+    expect(abbreviateRole('Middle Data Analyst')).toBe('Md DA');
+    expect(abbreviateRole('Mid Developer')).toBe('Md D');
+    expect(abbreviateRole('Principal Engineer')).toBe('Pr E');
+    expect(abbreviateRole('Lead UX Designer')).toBe('Ld UX D');
+    expect(abbreviateRole('Staff Engineer')).toBe('St E');
+    expect(abbreviateRole('Associate Product Manager')).toBe('As PM');
+  });
+
+  it('drops filler words and treats & / as separators', () => {
+    expect(abbreviateRole('Engineer of Data and Analytics')).toBe('EDA');
+    expect(abbreviateRole('QA & UX Designer')).toBe('QA UX D');
+  });
+});
+
+describe('abbreviateRoles', () => {
+  it('keeps the first compact form and expands a later collision', () => {
+    expect(abbreviateRoles(['BA', 'Business Analyst'])).toEqual(['BA', 'B An']);
+    expect(abbreviateRoles(['Business Analyst', 'BA'])).toEqual(['BA', 'BA2']);
+    expect(abbreviateRoles(['Senior Data Engineer', 'Senior Developer Engineer'])).toEqual([
+      'Sr DE',
+      'Sr D En',
+    ]);
   });
 });
 

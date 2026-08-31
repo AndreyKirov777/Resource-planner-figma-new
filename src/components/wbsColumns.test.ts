@@ -13,6 +13,29 @@ beforeEach(() => {
 });
 
 describe('wbsColumns', () => {
+  it('abbreviates long role titles but keeps the full role as identity', () => {
+    const visible = getVisibleWbsColumns(DEFAULT_HIDDEN_WBS_COLUMNS, [
+      'Senior Data Engineer',
+      'BA',
+    ]);
+    expect(visible.map((column) => column.title)).toEqual([
+      'WBS',
+      'Task Description',
+      'Phase',
+      'TOTAL',
+      'Sr\nDE',
+      'BA',
+    ]);
+    expect(visible.map((column) => column.role)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'Senior Data Engineer',
+      'BA',
+    ]);
+  });
+
   it('renders TOTAL followed by first-seen role columns', () => {
     const visible = getVisibleWbsColumns(DEFAULT_HIDDEN_WBS_COLUMNS, ['SA', 'Dev Sr', 'QA']);
     expect(visible.map((column) => column.title)).toEqual([

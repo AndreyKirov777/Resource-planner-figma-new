@@ -133,6 +133,117 @@ export function resourceListRoles(resourceLists: ResourceListType[]): string[] {
   return roles;
 }
 
+/** Words dropped before initials so "Engineer of Data" does not become "EoD". */
+const ROLE_FILLERS = new Set(['and', 'of', 'the', 'for', 'a', 'an', 'or', 'to', 'in', 'on']);
+
+/** Seniority / level words stay as short words instead of collapsing to one letter. */
+const ROLE_LEVELS: Record<string, string> = {
+  senior: 'Sr',
+  junior: 'Jr',
+  middle: 'Md',
+  mid: 'Md',
+  principal: 'Pr',
+  lead: 'Ld',
+  associate: 'As',
+  staff: 'St',
+};
+
+interface RoleAbbrevPart {
+  source: string;
+  text: string;
+  kind: 'level' | 'keep' | 'initial';
+}
+
+function roleTokens(role: string): string[] {
+  return role.split(/[\s,+/&|]+/).filter((token) => {
+    const trimmed = token.trim();
+    return trimmed.length > 0 && !ROLE_FILLERS.has(trimmed.toLowerCase());
+  });
+}
+
+function roleAbbrevParts(tokens: readonly string[]): RoleAbbrevPart[] {
+  return tokens.map((token) => {
+    const level = ROLE_LEVELS[token.toLowerCase()];
+    if (level !== undefined) return { source: token, text: level, kind: 'level' };
+    if (token.length <= 3) return { source: token, text: token, kind: 'keep' };
+    return { source: token, text: token[0].toUpperCase(), kind: 'initial' };
+  });
+}
+
+/** Adjacent single-letter pieces glue together (`D`+`E` → `DE`); longer pieces stay words. */
+function joinRoleAbbrevParts(parts: readonly RoleAbbrevPart[]): string {
+  const words: string[] = [];
+  let initials = '';
+  const flush = () => {
+    if (initials.length === 0) return;
+    words.push(initials);
+    initials = '';
+  };
+  parts.forEach((part) => {
+    if (part.text.length === 1) {
+      initials += part.text;
+      return;
+    }
+    flush();
+    words.push(part.text);
+  });
+  flush();
+  return words.join(' ');
+}
+
+function expandLastInitial(parts: RoleAbbrevPart[]): boolean {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    if (part.kind !== 'initial' || part.text.length >= part.source.length) continue;
+    const taken = part.source.slice(0, part.text.length + 1);
+    part.text = taken[0].toUpperCase() + taken.slice(1);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * UI-only short form of a Resource List role. Identity and estimates still
+ * use the full string — this never goes to the server.
+ *
+ * Seniority words become `Sr`/`Jr`/…; leftover words longer than 3 letters
+ * collapse to initials (`Senior Data Engineer` → `Sr DE`).
+ */
+export function abbreviateRole(role: string): string {
+  const tokens = roleTokens(role);
+  if (tokens.length === 0) return role.trim();
+  return joinRoleAbbrevParts(roleAbbrevParts(tokens));
+}
+
+/**
+ * Short forms for a first-seen role list. The first role keeps the compact
+ * label; a later collision expands the last initialled word (`BA` then
+ * `Business Analyst` → `BA`, `B An`), then suffixes `2`, `3`, … if needed.
+ */
+export function abbreviateRoles(roles: readonly string[]): string[] {
+  const used = new Set<string>();
+  return roles.map((role) => {
+    const tokens = roleTokens(role);
+    if (tokens.length === 0) {
+      const empty = role.trim();
+      used.add(empty);
+      return empty;
+    }
+    const parts = roleAbbrevParts(tokens);
+    let label = joinRoleAbbrevParts(parts);
+    while (used.has(label) && expandLastInitial(parts)) {
+      label = joinRoleAbbrevParts(parts);
+    }
+    if (used.has(label)) {
+      let n = 2;
+      while (used.has(`${label}${n}`)) n += 1;
+      label = `${label}${n}`;
+    }
+    used.add(label);
+    return label;
+  });
+}
+
 /**
  * The single pass that turns server state into rendered rows: tree assembly,
  * outline numbering, phase inheritance, role pairs and children-only role

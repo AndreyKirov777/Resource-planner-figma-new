@@ -1,3 +1,5 @@
+import { abbreviateRoles } from '../utils/wbsGrid';
+
 /**
  * Single source of truth for the WBS grid's columns. Modelled on
  * `planningColumns.ts` — the WBS tab had no columns-visibility menu before
@@ -8,6 +10,8 @@
  *
  * Column identity is an `id`, never a grid index — mirrors `planningColumns.ts`'s
  * own rationale: the grid index of a column shifts the moment one is hidden.
+ * Role `title` is a UI-only abbreviation; `role` stays the full Resource List
+ * string used for estimates and the header tooltip.
  */
 
 export type WbsColumnId = 'outline' | 'name' | 'phase' | 'total' | 'roadmap' | `role:${string}`;
@@ -76,9 +80,10 @@ export function getVisibleWbsColumns(
   hidden: readonly WbsColumnId[],
   roles: readonly string[] = []
 ): WbsColumnDef[] {
-  const roleColumns: WbsColumnDef[] = roles.map((role) => ({
+  const labels = abbreviateRoles(roles);
+  const roleColumns: WbsColumnDef[] = roles.map((role, index) => ({
     id: `role:${encodeURIComponent(role)}`,
-    title: role.replace(' ', '\n'),
+    title: labels[index].replace(' ', '\n'),
     width: 72,
     pinned: true,
     role,

@@ -78,6 +78,29 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
         <span data-testid="grid-columns">
           {columns.map((c: { title: string }) => c.title).join('|')}
         </span>
+        <button
+          onClick={() =>
+            props.onItemHovered?.({
+              kind: 'header',
+              location: [columns.findIndex((c: { id?: string }) => String(c.id ?? '').startsWith('role:')), 0],
+            })
+          }
+        >
+          hover first role header
+        </button>
+        <button
+          onClick={() =>
+            props.onItemHovered?.({
+              kind: 'header',
+              location: [columns.findIndex((c: { id?: string }) => c.id === 'total'), 0],
+            })
+          }
+        >
+          hover total header
+        </button>
+        <button onClick={() => props.onItemHovered?.({ kind: 'out-of-bounds', location: [0, 0] })}>
+          leave grid
+        </button>
         <span data-testid="grid-selection">{selectedCell}</span>
         <span data-testid="is-outside-click">{outsideClick}</span>
         <button onClick={() => probeOutsideClick('click-outside-ignore')}>
@@ -383,6 +406,37 @@ describe('Wbs — rendering', () => {
       'WBS|Task Description|Phase|TOTAL|BA|UX'
     );
     expect(screen.queryByTestId('cell-6-0')).not.toBeInTheDocument();
+  });
+
+  it('abbreviates a long Resource List role in the header and tooltips the full name', async () => {
+    const user = userEvent.setup();
+    const items = [wbsItem({ id: 1, name: 'Root' })];
+    render(
+      <Wbs
+        {...defaultProps(items)}
+        resourceLists={[
+          resourceList({ id: 1, role: 'Senior Data Engineer' }),
+          resourceList({ id: 2, role: 'BA' }),
+        ]}
+      />
+    );
+
+    expect(screen.getByTestId('grid-columns')).toHaveTextContent(
+      'WBS|Task Description|Phase|TOTAL|Sr\nDE|BA'
+    );
+    expect(screen.queryByTestId('wbs-role-header-tip')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'hover first role header' }));
+    expect(screen.getByTestId('wbs-role-header-tip')).toHaveTextContent('Senior Data Engineer');
+
+    await user.click(screen.getByRole('button', { name: 'hover total header' }));
+    expect(screen.queryByTestId('wbs-role-header-tip')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'hover first role header' }));
+    expect(screen.getByTestId('wbs-role-header-tip')).toHaveTextContent('Senior Data Engineer');
+
+    await user.click(screen.getByRole('button', { name: 'leave grid' }));
+    expect(screen.queryByTestId('wbs-role-header-tip')).not.toBeInTheDocument();
   });
 
   it('inherits a phase down the tree and marks the inherited ones', () => {

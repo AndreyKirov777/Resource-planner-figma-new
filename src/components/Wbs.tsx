@@ -464,6 +464,9 @@ export function Wbs({
   const [rowMenu, setRowMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<WbsColumnId[]>(() => loadHiddenWbsColumns(project.id));
   const [gridClientWidth, setGridClientWidth] = useState(0);
+  const [headerTip, setHeaderTip] = useState<{ text: string; left: number; top: number } | null>(
+    null
+  );
   const isMac = useMemo(() => isMacPlatform(), []);
   const gridRef = useRef<DataEditorRef | null>(null);
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1140,7 +1143,40 @@ export function Wbs({
     return null;
   }
 
+  function clearHeaderTip() {
+    setHeaderTip((prev) => (prev === null ? prev : null));
+  }
+
+  function showRoleHeaderTip(col: number) {
+    const role = visibleColumns[col]?.role;
+    if (role === undefined) {
+      clearHeaderTip();
+      return;
+    }
+    const bounds = gridRef.current?.getBounds(col, -1);
+    const container = gridContainerRef.current?.getBoundingClientRect();
+    const next =
+      bounds !== undefined && container !== undefined
+        ? {
+            text: role,
+            left: bounds.x - container.left + bounds.width / 2,
+            top: bounds.y - container.top + bounds.height,
+          }
+        : { text: role, left: 8, top: HEADER_HEIGHT };
+    setHeaderTip((prev) =>
+      prev !== null && prev.text === next.text && prev.left === next.left && prev.top === next.top
+        ? prev
+        : next
+    );
+  }
+
   function rememberHover(args: GridMouseEventArgs) {
+    const headerCol = args.kind === 'header' ? args.location[0] : undefined;
+    if (headerCol !== undefined) {
+      showRoleHeaderTip(headerCol);
+      return;
+    }
+    clearHeaderTip();
     if (args.kind !== 'cell') return;
     hoverRef.current = {
       rowIndex: args.location[1],
@@ -1332,6 +1368,7 @@ export function Wbs({
             outlineDragging && 'cursor-grabbing'
           )}
           onPointerDown={onGridPointerDown}
+          onMouseLeave={clearHeaderTip}
         >
           <DataEditor
             ref={gridRef}
@@ -1359,6 +1396,16 @@ export function Wbs({
             theme={GRID_THEME}
             {...{ onWbsDrop: handleDrop }}
           />
+          {headerTip !== null && (
+            <div
+              data-testid="wbs-role-header-tip"
+              role="tooltip"
+              className="pointer-events-none absolute z-10 max-w-xs -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-xs text-white shadow-md"
+              style={{ left: headerTip.left, top: headerTip.top }}
+            >
+              {headerTip.text}
+            </div>
+          )}
           {dropPreview !== null && dropPreview.zone !== 'child' && dropPreview.lineTop !== null && (
             <div
               data-testid="wbs-drop-line"
