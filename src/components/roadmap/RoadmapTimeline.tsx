@@ -32,6 +32,7 @@ import {
   LANE_MILESTONE_SIZE,
   BAR_RESIZE_HIT_PX,
   barDragMode,
+  resizeFollowRect,
 } from '../../utils/roadmapGeometry';
 import { DragGhost, ItemDragStartArgs, LaneDragStartArgs, RoadmapDragCommit, keyboardVerticalCommit, dropIndicatorFor } from './useRoadmapDrag';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
@@ -206,10 +207,10 @@ export function RoadmapTimeline({
     }
   }
 
-  // Floating pixel-follow layer for an in-progress TIMELINE item drag: the
-  // dragged bar/milestone tracks the raw pointer delta in both axes, and a
-  // dashed rect shows the snapped landing window+row. Snapping is applied
-  // only on release (`timeline-component.md`'s "Pointer model").
+  // Floating / stretch layer for an in-progress TIMELINE item drag:
+  // - move: bar follows the pointer in both axes; dashed rect = snapped landing
+  // - resize: bar stretches in place from the fixed edge; dashed rect = snapped window
+  // Snapping is applied only on release (`timeline-component.md`'s "Pointer model").
   const floatingDrag = useMemo(() => {
     if (!ghost || ghost.entity !== 'item' || ghost.source !== 'timeline') return null;
     const rowIndex = rows.findIndex((r) => r.kind !== 'lane' && r.id === ghost.id);
@@ -218,11 +219,13 @@ export function RoadmapTimeline({
     const isMilestone = originRow.kind === 'milestone';
     const originTop = rowIndex * ROW_HEIGHT;
     const snappedTop = indicatorY({ laneId: ghost.laneId, index: ghost.dropIndex }, rowDescriptors, ROW_HEIGHT);
+    const resizeMode = ghost.mode === 'resizeStart' || ghost.mode === 'resizeEnd' ? ghost.mode : null;
 
     if (isMilestone) {
       const originLeft = milestoneX(originRow.startPeriod, periodWidth) - MILESTONE_HIT / 2;
       const snappedLeft = milestoneX(ghost.startPeriod, periodWidth) - MILESTONE_HIT / 2;
       return {
+        kind: 'move' as const,
         follow: {
           left: originLeft + ghost.dxPx,
           top: originTop + (ROW_HEIGHT - MILESTONE_HIT) / 2 + ghost.dyPx,
@@ -242,10 +245,34 @@ export function RoadmapTimeline({
 
     const originRect = barRect(originRow.startPeriod, originRow.periodCount, periodWidth);
     const snappedRect = barRect(ghost.startPeriod, ghost.periodCount, periodWidth);
+    const barTop = originTop + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+
+    if (resizeMode !== null) {
+      const followRect = resizeFollowRect(resizeMode, originRect, ghost.dxPx);
+      return {
+        kind: 'resize' as const,
+        follow: {
+          left: followRect.left,
+          top: barTop,
+          width: followRect.width,
+          height: BAR_HEIGHT,
+          milestone: false,
+        },
+        snapped: {
+          left: snappedRect.left,
+          top: barTop,
+          width: snappedRect.width,
+          height: BAR_HEIGHT,
+          milestone: false,
+        },
+      };
+    }
+
     return {
+      kind: 'move' as const,
       follow: {
         left: originRect.left + ghost.dxPx,
-        top: originTop + (ROW_HEIGHT - BAR_HEIGHT) / 2 + ghost.dyPx,
+        top: barTop + ghost.dyPx,
         width: originRect.width,
         height: BAR_HEIGHT,
         milestone: false,
@@ -664,14 +691,13 @@ export function RoadmapTimeline({
               />
             )}
 
-            {/* Floating pixel-follow layer for a live TIMELINE item drag, plus the
-                dashed rect at the snapped landing window/row (snapping applied
-                only on release). */}
+            {/* Live drag preview: move floats a copy; resize stretches in place.
+                Dashed rect is the snapped landing window (applied only on release). */}
             {floatingDrag && (
               <>
                 <div
                   className="pointer-events-none absolute"
-                  data-testid="roadmap-drag-follow"
+                  data-testid={floatingDrag.kind === 'resize' ? 'roadmap-resize-follow' : 'roadmap-drag-follow'}
                   style={
                     floatingDrag.follow.milestone
                       ? {
@@ -690,13 +716,13 @@ export function RoadmapTimeline({
                           height: floatingDrag.follow.height,
                           background: ACCENT,
                           borderRadius: 4,
-                          opacity: 0.85,
+                          opacity: floatingDrag.kind === 'resize' ? 0.55 : 0.85,
                         }
                   }
                 />
                 <div
                   className="pointer-events-none absolute"
-                  data-testid="roadmap-drag-snapped"
+                  data-testid={floatingDrag.kind === 'resize' ? 'roadmap-resize-snapped' : 'roadmap-drag-snapped'}
                   style={{
                     left: floatingDrag.snapped.left,
                     top: floatingDrag.snapped.top,

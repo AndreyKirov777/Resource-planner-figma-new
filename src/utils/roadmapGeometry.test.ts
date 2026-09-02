@@ -8,6 +8,7 @@ import {
   snapDrag,
   barDragMode,
   BAR_RESIZE_HIT_PX,
+  resizeFollowRect,
   stripeSegments,
   fit,
   zoomStep,
@@ -179,6 +180,31 @@ describe('barDragMode', () => {
   it('zero or negative width stays move', () => {
     expect(barDragMode(0, 0)).toBe('move');
     expect(barDragMode(4, -1)).toBe('move');
+  });
+});
+
+describe('resizeFollowRect', () => {
+  const origin = { left: 100, width: 80 };
+
+  it('resizeEnd keeps left fixed and grows width with +dx', () => {
+    expect(resizeFollowRect('resizeEnd', origin, 20)).toEqual({ left: 100, width: 100 });
+  });
+
+  it('resizeEnd shrinks width with -dx', () => {
+    expect(resizeFollowRect('resizeEnd', origin, -30)).toEqual({ left: 100, width: 50 });
+  });
+
+  it('resizeEnd clamps width at 0 when dragged past the start', () => {
+    expect(resizeFollowRect('resizeEnd', origin, -200)).toEqual({ left: 100, width: 0 });
+  });
+
+  it('resizeStart moves left and compensates width so the finish stays put', () => {
+    expect(resizeFollowRect('resizeStart', origin, 20)).toEqual({ left: 120, width: 60 });
+    expect(resizeFollowRect('resizeStart', origin, -20)).toEqual({ left: 80, width: 100 });
+  });
+
+  it('resizeStart clamps at the finish edge', () => {
+    expect(resizeFollowRect('resizeStart', origin, 200)).toEqual({ left: 180, width: 0 });
   });
 });
 

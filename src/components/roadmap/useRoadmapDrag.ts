@@ -50,6 +50,8 @@ export interface DragGhost {
   /** Resolved vertical target, shared by both panes' insert-line / lane-highlight rendering. */
   laneId: number;
   dropIndex: number;
+  /** Item-drag mode; omitted for lane drags. Resize visuals stretch in place; move floats. */
+  mode?: SnapDragMode;
 }
 
 export interface RoadmapItemDragCommit {
@@ -297,6 +299,7 @@ export function useRoadmapDrag({ periodWidth, np, rows, onCommit, onSelect }: Us
         periodCount: windowResult.periodCount,
         laneId: target?.laneId ?? drag.originLaneId,
         dropIndex: target?.index ?? drag.originIndex,
+        mode: drag.mode,
       };
     },
     [periodWidth, np]

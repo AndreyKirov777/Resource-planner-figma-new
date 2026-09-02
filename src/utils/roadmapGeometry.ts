@@ -179,6 +179,26 @@ export function barDragMode(localX: number, width: number): SnapDragMode {
   return 'move';
 }
 
+/**
+ * Live pixel geometry while resizing: the fixed edge stays put and the free
+ * edge tracks `dxPx`. Distinct from a move follow, which translates the whole
+ * rect. Width is clamped to ≥0 so a hard drag past the fixed edge collapses
+ * to a line rather than inverting.
+ */
+export function resizeFollowRect(
+  mode: 'resizeStart' | 'resizeEnd',
+  origin: Rect,
+  dxPx: number
+): Rect {
+  if (mode === 'resizeEnd') {
+    return { left: origin.left, width: Math.max(0, origin.width + dxPx) };
+  }
+  // Finish edge stays put; left tracks the pointer until it meets that edge.
+  const finish = origin.left + origin.width;
+  const left = Math.min(finish, origin.left + dxPx);
+  return { left, width: finish - left };
+}
+
 export interface SnapOrigin {
   startPeriod: number;
   periodCount: number;

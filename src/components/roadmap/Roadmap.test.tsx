@@ -1101,6 +1101,52 @@ describe('bar edge resize cursor', () => {
     expect(screen.queryByTestId('roadmap-bar-21-resize-start')).not.toBeInTheDocument();
     expect(screen.queryByTestId('roadmap-bar-21-resize-end')).not.toBeInTheDocument();
   });
+
+  it('resizing shows stretch follow + snapped preview, not the move floating ghost', () => {
+    renderRoadmap();
+    const bar = screen.getByTestId('roadmap-bar-10');
+    // jsdom defaults getBoundingClientRect to zeros; stub a 100px bar so the
+    // right edge maps to resizeEnd (same rule as production hit-testing).
+    vi.spyOn(bar, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      right: 100,
+      top: 0,
+      bottom: 18,
+      width: 100,
+      height: 18,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    fireEvent.pointerDown(bar, { clientX: 96, clientY: 9, button: 0 });
+    fireEvent.pointerMove(bar, { clientX: 96 + PERIOD_WIDTH, clientY: 9 });
+    expect(screen.getByTestId('roadmap-resize-follow')).toBeInTheDocument();
+    expect(screen.getByTestId('roadmap-resize-snapped')).toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-drag-follow')).not.toBeInTheDocument();
+    fireEvent.pointerUp(bar, { clientX: 96 + PERIOD_WIDTH, clientY: 9 });
+  });
+
+  it('moving shows the floating drag ghost, not the resize stretch layer', () => {
+    renderRoadmap();
+    const bar = screen.getByTestId('roadmap-bar-10');
+    vi.spyOn(bar, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      right: 100,
+      top: 0,
+      bottom: 18,
+      width: 100,
+      height: 18,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    fireEvent.pointerDown(bar, { clientX: 50, clientY: 9, button: 0 });
+    fireEvent.pointerMove(bar, { clientX: 50 + PERIOD_WIDTH, clientY: 9 });
+    expect(screen.getByTestId('roadmap-drag-follow')).toBeInTheDocument();
+    expect(screen.getByTestId('roadmap-drag-snapped')).toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-resize-follow')).not.toBeInTheDocument();
+    fireEvent.pointerUp(bar, { clientX: 50 + PERIOD_WIDTH, clientY: 9 });
+  });
 });
 
 describe('lane summary bars', () => {
