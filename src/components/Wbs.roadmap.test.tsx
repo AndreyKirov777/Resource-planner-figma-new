@@ -73,10 +73,11 @@ function wbsItem(overrides: Partial<WbsItem>): WbsItem {
   };
 }
 
-function resourceList(id: number, role: string): ResourceList {
+function resourceList(id: number, role: string, clientRole = role): ResourceList {
   return {
     id,
     role,
+    clientRole,
     intRate: 0,
     projectId: 1,
     createdAt: '',

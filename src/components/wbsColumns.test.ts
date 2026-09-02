@@ -13,38 +13,42 @@ beforeEach(() => {
 });
 
 describe('wbsColumns', () => {
-  it('abbreviates long role titles but keeps the full role as identity', () => {
+  it('abbreviates long client-role titles but keeps the full role as identity', () => {
     const visible = getVisibleWbsColumns(DEFAULT_HIDDEN_WBS_COLUMNS, [
-      'Senior Data Engineer',
-      'BA',
+      'Senior Developer',
+      'Middle Business Analyst',
     ]);
     expect(visible.map((column) => column.title)).toEqual([
       'WBS',
       'Task Description',
       'Phase',
       'TOTAL',
-      'Sr\nDE',
-      'BA',
+      'Sr\nDev',
+      'Md\nBA',
     ]);
     expect(visible.map((column) => column.role)).toEqual([
       undefined,
       undefined,
       undefined,
       undefined,
-      'Senior Data Engineer',
-      'BA',
+      'Senior Developer',
+      'Middle Business Analyst',
     ]);
   });
 
-  it('renders TOTAL followed by first-seen role columns', () => {
-    const visible = getVisibleWbsColumns(DEFAULT_HIDDEN_WBS_COLUMNS, ['SA', 'Dev Sr', 'QA']);
+  it('renders TOTAL followed by first-seen client-role columns', () => {
+    const visible = getVisibleWbsColumns(DEFAULT_HIDDEN_WBS_COLUMNS, [
+      'Junior QA Engineer',
+      'Strong Junior Developer',
+      'QA',
+    ]);
     expect(visible.map((column) => column.title)).toEqual([
       'WBS',
       'Task Description',
       'Phase',
       'TOTAL',
-      'SA',
-      'Sr\nDev',
+      'Jr\nQAE',
+      'SJr\nDev',
       'QA',
     ]);
     expect(visible.map((column) => column.role)).toEqual([
@@ -52,8 +56,8 @@ describe('wbsColumns', () => {
       undefined,
       undefined,
       undefined,
-      'SA',
-      'Dev Sr',
+      'Junior QA Engineer',
+      'Strong Junior Developer',
       'QA',
     ]);
   });

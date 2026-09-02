@@ -326,8 +326,8 @@ function defaultProps(wbsItems: WbsItem[]) {
     project: mockProject,
     resourcePlans: [],
     resourceLists: [
-      resourceList({ id: 1, role: 'BA' }),
-      resourceList({ id: 2, role: 'UX' }),
+      resourceList({ id: 1, role: 'BA', clientRole: 'BA' }),
+      resourceList({ id: 2, role: 'UX', clientRole: 'UX' }),
     ],
     rateCards: [] as RateCard[],
     wbsItems,
@@ -397,7 +397,7 @@ describe('Wbs — rendering', () => {
     expect(screen.getByTestId('cell-4-1')).toHaveAttribute('data-text', '#737373');
   });
 
-  it('renders fixed columns plus first-seen Resource List roles', () => {
+  it('renders fixed columns plus first-seen Resource List client roles', () => {
     render(<Wbs {...defaultProps(threeLevelTree)} />);
 
     // Asserted on the real column titles, not on how many spans the harness
@@ -408,32 +408,36 @@ describe('Wbs — rendering', () => {
     expect(screen.queryByTestId('cell-6-0')).not.toBeInTheDocument();
   });
 
-  it('abbreviates a long Resource List role in the header and tooltips the full name', async () => {
+  it('abbreviates a long Resource List client role in the header and tooltips the full name', async () => {
     const user = userEvent.setup();
     const items = [wbsItem({ id: 1, name: 'Root' })];
     render(
       <Wbs
         {...defaultProps(items)}
         resourceLists={[
-          resourceList({ id: 1, role: 'Senior Data Engineer' }),
-          resourceList({ id: 2, role: 'BA' }),
+          resourceList({
+            id: 1,
+            role: 'Principal Software Developer, Core Technologies',
+            clientRole: 'Senior Developer',
+          }),
+          resourceList({ id: 2, role: 'BA', clientRole: 'Middle Business Analyst' }),
         ]}
       />
     );
 
     expect(screen.getByTestId('grid-columns').textContent).toBe(
-      'WBS|Task Description|Phase|TOTAL|Sr\nDE|BA'
+      'WBS|Task Description|Phase|TOTAL|Sr\nDev|Md\nBA'
     );
     expect(screen.queryByTestId('wbs-role-header-tip')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'hover first role header' }));
-    expect(screen.getByTestId('wbs-role-header-tip')).toHaveTextContent('Senior Data Engineer');
+    expect(screen.getByTestId('wbs-role-header-tip')).toHaveTextContent('Senior Developer');
 
     await user.click(screen.getByRole('button', { name: 'hover total header' }));
     expect(screen.queryByTestId('wbs-role-header-tip')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'hover first role header' }));
-    expect(screen.getByTestId('wbs-role-header-tip')).toHaveTextContent('Senior Data Engineer');
+    expect(screen.getByTestId('wbs-role-header-tip')).toHaveTextContent('Senior Developer');
 
     await user.click(screen.getByRole('button', { name: 'leave grid' }));
     expect(screen.queryByTestId('wbs-role-header-tip')).not.toBeInTheDocument();

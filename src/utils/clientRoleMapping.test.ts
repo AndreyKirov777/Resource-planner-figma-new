@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { clientRolesMapping } from './clientRoleMapping';
+import { clientRolesMapping, getClientRoleFromRole } from './clientRoleMapping';
+
+describe('getClientRoleFromRole', () => {
+  it('returns the Client role for an exact rate-card Role', () => {
+    expect(getClientRoleFromRole('Principal Software Developer, Core Technologies')).toBe(
+      'Senior Developer'
+    );
+  });
+
+  it('matches after collapsing extra whitespace', () => {
+    expect(getClientRoleFromRole('  Principal Software Developer,   Core Technologies ')).toBe(
+      'Senior Developer'
+    );
+  });
+
+  it('returns the original string when nothing maps', () => {
+    expect(getClientRoleFromRole('Contractor')).toBe('Contractor');
+  });
+});
 
 describe('clientRoleMapping data quality', () => {
   it('has no leading or trailing whitespace in Role, Naming in PM, or Client role', () => {

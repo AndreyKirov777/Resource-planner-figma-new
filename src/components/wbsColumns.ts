@@ -10,8 +10,8 @@ import { abbreviateRoles } from '../utils/wbsGrid';
  *
  * Column identity is an `id`, never a grid index — mirrors `planningColumns.ts`'s
  * own rationale: the grid index of a column shifts the moment one is hidden.
- * Role `title` is a UI-only abbreviation; `role` stays the full Resource List
- * string used for estimates and the header tooltip.
+ * Role `title` is a UI-only abbreviation of the client role; `role` stays the
+ * full client-role string used for estimates and the header tooltip.
  */
 
 export type WbsColumnId = 'outline' | 'name' | 'phase' | 'total' | 'roadmap' | `role:${string}`;
@@ -26,7 +26,7 @@ export interface WbsColumnDef {
   pinned?: boolean;
   /** Label in the columns-visibility menu. */
   menuLabel?: string;
-  /** Resource List role represented by a generated numeric column. */
+  /** Resource List client role represented by a generated numeric column. */
   role?: string;
 }
 
@@ -73,8 +73,8 @@ export function saveHiddenWbsColumns(projectId: number, hidden: readonly WbsColu
 
 /**
  * Columns actually rendered, in grid order. Pinned columns always survive.
- * Resource List roles are expected in their already de-duplicated first-seen
- * order.
+ * Resource List client roles are expected in their already de-duplicated
+ * first-seen order.
  */
 export function getVisibleWbsColumns(
   hidden: readonly WbsColumnId[],
