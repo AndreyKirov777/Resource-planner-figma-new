@@ -326,8 +326,8 @@ function defaultProps(wbsItems: WbsItem[]) {
     project: mockProject,
     resourcePlans: [],
     resourceLists: [
-      resourceList({ id: 1, role: 'BA' }),
-      resourceList({ id: 2, role: 'UX' }),
+      resourceList({ id: 1, role: 'BA', clientRole: 'BA' }),
+      resourceList({ id: 2, role: 'UX', clientRole: 'UX' }),
     ],
     rateCards: [] as RateCard[],
     wbsItems,

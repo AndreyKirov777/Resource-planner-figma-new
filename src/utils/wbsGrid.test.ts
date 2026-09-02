@@ -362,9 +362,56 @@ describe('resourceListRoles', () => {
     expect(resourceListRoles(list)).toEqual(['Middle Designer', 'Senior Business Analyst']);
   });
 
-  it('falls back to the rate-card role when client role is blank', () => {
-    expect(displayedWbsRole(resourceList({ role: 'BA', clientRole: '' }))).toBe('BA');
-    expect(resourceListRoles([resourceList({ id: 1, role: 'UX' })])).toEqual(['UX']);
+  it('builds columns from mapped client roles when the Client Role field is blank', () => {
+    const list = [
+      resourceList({ id: 1, role: 'Associate Software Developer L1, Core Technologies' }),
+      resourceList({ id: 2, role: 'Principal Software Developer, Core Technologies' }),
+    ];
+    expect(resourceListRoles(list)).toEqual(['Junior Developer', 'Senior Developer']);
+  });
+
+  it('uses the Client Role field, not the rate-card role', () => {
+    expect(
+      displayedWbsRole(
+        resourceList({
+          role: 'Principal Software Developer, Core Technologies',
+          clientRole: 'Senior Developer',
+        })
+      )
+    ).toBe('Senior Developer');
+  });
+
+  it('maps a blank Client Role through the rate-card → client-role table', () => {
+    expect(
+      displayedWbsRole(
+        resourceList({
+          role: 'Principal Software Developer, Core Technologies',
+          clientRole: '',
+        })
+      )
+    ).toBe('Senior Developer');
+  });
+
+  it('maps a Client Role that was left equal to the rate-card name', () => {
+    expect(
+      displayedWbsRole(
+        resourceList({
+          role: 'Principal Software Developer, Core Technologies',
+          clientRole: 'Principal Software Developer, Core Technologies',
+        })
+      )
+    ).toBe('Senior Developer');
+  });
+
+  it('does not create a column from an unmapped rate-card role with no Client Role', () => {
+    expect(displayedWbsRole(resourceList({ role: 'Contractor', clientRole: '' }))).toBe('');
+    expect(resourceListRoles([resourceList({ id: 1, role: 'Contractor' })])).toEqual([]);
+  });
+
+  it('keeps a custom Client Role that has no mapping', () => {
+    expect(displayedWbsRole(resourceList({ role: 'Contractor', clientRole: 'External Consultant' }))).toBe(
+      'External Consultant'
+    );
   });
 
   it('is empty only for a genuinely empty roster', () => {

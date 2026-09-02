@@ -134,18 +134,30 @@ export function deriveDiscipline(
   return role;
 }
 
-/** Client role when present, otherwise the rate-card role. */
+/**
+ * The WBS column label for a Resource List row: the Client Role field.
+ *
+ * Never uses the rate-card `role` as a header. If the field is blank (or still
+ * holds the rate-card name from a failed auto-map), resolve through
+ * `getClientRoleFromRole`. Unmapped rate-card-only rows produce no column.
+ */
 export function displayedWbsRole(row: Pick<ResourceListType, 'role' | 'clientRole'>): string {
-  return row.clientRole?.trim() || row.role?.trim() || '';
+  const client = row.clientRole?.trim() ?? '';
+  const rateCard = row.role?.trim() ?? '';
+  const mapped = rateCard ? getClientRoleFromRole(rateCard).trim() : '';
+  const mappedIsClient = mapped !== '' && mapped !== rateCard;
+
+  if (client && client !== rateCard) return client;
+  if (mappedIsClient) return mapped;
+  if (client) return client;
+  return '';
 }
 
 /**
  * Every distinct, non-empty client role the project's resource list names, in
- * the order each first appears. Falls back to the rate-card role when a row
- * has no client role, so an incomplete roster still gets a column.
- *
- * Duplicate list rows (same displayed role, different location/rate) collapse
- * to one string — WBS stores a role, not a list `id`.
+ * the order each first appears. Duplicate list rows (same displayed role,
+ * different location/rate) collapse to one string — WBS stores a role, not a
+ * list `id`.
  */
 export function resourceListRoles(resourceLists: ResourceListType[]): string[] {
   const seen = new Set<string>();
