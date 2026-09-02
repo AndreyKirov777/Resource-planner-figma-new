@@ -132,6 +132,12 @@ const MIN_GRID_HEIGHT = 200;
  */
 const MAX_GRID_HEIGHT = 640;
 
+// Role columns are only 72px wide and there can be many of them, so they run
+// smaller than the 14px grid default to keep two-line headers and hour values
+// from crowding their cells.
+const ROLE_HEADER_FONT_STYLE = '600 11px';
+const ROLE_CELL_FONT_STYLE = '12px';
+
 // Indent, chevron-hit and chip geometry live in `wbsGrid.ts`: they are pure
 // arithmetic, and inside a canvas renderer they are unobservable from a test.
 
@@ -774,7 +780,9 @@ export function Wbs({
               textHeader: '#2a2a2a',
               headerFontStyle: '700 11px',
             }
-          : undefined,
+          : c.role !== undefined
+            ? { headerFontStyle: ROLE_HEADER_FONT_STYLE }
+            : undefined,
     }));
     const nameIdx = visibleColumns.findIndex((c) => c.id === 'name');
     if (nameIdx >= 0 && gridClientWidth > 0) {
@@ -895,6 +903,7 @@ export function Wbs({
             cursor: gridRow.hasChildren ? 'default' : 'text',
             themeOverride: {
               textDark: value === 0 ? '#737373' : '#313131',
+              baseFontStyle: ROLE_CELL_FONT_STYLE,
             },
           };
         }
