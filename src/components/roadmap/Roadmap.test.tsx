@@ -1226,12 +1226,12 @@ describe('lane summary bars', () => {
     const laneRight = parseFloat(laneBar.style.left) + parseFloat(laneBar.style.width);
     const item11Right = parseFloat(item11.style.left) + parseFloat(item11.style.width);
     expect(laneRight).toBe(item11Right);
+    expect(screen.queryByTestId('roadmap-lane-label-1')).not.toBeInTheDocument();
   });
 
-  it('an empty lane draws no bar and no label', () => {
+  it('an empty lane draws no bar', () => {
     renderRoadmap(makeLanesWithTwoBars());
     expect(screen.queryByTestId('roadmap-lane-bar-2')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('roadmap-lane-label-2')).not.toBeInTheDocument();
   });
 
   it('a lane with only spread items draws no bar', () => {
@@ -1420,7 +1420,6 @@ describe('Lane bars toggle', () => {
     fireEvent.click(screen.getByRole('button', { name: /Lane bars/ }));
 
     expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('roadmap-lane-label-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('roadmap-lane-spread-chip-1')).not.toBeInTheDocument();
     expect(screen.getByTestId('roadmap-row-lane-1')).toBeInTheDocument(); // the plain tinted row remains
     expect(screen.getByTestId('roadmap-bar-10')).toBeInTheDocument(); // item rows untouched

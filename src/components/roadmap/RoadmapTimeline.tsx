@@ -69,7 +69,7 @@ interface RoadmapTimelineProps {
   consumeWasDragging: () => boolean;
   onScroll: (scrollLeft: number) => void;
   viewportRef: React.MutableRefObject<HTMLDivElement | null>;
-  /** Governs the whole lane summary layer — bar, caps, ticks, stripe, label and chip. Off is an early return, not hidden DOM. */
+  /** Governs the whole lane summary layer — bar, caps, ticks, stripe and chip. Off is an early return, not hidden DOM. */
   showLaneBars: boolean;
   onToggleLane: (laneId: number) => void;
 }
@@ -449,20 +449,6 @@ export function RoadmapTimeline({
                           </div>
                         </TooltipContent>
                       </Tooltip>
-                    )}
-                    {rect && (
-                      <span
-                        data-testid={`roadmap-lane-label-${row.id}`}
-                        className="pointer-events-none absolute select-none overflow-hidden whitespace-nowrap text-[11px] text-ellipsis text-muted-foreground"
-                        style={{
-                          left: rect.left + rect.width + 6,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          maxWidth: Math.max(0, timelineWidth - (rect.left + rect.width + 6)),
-                        }}
-                      >
-                        {row.name}
-                      </span>
                     )}
                   </div>
                 );
