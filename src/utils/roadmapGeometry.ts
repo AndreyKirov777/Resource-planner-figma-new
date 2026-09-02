@@ -164,6 +164,21 @@ export function rowAt(y: number, rowHeight: number): number {
 
 export type SnapDragMode = 'move' | 'resizeStart' | 'resizeEnd';
 
+/** Edge hit zone (px) for start/end resize on an item bar — cursor and pointer-down share this. */
+export const BAR_RESIZE_HIT_PX = 8;
+
+/**
+ * Which drag mode a pointer at `localX` (relative to the bar's left edge) starts,
+ * given the bar's rendered `width`. Start is checked before end so a short bar
+ * whose zones overlap resolves to `resizeStart`.
+ */
+export function barDragMode(localX: number, width: number): SnapDragMode {
+  if (width <= 0) return 'move';
+  if (localX <= BAR_RESIZE_HIT_PX) return 'resizeStart';
+  if (width - localX <= BAR_RESIZE_HIT_PX) return 'resizeEnd';
+  return 'move';
+}
+
 export interface SnapOrigin {
   startPeriod: number;
   periodCount: number;

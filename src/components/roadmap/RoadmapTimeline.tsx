@@ -30,6 +30,8 @@ import {
   LANE_BAR_HEIGHT,
   LANE_CAP_DROP,
   LANE_MILESTONE_SIZE,
+  BAR_RESIZE_HIT_PX,
+  barDragMode,
 } from '../../utils/roadmapGeometry';
 import { DragGhost, ItemDragStartArgs, LaneDragStartArgs, RoadmapDragCommit, keyboardVerticalCommit, dropIndicatorFor } from './useRoadmapDrag';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
@@ -540,13 +542,7 @@ export function RoadmapTimeline({
                             return;
                           }
                           const rect = e.currentTarget.getBoundingClientRect();
-                          const grabZone = 8;
-                          const mode =
-                            e.clientX - rect.left <= grabZone
-                              ? 'resizeStart'
-                              : rect.right - e.clientX <= grabZone
-                                ? 'resizeEnd'
-                                : 'move';
+                          const mode = barDragMode(e.clientX - rect.left, rect.width);
                           onDragPointerDown(e, {
                             entity: 'item',
                             source: 'timeline',
@@ -569,6 +565,20 @@ export function RoadmapTimeline({
                         onDoubleClick={() => onOpenEditor(row.id)}
                         onKeyDown={(e) => handleBarKeyDown(e, row)}
                       >
+                        {row.kind === 'bar' && (
+                          <>
+                            <span
+                              data-testid={`roadmap-bar-${row.id}-resize-start`}
+                              className="absolute inset-y-0 left-0 cursor-ew-resize"
+                              style={{ width: BAR_RESIZE_HIT_PX, zIndex: 2 }}
+                            />
+                            <span
+                              data-testid={`roadmap-bar-${row.id}-resize-end`}
+                              className="absolute inset-y-0 right-0 cursor-ew-resize"
+                              style={{ width: BAR_RESIZE_HIT_PX, zIndex: 1 }}
+                            />
+                          </>
+                        )}
                         {(row.kind === 'bar' || row.kind === 'spread') && (
                           <span
                             className="pointer-events-none absolute left-1.5 right-1.5 top-1/2 -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-white"

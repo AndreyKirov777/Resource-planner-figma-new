@@ -1043,6 +1043,66 @@ function makeLanesWithTwoBars(): RoadmapLaneWithItems[] {
   ];
 }
 
+describe('bar edge resize cursor', () => {
+  it('a bar exposes both resize handles with ew-resize; the bar itself stays grab', () => {
+    renderRoadmap();
+    const bar = screen.getByTestId('roadmap-bar-10');
+    expect(bar).toHaveClass('cursor-grab');
+    const start = screen.getByTestId('roadmap-bar-10-resize-start');
+    const end = screen.getByTestId('roadmap-bar-10-resize-end');
+    expect(start).toHaveClass('cursor-ew-resize');
+    expect(end).toHaveClass('cursor-ew-resize');
+  });
+
+  it('milestone and spread rows do not render resize handles', () => {
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'Backend',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 20,
+            name: 'Go-live',
+            kind: 'milestone',
+            startPeriod: 8,
+            periodCount: 0,
+            displayOrder: 0,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+          {
+            id: 21,
+            name: 'Support',
+            kind: 'spread',
+            startPeriod: 1,
+            periodCount: 0,
+            displayOrder: 1,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+    renderRoadmap(lanes);
+    expect(screen.getByTestId('roadmap-bar-20')).toBeInTheDocument();
+    expect(screen.getByTestId('roadmap-bar-21')).toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-bar-20-resize-start')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-bar-20-resize-end')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-bar-21-resize-start')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-bar-21-resize-end')).not.toBeInTheDocument();
+  });
+});
+
 describe('lane summary bars', () => {
   it('draws one summary bar spanning the union window, edges matching the first/last item bars to the pixel', () => {
     renderRoadmap(makeLanesWithTwoBars());

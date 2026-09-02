@@ -6,6 +6,8 @@ import {
   phaseBands,
   rowAt,
   snapDrag,
+  barDragMode,
+  BAR_RESIZE_HIT_PX,
   stripeSegments,
   fit,
   zoomStep,
@@ -138,6 +140,45 @@ describe('snapDrag — move', () => {
     const result = snapDrag('move', { startPeriod: 10, periodCount: 3 }, periodWidth * 10, periodWidth, np);
     // bar must stay inside [1, np]: last start with count 3 in a 16-period project is 14
     expect(result.startPeriod).toBe(np - 3 + 1);
+  });
+});
+
+describe('barDragMode', () => {
+  const wide = 100;
+
+  it('maps the start 8px to resizeStart', () => {
+    expect(barDragMode(0, wide)).toBe('resizeStart');
+    expect(barDragMode(BAR_RESIZE_HIT_PX, wide)).toBe('resizeStart');
+  });
+
+  it('maps the body to move', () => {
+    expect(barDragMode(BAR_RESIZE_HIT_PX + 1, wide)).toBe('move');
+    expect(barDragMode(wide / 2, wide)).toBe('move');
+    expect(barDragMode(wide - BAR_RESIZE_HIT_PX - 1, wide)).toBe('move');
+  });
+
+  it('maps the end 8px to resizeEnd', () => {
+    expect(barDragMode(wide - BAR_RESIZE_HIT_PX, wide)).toBe('resizeEnd');
+    expect(barDragMode(wide, wide)).toBe('resizeEnd');
+  });
+
+  it('at exactly 16px the zones meet with no overlap — start then end, no body', () => {
+    const meet = BAR_RESIZE_HIT_PX * 2;
+    expect(barDragMode(BAR_RESIZE_HIT_PX, meet)).toBe('resizeStart');
+    expect(barDragMode(BAR_RESIZE_HIT_PX + 1, meet)).toBe('resizeEnd');
+  });
+
+  it('on a short bar start wins the overlapping middle', () => {
+    const short = 10;
+    expect(barDragMode(0, short)).toBe('resizeStart');
+    expect(barDragMode(5, short)).toBe('resizeStart'); // also in end zone; start checked first
+    expect(barDragMode(8, short)).toBe('resizeStart');
+    expect(barDragMode(9, short)).toBe('resizeEnd'); // past start zone, still in end zone
+  });
+
+  it('zero or negative width stays move', () => {
+    expect(barDragMode(0, 0)).toBe('move');
+    expect(barDragMode(4, -1)).toBe('move');
   });
 });
 
