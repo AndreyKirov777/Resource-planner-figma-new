@@ -17,6 +17,7 @@ import {
   wouldCreateCycle,
 } from './wbsTree';
 import { resolveDiscipline } from './wbs';
+import { clientRolesMapping, getClientRoleFromRole } from './clientRoleMapping';
 
 /** One role x hours pair on a WBS item — the unit the composite Roles cell edits. */
 export interface RolePair {
@@ -53,7 +54,7 @@ export interface WbsGridRow {
   phaseStale: boolean;
   /** This row's own role x hours pairs (not descendants'). */
   pairs: RolePair[];
-  /** Hours for each currently visible Resource List role. */
+  /** Hours for each currently visible Resource List client role. */
   roleHours: Record<string, number>;
   /** Sum of the currently visible role columns. Never persisted. */
   totalHours: number;
@@ -110,22 +111,47 @@ export function formatHoursInput(hours: number): string {
  * bypass in `validWbsDisciplines` keys off the rate-card table being empty, so
  * a typed-role discipline against a non-empty card is rejected 400 every time.
  */
-export function deriveDiscipline(role: string, rateCards: RateCardType[]): string {
-  return resolveDiscipline(role, rateCards) || role;
+export function deriveDiscipline(
+  role: string,
+  rateCards: RateCardType[],
+  resourceLists: ResourceListType[] = []
+): string {
+  const direct = resolveDiscipline(role, rateCards);
+  if (direct) return direct;
+
+  const listRow = resourceLists.find((row) => displayedWbsRole(row) === role);
+  if (listRow?.role) {
+    const fromList = resolveDiscipline(listRow.role, rateCards);
+    if (fromList) return fromList;
+  }
+
+  const mapped = clientRolesMapping.find((entry) => entry['Client role'] === role);
+  if (mapped) {
+    const fromMap = resolveDiscipline(mapped.Role, rateCards);
+    if (fromMap) return fromMap;
+  }
+
+  return role;
+}
+
+/** Client role when present, otherwise the rate-card role. */
+export function displayedWbsRole(row: Pick<ResourceListType, 'role' | 'clientRole'>): string {
+  return row.clientRole?.trim() || row.role?.trim() || '';
 }
 
 /**
- * Every distinct, non-empty role the project's resource list names, in the
- * order each role first appears.
+ * Every distinct, non-empty client role the project's resource list names, in
+ * the order each first appears. Falls back to the rate-card role when a row
+ * has no client role, so an incomplete roster still gets a column.
  *
- * Duplicate list rows (same role, different location/rate) collapse to one
- * string — WBS stores a role, not a list `id`.
+ * Duplicate list rows (same displayed role, different location/rate) collapse
+ * to one string — WBS stores a role, not a list `id`.
  */
 export function resourceListRoles(resourceLists: ResourceListType[]): string[] {
   const seen = new Set<string>();
   const roles: string[] = [];
   resourceLists.forEach((row) => {
-    const role = row.role?.trim();
+    const role = displayedWbsRole(row);
     if (!role || seen.has(role)) return;
     seen.add(role);
     roles.push(role);
@@ -133,29 +159,103 @@ export function resourceListRoles(resourceLists: ResourceListType[]): string[] {
   return roles;
 }
 
+/**
+ * Map an estimate's stored role onto the WBS column it belongs to.
+ * New edits store the client role; older rows may still hold the rate-card
+ * role, so both the roster and the global client-role map are consulted.
+ */
+export function canonicalWbsRole(estimateRole: string, resourceLists: ResourceListType[]): string {
+  const trimmed = estimateRole.trim();
+  if (!trimmed) return trimmed;
+  const displayed = resourceListRoles(resourceLists);
+  if (displayed.includes(trimmed)) return trimmed;
+  const byRateCard = resourceLists.find((row) => row.role?.trim() === trimmed);
+  if (byRateCard) return displayedWbsRole(byRateCard);
+  const mapped = getClientRoleFromRole(trimmed).trim();
+  if (displayed.includes(mapped)) return mapped;
+  return trimmed;
+}
+
 /** Words dropped before initials so "Engineer of Data" does not become "EoD". */
 const ROLE_FILLERS = new Set(['and', 'of', 'the', 'for', 'a', 'an', 'or', 'to', 'in', 'on']);
 
 /**
- * Seniority / level words stay as short words instead of collapsing to one
- * letter. Short forms are listed too so `Dev Sr` is recognized as seniority.
+ * Client-role seniority phrases, longest first. "Strong" is a modifier on the
+ * next level (`Strong Junior` → `SJr`); `Team Lead` is one level, not T+Ld.
  */
-const ROLE_LEVELS: Record<string, string> = {
-  senior: 'Sr',
-  sr: 'Sr',
-  junior: 'Jr',
-  jr: 'Jr',
-  middle: 'Md',
-  mid: 'Md',
-  md: 'Md',
-  principal: 'Pr',
-  pr: 'Pr',
-  lead: 'Ld',
-  ld: 'Ld',
-  associate: 'As',
-  as: 'As',
-  staff: 'St',
-  st: 'St',
+const LEVEL_PHRASES: [string[], string][] = [
+  [['strong', 'junior'], 'SJr'],
+  [['strong', 'middle'], 'SMd'],
+  [['strong', 'senior'], 'SSr'],
+  [['team', 'lead'], 'TL'],
+  [['junior'], 'Jr'],
+  [['jr'], 'Jr'],
+  [['middle'], 'Md'],
+  [['mid'], 'Md'],
+  [['md'], 'Md'],
+  [['senior'], 'Sr'],
+  [['sr'], 'Sr'],
+  [['principal'], 'Pr'],
+  [['pr'], 'Pr'],
+  [['lead'], 'Ld'],
+  [['ld'], 'Ld'],
+  [['associate'], 'As'],
+  [['as'], 'As'],
+  [['staff'], 'St'],
+  [['st'], 'St'],
+];
+
+/** Multi-word client titles that would otherwise collide as initials. */
+const TITLE_PHRASES: [string[], string][] = [
+  [['performance', 'test', 'engineer'], 'PTE'],
+  [['ai', 'ml', 'engineer'], 'MLE'],
+  [['business', 'analyst'], 'BA'],
+  [['project', 'manager'], 'PM'],
+  [['program', 'manager'], 'PgM'],
+  [['product', 'owner'], 'PO'],
+  [['product', 'manager'], 'PdM'],
+  [['solution', 'consultant'], 'SC'],
+  [['data', 'engineer'], 'DE'],
+  [['data', 'analyst'], 'DA'],
+  [['data', 'qa'], 'DQA'],
+  [['qa', 'engineer'], 'QAE'],
+  [['qa', 'automation'], 'QAA'],
+  [['qa', 'manager'], 'QAM'],
+  [['delivery', 'manager'], 'DM'],
+  [['engagement', 'manager'], 'EM'],
+  [['technical', 'architect'], 'TA'],
+  [['content', 'manager'], 'CM'],
+];
+
+/** Job-title stems kept as short words instead of a single initial. */
+const TITLE_WORDS: Record<string, string> = {
+  developer: 'Dev',
+  develop: 'Dev',
+  develope: 'Dev',
+  engineer: 'Eng',
+  analyst: 'An',
+  architect: 'Ar',
+  manager: 'Mgr',
+  designer: 'Des',
+  consultant: 'Con',
+  administrator: 'Adm',
+  writer: 'Wr',
+  owner: 'Own',
+  researcher: 'Res',
+  tester: 'Tst',
+  automation: 'Aut',
+  discovery: 'Disc',
+  performance: 'Perf',
+  security: 'Sec',
+  penetration: 'Pen',
+  technical: 'Tech',
+  tech: 'Tech',
+  frontend: 'FE',
+  backend: 'BE',
+  content: 'Cnt',
+  salesforce: 'SF',
+  blockchain: 'BC',
+  devops: 'DO',
 };
 
 interface RoleAbbrevPart {
@@ -171,24 +271,76 @@ function roleTokens(role: string): string[] {
   });
 }
 
+function matchPhrase(
+  lower: readonly string[],
+  index: number,
+  phrases: readonly [string[], string][]
+): { len: number; label: string } | null {
+  for (const [words, label] of phrases) {
+    if (words.every((word, offset) => lower[index + offset] === word)) {
+      return { len: words.length, label };
+    }
+  }
+  return null;
+}
+
+function extractLevels(tokens: readonly string[]): { levels: RoleAbbrevPart[]; rest: string[] } {
+  const levels: RoleAbbrevPart[] = [];
+  const rest: string[] = [];
+  const lower = tokens.map((token) => token.toLowerCase());
+  let i = 0;
+  while (i < tokens.length) {
+    const match = matchPhrase(lower, i, LEVEL_PHRASES);
+    if (match) {
+      levels.push({
+        source: tokens.slice(i, i + match.len).join(' '),
+        text: match.label,
+        kind: 'level',
+      });
+      i += match.len;
+      continue;
+    }
+    rest.push(tokens[i]);
+    i += 1;
+  }
+  return { levels, rest };
+}
+
+function titleParts(tokens: readonly string[]): RoleAbbrevPart[] {
+  const parts: RoleAbbrevPart[] = [];
+  const lower = tokens.map((token) => token.toLowerCase());
+  let i = 0;
+  while (i < tokens.length) {
+    const match = matchPhrase(lower, i, TITLE_PHRASES);
+    if (match) {
+      parts.push({
+        source: tokens.slice(i, i + match.len).join(' '),
+        text: match.label,
+        kind: 'keep',
+      });
+      i += match.len;
+      continue;
+    }
+    const token = tokens[i];
+    const title = TITLE_WORDS[token.toLowerCase()];
+    if (title !== undefined) {
+      parts.push({ source: token, text: title, kind: 'keep' });
+    } else if (token.length <= 3) {
+      parts.push({ source: token, text: token, kind: 'keep' });
+    } else {
+      parts.push({ source: token, text: token[0].toUpperCase(), kind: 'initial' });
+    }
+    i += 1;
+  }
+  return parts;
+}
+
 function roleAbbrevParts(tokens: readonly string[]): RoleAbbrevPart[] {
-  return tokens.map((token) => {
-    const level = ROLE_LEVELS[token.toLowerCase()];
-    if (level !== undefined) return { source: token, text: level, kind: 'level' };
-    if (token.length <= 3) return { source: token, text: token, kind: 'keep' };
-    return { source: token, text: token[0].toUpperCase(), kind: 'initial' };
-  });
+  const { levels, rest } = extractLevels(tokens);
+  return [...levels, ...titleParts(rest)];
 }
 
-/** Seniority always leads; the rest of the role follows in source order. */
-function seniorityFirst(parts: readonly RoleAbbrevPart[]): RoleAbbrevPart[] {
-  return [
-    ...parts.filter((part) => part.kind === 'level'),
-    ...parts.filter((part) => part.kind !== 'level'),
-  ];
-}
-
-/** Adjacent single-letter pieces glue together (`D`+`E` → `DE`); longer pieces stay words. */
+/** Adjacent single-letter pieces glue together (`C`+`T` → `CT`); longer pieces stay words. */
 function joinRoleAbbrevParts(parts: readonly RoleAbbrevPart[]): string {
   const words: string[] = [];
   let initials = '';
@@ -197,7 +349,7 @@ function joinRoleAbbrevParts(parts: readonly RoleAbbrevPart[]): string {
     words.push(initials);
     initials = '';
   };
-  seniorityFirst(parts).forEach((part) => {
+  parts.forEach((part) => {
     if (part.text.length === 1) {
       initials += part.text;
       return;
@@ -221,12 +373,12 @@ function expandLastInitial(parts: RoleAbbrevPart[]): boolean {
 }
 
 /**
- * UI-only short form of a Resource List role. Identity and estimates still
- * use the full string — this never goes to the server.
+ * UI-only short form of a Resource List client role. Identity and estimates
+ * still use the full string — this never goes to the server.
  *
- * Seniority words become `Sr`/`Jr`/… and always lead the label, even when
- * they were written last (`Dev Sr` → `Sr Dev`). Leftover words longer than
- * 3 letters collapse to initials (`Senior Data Engineer` → `Sr DE`).
+ * Built for client-role wording: `Strong Junior` / `Team Lead` stay one
+ * token, job titles keep a short stem (`Dev`, `Eng`, `BA`), and leftover
+ * specialty words collapse to initials (`Core Technologies` → `CT`).
  */
 export function abbreviateRole(role: string): string {
   const tokens = roleTokens(role);
@@ -236,8 +388,8 @@ export function abbreviateRole(role: string): string {
 
 /**
  * Short forms for a first-seen role list. The first role keeps the compact
- * label; a later collision expands the last initialled word (`BA` then
- * `Business Analyst` → `BA`, `B An`), then suffixes `2`, `3`, … if needed.
+ * label; a later collision expands the last initialled word, then suffixes
+ * `2`, `3`, … if the labels still match.
  */
 export function abbreviateRoles(roles: readonly string[]): string[] {
   const used = new Set<string>();
@@ -275,7 +427,8 @@ export function buildGridRows(
   items: WbsItem[],
   collapsedIds: Set<number>,
   phaseNames: readonly string[],
-  roles: readonly string[] = []
+  roles: readonly string[] = [],
+  resourceLists: ResourceListType[] = []
 ): WbsGridRow[] {
   const tree = buildWbsTree(items);
   const outlines = outlineNumbers(tree);
@@ -304,8 +457,9 @@ export function buildGridRows(
     } else {
       const item = itemById.get(itemId);
       item?.estimates.forEach((estimate) => {
-        if (Object.prototype.hasOwnProperty.call(hours, estimate.role)) {
-          hours[estimate.role] += estimate.hours;
+        const key = canonicalWbsRole(estimate.role, resourceLists);
+        if (Object.prototype.hasOwnProperty.call(hours, key)) {
+          hours[key] += estimate.hours;
         }
       });
     }
@@ -385,23 +539,23 @@ export function roleEditFor(
   role: string,
   raw: string,
   basis: RolePair[],
-  rateCards: RateCardType[]
+  rateCards: RateCardType[],
+  resourceLists: ResourceListType[] = []
 ): RolePair[] | null {
   const parsed = parseHours(raw);
   if (!parsed.ok) return null;
 
-  const currentHours = basis
-    .filter((pair) => pair.role === role)
-    .reduce((sum, pair) => sum + pair.hours, 0);
+  const matchesRole = (pair: RolePair) => canonicalWbsRole(pair.role, resourceLists) === role;
+  const currentHours = basis.filter(matchesRole).reduce((sum, pair) => sum + pair.hours, 0);
   if (sameHours(currentHours, parsed.hours)) return null;
 
-  const withoutRole = basis.filter((pair) => pair.role !== role);
+  const withoutRole = basis.filter((pair) => !matchesRole(pair));
   if (parsed.hours === 0) return withoutRole;
   return [
     ...withoutRole,
     {
       role,
-      discipline: deriveDiscipline(role, rateCards),
+      discipline: deriveDiscipline(role, rateCards, resourceLists),
       hours: parsed.hours,
     },
   ];

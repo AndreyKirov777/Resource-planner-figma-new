@@ -510,8 +510,8 @@ export function Wbs({
 
   const roles = useMemo(() => resourceListRoles(resourceLists), [resourceLists]);
   const rows = useMemo(
-    () => buildGridRows(wbsItems, collapsedIds, phaseNames, roles),
-    [wbsItems, collapsedIds, phaseNames, roles]
+    () => buildGridRows(wbsItems, collapsedIds, phaseNames, roles, resourceLists),
+    [wbsItems, collapsedIds, phaseNames, roles, resourceLists]
   );
 
   // Roadmap link data (CAP-5, CAP-7) for the optional Roadmap column and the
@@ -941,7 +941,7 @@ export function Wbs({
       if (columnDef?.role !== undefined && newValue.kind === GridCellKind.Text) {
         if (indexedRow === undefined || indexedRow.hasChildren) return;
         const basis = committer.basisFor(indexedRow.id, indexedRow.pairs);
-        const next = roleEditFor(columnDef.role, newValue.data, basis, rateCards);
+        const next = roleEditFor(columnDef.role, newValue.data, basis, rateCards, resourceLists);
         if (next !== null) {
           committer.commit(indexedRow.id, next).catch(() => {});
         }
@@ -980,6 +980,7 @@ export function Wbs({
       rows,
       committer,
       rateCards,
+      resourceLists,
       issueUpdate,
       roadmapOwnLinkByWbsId,
       onSetWbsRoadmapLink,

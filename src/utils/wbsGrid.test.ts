@@ -37,6 +37,8 @@ import {
   phaseLabel,
   pruneCollapsedIds,
   resourceListRoles,
+  displayedWbsRole,
+  canonicalWbsRole,
   abbreviateRole,
   abbreviateRoles,
   roleEditFor,
@@ -208,6 +210,24 @@ describe('roleEditFor', () => {
     expect(roleEditFor('BA', 'nope', basis, [])).toBeNull();
     expect(roleEditFor('BA', '16', basis, [])).toBeNull();
   });
+
+  it('replaces a stored rate-card role when the column is the client role', () => {
+    const lists = [
+      resourceList({
+        role: 'Principal Software Developer, Core Technologies',
+        clientRole: 'Senior Developer',
+      }),
+    ];
+    const cards = [
+      rateCard({ role: 'Principal Software Developer, Core Technologies', discipline: 'Engineering' }),
+    ];
+    const stored: RolePair[] = [
+      { role: 'Principal Software Developer, Core Technologies', discipline: 'Engineering', hours: 16 },
+    ];
+    expect(roleEditFor('Senior Developer', '24', stored, cards, lists)).toEqual([
+      { role: 'Senior Developer', discipline: 'Engineering', hours: 24 },
+    ]);
+  });
 });
 
 describe('formatHours / formatHoursInput', () => {
@@ -267,6 +287,17 @@ describe('deriveDiscipline', () => {
   it('falls back to the role itself when the rate card is empty', () => {
     expect(deriveDiscipline('Freelancer', [])).toBe('Freelancer');
   });
+
+  it('resolves a client role through the Resource List rate-card role', () => {
+    const cards = [rateCard({ role: 'Principal Software Developer, Core Technologies', discipline: 'Engineering' })];
+    const lists = [
+      resourceList({
+        role: 'Principal Software Developer, Core Technologies',
+        clientRole: 'Senior Developer',
+      }),
+    ];
+    expect(deriveDiscipline('Senior Developer', cards, lists)).toBe('Engineering');
+  });
 });
 
 describe('abbreviateRole', () => {
@@ -277,54 +308,87 @@ describe('abbreviateRole', () => {
     expect(abbreviateRole('SA')).toBe('SA');
   });
 
-  it('turns seniority plus leftover words into Sr + initials', () => {
-    expect(abbreviateRole('Senior Data Engineer')).toBe('Sr DE');
-    expect(abbreviateRole('Junior Software Engineer')).toBe('Jr SE');
-    expect(abbreviateRole('Middle Data Analyst')).toBe('Md DA');
-    expect(abbreviateRole('Mid Developer')).toBe('Md D');
-    expect(abbreviateRole('Principal Engineer')).toBe('Pr E');
-    expect(abbreviateRole('Lead UX Designer')).toBe('Ld UX D');
-    expect(abbreviateRole('Staff Engineer')).toBe('St E');
-    expect(abbreviateRole('Associate Product Manager')).toBe('As PM');
+  it('abbreviates client-role seniority and title stems', () => {
+    expect(abbreviateRole('Junior Developer')).toBe('Jr Dev');
+    expect(abbreviateRole('Strong Junior Developer')).toBe('SJr Dev');
+    expect(abbreviateRole('Middle Developer')).toBe('Md Dev');
+    expect(abbreviateRole('Strong Middle Developer')).toBe('SMd Dev');
+    expect(abbreviateRole('Senior Developer')).toBe('Sr Dev');
+    expect(abbreviateRole('Team Lead, Core Technologies')).toBe('TL CT');
+    expect(abbreviateRole('Team Lead, Advanced Technologies')).toBe('TL AT');
+    expect(abbreviateRole('Junior QA Engineer')).toBe('Jr QAE');
+    expect(abbreviateRole('Strong Junior Business Analyst')).toBe('SJr BA');
+    expect(abbreviateRole('Senior Discovery Business Analyst')).toBe('Sr Disc BA');
+    expect(abbreviateRole('Junior Project Manager')).toBe('Jr PM');
+    expect(abbreviateRole('Strong Junior Product Owner')).toBe('SJr PO');
+    expect(abbreviateRole('Junior Data Engineer')).toBe('Jr DE');
+    expect(abbreviateRole('DevOps Team Lead')).toBe('TL DO');
+    expect(abbreviateRole('Junior Developer, Salesforce')).toBe('Jr Dev SF');
   });
 
-  it('puts seniority first even when it was written last', () => {
+  it('still recognizes a trailing seniority token', () => {
     expect(abbreviateRole('Dev Sr')).toBe('Sr Dev');
     expect(abbreviateRole('Data Engineer Senior')).toBe('Sr DE');
-    expect(abbreviateRole('Software Engineer Junior')).toBe('Jr SE');
-    expect(abbreviateRole('UX Designer Lead')).toBe('Ld UX D');
   });
 
   it('drops filler words and treats & / as separators', () => {
-    expect(abbreviateRole('Engineer of Data and Analytics')).toBe('EDA');
-    expect(abbreviateRole('QA & UX Designer')).toBe('QA UX D');
+    expect(abbreviateRole('Engineer of Data and Analytics')).toBe('Eng DA');
+    expect(abbreviateRole('QA & UX Designer')).toBe('QA UX Des');
   });
 });
 
 describe('abbreviateRoles', () => {
-  it('keeps the first compact form and expands a later collision', () => {
-    expect(abbreviateRoles(['BA', 'Business Analyst'])).toEqual(['BA', 'B An']);
-    expect(abbreviateRoles(['Business Analyst', 'BA'])).toEqual(['BA', 'BA2']);
-    expect(abbreviateRoles(['Senior Data Engineer', 'Senior Developer Engineer'])).toEqual([
-      'Sr DE',
-      'Sr D En',
+  it('keeps the first compact form and suffixes a later collision', () => {
+    expect(abbreviateRoles(['BA', 'Business Analyst'])).toEqual(['BA', 'BA2']);
+    expect(abbreviateRoles(['Team Lead, Core Technologies', 'Team Lead, Cloud Technologies'])).toEqual([
+      'TL CT',
+      'TL C Te',
     ]);
   });
 });
 
 describe('resourceListRoles', () => {
-  it('lists every distinct role in first-seen list order', () => {
+  it('lists distinct client roles in first-seen list order', () => {
     const list = [
-      resourceList({ id: 1, role: 'UX' }),
-      resourceList({ id: 2, role: 'BA' }),
-      resourceList({ id: 3, role: 'BA', location: 'London' }),
+      resourceList({ id: 1, role: 'UX Designer', clientRole: 'Middle Designer' }),
+      resourceList({ id: 2, role: 'Business Analyst', clientRole: 'Senior Business Analyst' }),
+      resourceList({
+        id: 3,
+        role: 'Business Analyst L2',
+        clientRole: 'Senior Business Analyst',
+        location: 'London',
+      }),
     ];
-    expect(resourceListRoles(list)).toEqual(['UX', 'BA']);
+    expect(resourceListRoles(list)).toEqual(['Middle Designer', 'Senior Business Analyst']);
+  });
+
+  it('falls back to the rate-card role when client role is blank', () => {
+    expect(displayedWbsRole(resourceList({ role: 'BA', clientRole: '' }))).toBe('BA');
+    expect(resourceListRoles([resourceList({ id: 1, role: 'UX' })])).toEqual(['UX']);
   });
 
   it('is empty only for a genuinely empty roster', () => {
     expect(resourceListRoles([])).toEqual([]);
-    expect(resourceListRoles([resourceList({ id: 1, role: '' })])).toEqual([]);
+    expect(resourceListRoles([resourceList({ id: 1, role: '', clientRole: '' })])).toEqual([]);
+  });
+});
+
+describe('canonicalWbsRole', () => {
+  const lists = [
+    resourceList({
+      role: 'Principal Software Developer, Core Technologies',
+      clientRole: 'Senior Developer',
+    }),
+  ];
+
+  it('maps a stored rate-card role onto the roster client role', () => {
+    expect(canonicalWbsRole('Principal Software Developer, Core Technologies', lists)).toBe(
+      'Senior Developer'
+    );
+  });
+
+  it('leaves an already-client-role string alone', () => {
+    expect(canonicalWbsRole('Senior Developer', lists)).toBe('Senior Developer');
   });
 });
 
@@ -395,6 +459,30 @@ describe('buildGridRows', () => {
     expect(rows[0].roleHours).toEqual({ BA: 16, QA: 0 });
     expect(rows[0].totalHours).toBe(16);
     expect(rows[1].totalHours).toBe(16);
+  });
+
+  it('rolls up estimates stored as rate-card roles into client-role columns', () => {
+    const lists = [
+      resourceList({
+        role: 'Principal Software Developer, Core Technologies',
+        clientRole: 'Senior Developer',
+      }),
+    ];
+    const mapped = [
+      item({
+        id: 1,
+        estimates: [
+          estimate({
+            role: 'Principal Software Developer, Core Technologies',
+            hours: 24,
+            wbsItemId: 1,
+          }),
+        ],
+      }),
+    ];
+    const rows = buildGridRows(mapped, new Set(), phaseNames, ['Senior Developer'], lists);
+    expect(rows[0].roleHours).toEqual({ 'Senior Developer': 24 });
+    expect(rows[0].totalHours).toBe(24);
   });
 
   it('marks inherited phases and leaves an explicit one alone', () => {
