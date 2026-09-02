@@ -1101,7 +1101,74 @@ describe('bar edge resize cursor', () => {
     expect(screen.queryByTestId('roadmap-bar-21-resize-start')).not.toBeInTheDocument();
     expect(screen.queryByTestId('roadmap-bar-21-resize-end')).not.toBeInTheDocument();
   });
+});
 
+describe('milestone name label', () => {
+  it('renders the item name to the right of the diamond; bars and spreads stay unlabeled', () => {
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'Backend',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 20,
+            name: 'Go-live',
+            kind: 'milestone',
+            startPeriod: 8,
+            periodCount: 0,
+            displayOrder: 0,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+          {
+            id: 21,
+            name: 'Support',
+            kind: 'spread',
+            startPeriod: 1,
+            periodCount: 0,
+            displayOrder: 1,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+          {
+            id: 22,
+            name: 'API',
+            kind: 'bar',
+            startPeriod: 2,
+            periodCount: 3,
+            displayOrder: 2,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+    renderRoadmap(lanes);
+    const label = screen.getByTestId('roadmap-milestone-label-20');
+    expect(label).toHaveTextContent('Go-live');
+    const diamond = screen.getByTestId('roadmap-bar-20');
+    const diamondRight =
+      parseFloat(diamond.style.left) + parseFloat(diamond.style.width);
+    expect(parseFloat(label.style.left)).toBeGreaterThan(diamondRight);
+    expect(screen.queryByTestId('roadmap-milestone-label-21')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('roadmap-milestone-label-22')).not.toBeInTheDocument();
+  });
+});
+
+describe('bar drag preview', () => {
   it('resizing shows stretch follow + snapped preview, not the move floating ghost', () => {
     renderRoadmap();
     const bar = screen.getByTestId('roadmap-bar-10');

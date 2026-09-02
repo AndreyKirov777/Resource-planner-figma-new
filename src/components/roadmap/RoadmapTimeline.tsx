@@ -470,6 +470,8 @@ export function RoadmapTimeline({
 
               const isDragSource = ghost !== null && ghost.entity === 'item' && ghost.id === row.id;
               const effectiveWindow = { startPeriod: row.startPeriod, periodCount: row.periodCount };
+              const msX = row.kind === 'milestone' ? milestoneX(effectiveWindow.startPeriod, periodWidth) : 0;
+              const milestoneLabelLeft = msX + (MILESTONE_SIZE * Math.SQRT2) / 2 + 6;
               const isSelected = row.id === selectedItemId;
               const effort = effortByItemId.get(row.id);
               const roleLines = effort ? Array.from(effort.entries()) : [];
@@ -664,6 +666,23 @@ export function RoadmapTimeline({
                       )}
                     </TooltipContent>
                   </Tooltip>
+                  {row.kind === 'milestone' && (
+                    <span
+                      data-testid={`roadmap-milestone-label-${row.id}`}
+                      aria-hidden
+                      className={cn(
+                        'pointer-events-none absolute select-none whitespace-nowrap text-[11px] font-medium text-foreground/80',
+                        isDragSource && 'opacity-40'
+                      )}
+                      style={{
+                        left: milestoneLabelLeft,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                      }}
+                    >
+                      {row.name}
+                    </span>
+                  )}
                   {stripeRects.map((rect, i) => (
                     <div
                       key={i}

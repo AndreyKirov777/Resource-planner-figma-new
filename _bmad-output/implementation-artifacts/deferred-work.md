@@ -533,3 +533,12 @@ matched rather than fixed. None are regressions caused by this change.
 - *One file for everything* is the expensive/wrong end state (`MAX_HOURS` next to `accentColor` and the planner prompt).
 
 **When this comes back:** treat product values as `src/config/*`; leave pixel/algorithm limits next to the feature. Do not persist abbreviations. Fresh window + `bmad-help`, or `bmad-build` / `bmad-architecture` with this section as input.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-milestone-timeline-labels.md`
+  summary: Milestone diamonds still use a 9px accent square instead of the UX-spec 12px `#030213` diamond.
+  evidence: Pre-existing; `MILESTONE_SIZE` / `ACCENT` in `RoadmapTimeline.tsx` were not part of this label-only change.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-milestone-timeline-labels.md`
+  summary: Collapsed-lane rolled-up milestone ticks still have no names.
+  evidence: Pre-existing roll-up ticks on the lane summary bar; this change only labels expanded item-row milestones.
+
