@@ -193,11 +193,11 @@ const ROLE_FILLERS = new Set(['and', 'of', 'the', 'for', 'a', 'an', 'or', 'to', 
 
 /**
  * Client-role seniority phrases, longest first. "Strong" is a modifier on the
- * next level (`Strong Junior` → `SJr`); `Team Lead` is one level, not T+Ld.
+ * next level (`Strong Junior` → `StJr`); `Team Lead` is one level, not T+Ld.
  */
 const LEVEL_PHRASES: [string[], string][] = [
-  [['strong', 'junior'], 'SJr'],
-  [['strong', 'middle'], 'SMd'],
+  [['strong', 'junior'], 'StJr'],
+  [['strong', 'middle'], 'StMd'],
   [['strong', 'senior'], 'SSr'],
   [['team', 'lead'], 'TL'],
   [['junior'], 'Jr'],
@@ -230,7 +230,8 @@ const TITLE_PHRASES: [string[], string][] = [
   [['data', 'engineer'], 'DE'],
   [['data', 'analyst'], 'DA'],
   [['data', 'qa'], 'DQA'],
-  [['qa', 'engineer'], 'QAE'],
+  [['qa', 'engineer'], 'QA'],
+  [['devops', 'engineer'], 'DevOps'],
   [['qa', 'automation'], 'QAA'],
   [['qa', 'manager'], 'QAM'],
   [['delivery', 'manager'], 'DM'],
@@ -266,8 +267,9 @@ const TITLE_WORDS: Record<string, string> = {
   backend: 'BE',
   content: 'Cnt',
   salesforce: 'SF',
+  software: 'Sw',
   blockchain: 'BC',
-  devops: 'DO',
+  devops: 'DevOps',
 };
 
 interface RoleAbbrevPart {

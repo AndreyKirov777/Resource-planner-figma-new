@@ -47,8 +47,8 @@ describe('wbsColumns', () => {
       'Task Description',
       'Phase',
       'TOTAL',
-      'Jr\nQAE',
-      'SJr\nDev',
+      'Jr\nQA',
+      'StJr\nDev',
       'QA',
     ]);
     expect(visible.map((column) => column.role)).toEqual([

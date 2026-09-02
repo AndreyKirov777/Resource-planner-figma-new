@@ -310,20 +310,23 @@ describe('abbreviateRole', () => {
 
   it('abbreviates client-role seniority and title stems', () => {
     expect(abbreviateRole('Junior Developer')).toBe('Jr Dev');
-    expect(abbreviateRole('Strong Junior Developer')).toBe('SJr Dev');
+    expect(abbreviateRole('Strong Junior Developer')).toBe('StJr Dev');
     expect(abbreviateRole('Middle Developer')).toBe('Md Dev');
-    expect(abbreviateRole('Strong Middle Developer')).toBe('SMd Dev');
+    expect(abbreviateRole('Strong Middle Developer')).toBe('StMd Dev');
     expect(abbreviateRole('Senior Developer')).toBe('Sr Dev');
     expect(abbreviateRole('Team Lead, Core Technologies')).toBe('TL CT');
     expect(abbreviateRole('Team Lead, Advanced Technologies')).toBe('TL AT');
-    expect(abbreviateRole('Junior QA Engineer')).toBe('Jr QAE');
-    expect(abbreviateRole('Strong Junior Business Analyst')).toBe('SJr BA');
+    expect(abbreviateRole('Junior QA Engineer')).toBe('Jr QA');
+    expect(abbreviateRole('Strong Junior Business Analyst')).toBe('StJr BA');
     expect(abbreviateRole('Senior Discovery Business Analyst')).toBe('Sr Disc BA');
     expect(abbreviateRole('Junior Project Manager')).toBe('Jr PM');
-    expect(abbreviateRole('Strong Junior Product Owner')).toBe('SJr PO');
+    expect(abbreviateRole('Strong Junior Product Owner')).toBe('StJr PO');
     expect(abbreviateRole('Junior Data Engineer')).toBe('Jr DE');
-    expect(abbreviateRole('DevOps Team Lead')).toBe('TL DO');
+    expect(abbreviateRole('DevOps Team Lead')).toBe('TL DevOps');
+    expect(abbreviateRole('DevOps Engineer')).toBe('DevOps');
+    expect(abbreviateRole('Junior DevOps Engineer')).toBe('Jr DevOps');
     expect(abbreviateRole('Junior Developer, Salesforce')).toBe('Jr Dev SF');
+    expect(abbreviateRole('Senior Software Developer')).toBe('Sr Sw Dev');
   });
 
   it('still recognizes a trailing seniority token', () => {
