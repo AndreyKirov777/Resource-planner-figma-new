@@ -1088,12 +1088,24 @@ describe('Wbs — reconciliation strip', () => {
 
   it('attributes an inheriting child hours to its ancestor phase, not to Unassigned', async () => {
     const user = userEvent.setup();
-    // Only "Interviews" (id 2, inherits Phase 1) and "Notes" (id 3) carry hours.
+    // Only "Interviews" (id 2, inherits Phase 1, discipline "Analysis", 16h) and
+    // "Notes" (id 3, inherits Phase 1 too via Interviews, discipline "Design", 8h)
+    // carry hours.
     render(<Wbs {...defaultProps(threeLevelTree)} rateCards={[rateCard({ role: 'BA' })]} />);
 
-    await user.click(screen.getByRole('button', { name: /WBS 24 h/ }));
+    // Collapsed: the Unassigned chip stays clear (nothing fell into Unassigned)...
+    expect(screen.getByTitle('Unassigned: none')).toBeInTheDocument();
 
-    await waitFor(() => expect(screen.getByText('Unassigned (WBS)')).toBeInTheDocument());
-    expect(screen.getByText(/No unassigned WBS hours/i)).toBeInTheDocument();
+    // ...but that alone would also pass if the hours were simply dropped rather
+    // than correctly attributed. Expand and confirm they actually landed under
+    // the ancestor phase ("Phase 1"), not just that they went missing from
+    // Unassigned.
+    await user.click(screen.getByRole('button', { name: /WBS 24 h/ }));
+    await waitFor(() => expect(screen.getByRole('columnheader', { name: 'Phase 1' })).toBeInTheDocument());
+    expect(screen.getAllByRole('cell', { name: 'Analysis' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('cell', { name: 'Design' }).length).toBeGreaterThan(0);
+    // Full 24h (16 + 8) shows up as phase-attributed variance (plan is 0 here).
+    expect(screen.getAllByText('+16').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('+8').length).toBeGreaterThan(0);
   });
 });

@@ -73,7 +73,7 @@ import {
 } from '../utils/wbsGrid';
 import { wouldCreateCycle } from '../utils/wbsTree';
 import { GRID_THEME } from './gridTheme';
-import { ReconciliationPanel, reconciliationSummary } from './ReconciliationPanel';
+import { ReconciliationPanel, ReconciliationChips, reconciliationSummary } from './ReconciliationPanel';
 import { NameEditor, PhaseEditor, RoadmapLinkEditor, isInsidePortaledMenu } from './WbsEditors';
 import { WbsRowMenu } from './WbsRowMenu';
 import { Button } from './ui/button';
@@ -1456,17 +1456,24 @@ export function Wbs({
 
       <div className="border-t pt-4">
         <Collapsible open={reconciliationOpen} onOpenChange={setReconciliationOpen}>
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
-            >
-              <ChevronDown
-                className={`h-4 w-4 transition-transform ${reconciliationOpen ? '' : '-rotate-90'}`}
-              />
-              {reconciliationSummary(reconciliationReport)}
-            </button>
-          </CollapsibleTrigger>
+          <div className="flex flex-wrap items-center gap-3">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${reconciliationOpen ? '' : '-rotate-90'}`}
+                />
+                {reconciliationSummary(reconciliationReport)}
+              </button>
+            </CollapsibleTrigger>
+            {/* The expanded panel's own health strip already renders these chips;
+                showing them here too would duplicate every chip on screen. */}
+            {!reconciliationOpen && (
+              <ReconciliationChips report={reconciliationReport} coverage={roadmapCoverage} />
+            )}
+          </div>
           <CollapsibleContent>
             <div className="mt-4">
               <ReconciliationPanel

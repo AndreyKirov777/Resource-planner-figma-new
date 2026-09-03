@@ -542,3 +542,15 @@ matched rather than fixed. None are regressions caused by this change.
   summary: Collapsed-lane rolled-up milestone ticks still have no names.
   evidence: Pre-existing roll-up ticks on the lane summary bar; this change only labels expanded item-row milestones.
 
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-wbs-reconciliation-compact-panel.md`
+  summary: Demand/supply and WBS/plan pairs in the compact Reconciliation panel's delta-only cells are reachable by mouse hover (`title`) and by screen reader (`sr-only`), but not by a touch or keyboard-only sighted user.
+  evidence: The spec's frozen Boundaries mandate exactly this pattern (`sr-only` span plus native `title`), so changing it renegotiates approved intent rather than fixing a defect. `title` does not fire on touch and is not keyboard-focusable; a sighted keyboard or tablet user can read the delta but never the underlying hours. Resolving it needs a product decision — a focusable cell, a popover, or a "show hours" toggle.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-wbs-reconciliation-compact-panel.md`
+  summary: The phase x discipline heatmap's row label is a `<TableCell>` rather than `<th scope="row">`, so assistive tech has no header association for the row axis.
+  evidence: In a grid whose columns are `<TableHead>` phases, the discipline label is the only thing locating a cell on the row axis. Not a regression (the old flat table also used a cell), so it falls outside this story's "must not regress" boundary, but a proper `scope="row"` header is the correct markup for a two-axis data grid. Changing it also requires updating the `getByRole('cell', ...)` assertions that currently target it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-wbs-reconciliation-compact-panel.md`
+  summary: The `sr-only` pair inside delta-only cells is the bare string "15/0", so a screen reader announces "+15 15/0" with no indication of which number is WBS and which is plan.
+  evidence: The readable form (`WBS 15 h - Plan 0 h`) exists only in the `title` attribute, which is not reliably announced. The bare format is required by the spec's frozen Boundaries because `Roadmap.test.tsx`'s cross-check asserts on it verbatim; giving the cell a labelled `aria-label` alongside the bare span would fix the announcement without touching that test.
