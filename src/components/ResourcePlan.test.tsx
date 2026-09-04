@@ -1,9 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ResourcePlan } from './ResourcePlan';
 import type { Project, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType } from '../services/api';
 import { columnStorageKey } from './planningColumns';
+
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {};
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
 
 vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
   const actual = await importOriginal() as object;
@@ -123,5 +136,158 @@ describe('ResourcePlan', () => {
     expect(window.localStorage.getItem(columnStorageKey(1))).toBe(JSON.stringify([]));
     expect(screen.getByRole('menuitemcheckbox', { name: 'Name' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('menuitemcheckbox', { name: 'Daily cost' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  function currencyTrigger(): HTMLElement {
+    const field = screen.getByText('Client currency').closest('div');
+    const trigger = field?.querySelector('[role="combobox"]');
+    if (!trigger) throw new Error('Client currency select not found');
+    return trigger as HTMLElement;
+  }
+
+  const allocatedPlan: ResourcePlanType = {
+    id: 7,
+    role: 'Engineer',
+    intHourlyRate: 50,
+    clientHourlyRate: 100,
+    displayOrder: 0,
+    projectId: 1,
+    createdAt: '',
+    updatedAt: '',
+    allocations: [{
+      id: 1,
+      periodNumber: 1,
+      allocation: 100,
+      resourcePlanId: 7,
+      createdAt: '',
+      updatedAt: '',
+    }],
+  };
+
+  it('pairs the default FX when Client currency changes and leaves plan rates alone', async () => {
+    const user = userEvent.setup();
+    const onProjectSettingsChange = vi.fn();
+    const onResourcePlansChange = vi.fn();
+    const { rerender } = render(
+      <ResourcePlan
+        {...defaultProps}
+        onProjectSettingsChange={onProjectSettingsChange}
+        onResourcePlansChange={onResourcePlansChange}
+        resourcePlans={[allocatedPlan]}
+      />
+    );
+
+    await user.click(currencyTrigger());
+    await user.click(await screen.findByRole('option', { name: 'EUR' }));
+    expect(onProjectSettingsChange).toHaveBeenCalledWith({
+      clientCurrency: 'EUR',
+      exchangeRate: 0.89,
+    });
+
+    await user.click(currencyTrigger());
+    await user.click(await screen.findByRole('option', { name: 'GBP' }));
+    expect(onProjectSettingsChange).toHaveBeenCalledWith({
+      clientCurrency: 'GBP',
+      exchangeRate: 0.79,
+    });
+
+    rerender(
+      <ResourcePlan
+        {...defaultProps}
+        project={{ ...mockProject, clientCurrency: 'EUR', exchangeRate: 0.89 }}
+        onProjectSettingsChange={onProjectSettingsChange}
+        onResourcePlansChange={onResourcePlansChange}
+        resourcePlans={[allocatedPlan]}
+      />
+    );
+    await user.click(currencyTrigger());
+    await user.click(await screen.findByRole('option', { name: 'USD' }));
+    expect(onProjectSettingsChange).toHaveBeenCalledWith({
+      clientCurrency: 'USD',
+      exchangeRate: 1,
+    });
+    expect(onResourcePlansChange).not.toHaveBeenCalled();
+  });
+
+  it('does not write settings when the current currency is reselected', async () => {
+    const user = userEvent.setup();
+    const onProjectSettingsChange = vi.fn();
+    render(
+      <ResourcePlan
+        {...defaultProps}
+        onProjectSettingsChange={onProjectSettingsChange}
+      />
+    );
+
+    await user.click(currencyTrigger());
+    await user.click(await screen.findByRole('option', { name: 'USD' }));
+    expect(onProjectSettingsChange).not.toHaveBeenCalled();
+  });
+
+  it('still persists currency and FX when there are no plan rows', async () => {
+    const user = userEvent.setup();
+    const onProjectSettingsChange = vi.fn();
+    render(
+      <ResourcePlan
+        {...defaultProps}
+        onProjectSettingsChange={onProjectSettingsChange}
+      />
+    );
+
+    expect(screen.getByText('Calculated Project Margin').closest('div')).toHaveTextContent('0.0%');
+
+    await user.click(currencyTrigger());
+    await user.click(await screen.findByRole('option', { name: 'EUR' }));
+    expect(onProjectSettingsChange).toHaveBeenCalledWith({
+      clientCurrency: 'EUR',
+      exchangeRate: 0.89,
+    });
+    expect(screen.getByText('Calculated Project Margin').closest('div')).toHaveTextContent('0.0%');
+  });
+
+  it('persists only exchangeRate when the Exchange rate field is edited', () => {
+    const onProjectSettingsChange = vi.fn();
+    render(
+      <ResourcePlan
+        {...defaultProps}
+        project={{ ...mockProject, clientCurrency: 'EUR', exchangeRate: 0.89 }}
+        onProjectSettingsChange={onProjectSettingsChange}
+      />
+    );
+
+    const fxInput = screen.getByLabelText('Exchange rate (to USD)');
+    fireEvent.change(fxInput, { target: { value: '0.95' } });
+
+    expect(onProjectSettingsChange).toHaveBeenCalledTimes(1);
+    expect(onProjectSettingsChange).toHaveBeenCalledWith({ exchangeRate: 0.95 });
+    expect(onProjectSettingsChange.mock.calls.every(
+      ([payload]) => payload.clientCurrency === undefined
+    )).toBe(true);
+  });
+
+  it('recomputes Calculated Project Margin from a new exchangeRate without rewriting rates', () => {
+    const onResourcePlansChange = vi.fn();
+    const { rerender } = render(
+      <ResourcePlan
+        {...defaultProps}
+        onResourcePlansChange={onResourcePlansChange}
+        resourcePlans={[allocatedPlan]}
+      />
+    );
+
+    const marginBlock = screen.getByText('Calculated Project Margin').closest('div');
+    expect(marginBlock).toHaveTextContent('50.0%');
+
+    rerender(
+      <ResourcePlan
+        {...defaultProps}
+        project={{ ...mockProject, clientCurrency: 'EUR', exchangeRate: 0.89 }}
+        onResourcePlansChange={onResourcePlansChange}
+        resourcePlans={[allocatedPlan]}
+      />
+    );
+
+    expect(screen.getByText('Calculated Project Margin').closest('div')).toHaveTextContent('55.5%');
+    expect(onResourcePlansChange).not.toHaveBeenCalled();
   });
 });

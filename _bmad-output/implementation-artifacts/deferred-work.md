@@ -554,3 +554,7 @@ matched rather than fixed. None are regressions caused by this change.
 - source_spec: `_bmad-output/implementation-artifacts/spec-wbs-reconciliation-compact-panel.md`
   summary: The `sr-only` pair inside delta-only cells is the bare string "15/0", so a screen reader announces "+15 15/0" with no indication of which number is WBS and which is plan.
   evidence: The readable form (`WBS 15 h - Plan 0 h`) exists only in the `title` attribute, which is not reliably announced. The bare format is required by the spec's frozen Boundaries because `Roadmap.test.tsx`'s cross-check asserts on it verbatim; giving the cell a labelled `aria-label` alongside the bare span would fix the announcement without touching that test.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-fix-margin-on-currency-change.md`
+  summary: The Client currency label uses `htmlFor="clientCurrency"`, but the Radix `SelectTrigger` has no matching `id`, so the control is not name-associated for assistive tech or `getByLabelText`.
+  evidence: Pre-existing markup; this story only changed `onValueChange`. The new tests have to walk `closest('div')` + `querySelector('[role="combobox"]')` because `getByLabelText('Client currency')` cannot find the trigger.

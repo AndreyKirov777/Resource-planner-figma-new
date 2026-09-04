@@ -28,7 +28,7 @@ import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as Resou
 import { clientHourlyRate as calcClientHourlyRate, hoursPerPeriod, buildPlanFinancials } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod, phaseStartOffset, reorderPhases, remapPeriodNumber, splitPhase, uniquePhaseName } from '../utils/phases';
 import { remapRoadmapItemsForPhaseChange } from '../utils/roadmap';
-import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
+import { APP_DEFAULTS, LOCATIONS, exchangeRateForCurrency } from '../config/defaults';
 import { canonicalLocationLabel, locationAbbr } from '../utils/regions';
 import { findResourceForPlan } from '../utils/resourceMatching';
 import { GeneratePlanSheet } from './GeneratePlanSheet';
@@ -1183,7 +1183,10 @@ export function ResourcePlan({
                 <Label htmlFor="clientCurrency">Client currency</Label>
                 <Select
                   value={project.clientCurrency}
-                  onValueChange={(value: string) => onProjectSettingsChange({ clientCurrency: value })}
+                  onValueChange={(value: string) => onProjectSettingsChange({
+                    clientCurrency: value,
+                    exchangeRate: exchangeRateForCurrency(value),
+                  })}
                 >
                   <SelectTrigger>
                     <SelectValue />

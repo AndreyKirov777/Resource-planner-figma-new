@@ -43,3 +43,15 @@ export type LocationSlug = (typeof LOCATIONS)[number]['slug'];
 export const SUPPORTED_CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'UAH'] as const;
 
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
+
+/** Default client-currency-per-USD rates. EUR must stay equal to APP_DEFAULTS.exchangeRate. */
+const EXCHANGE_RATE_BY_CURRENCY: Record<string, number> = {
+  EUR: APP_DEFAULTS.exchangeRate,
+  USD: 1,
+  GBP: 0.79,
+};
+
+/** Default FX for a client currency; unknown or empty codes use APP_DEFAULTS.exchangeRate. */
+export function exchangeRateForCurrency(code: string): number {
+  return EXCHANGE_RATE_BY_CURRENCY[code] ?? APP_DEFAULTS.exchangeRate;
+}
