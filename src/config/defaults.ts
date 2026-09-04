@@ -51,7 +51,22 @@ const EXCHANGE_RATE_BY_CURRENCY: Record<string, number> = {
   GBP: 0.79,
 };
 
+let liveExchangeRates: Record<string, number> | undefined;
+
+/** Overlay today's live FX onto `exchangeRateForCurrency`. */
+export function setLiveExchangeRates(rates: Record<string, number>): void {
+  liveExchangeRates = rates;
+}
+
+/** Test-only: clear the live overlay so lookups use the static table again. */
+export function __resetLiveExchangeRates(): void {
+  liveExchangeRates = undefined;
+}
+
 /** Default FX for a client currency; unknown or empty codes use APP_DEFAULTS.exchangeRate. */
 export function exchangeRateForCurrency(code: string): number {
+  if (liveExchangeRates && Object.prototype.hasOwnProperty.call(liveExchangeRates, code)) {
+    return liveExchangeRates[code];
+  }
   return EXCHANGE_RATE_BY_CURRENCY[code] ?? APP_DEFAULTS.exchangeRate;
 }

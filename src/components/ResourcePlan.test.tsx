@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { ResourcePlan } from './ResourcePlan';
 import type { Project, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType } from '../services/api';
 import { columnStorageKey } from './planningColumns';
+import { __resetLiveExchangeRates, setLiveExchangeRates } from '../config/defaults';
 
 if (!Element.prototype.hasPointerCapture) {
   Element.prototype.hasPointerCapture = () => false;
@@ -92,6 +93,7 @@ function installMemoryLocalStorage() {
 describe('ResourcePlan', () => {
   beforeEach(() => {
     installMemoryLocalStorage();
+    __resetLiveExchangeRates();
   });
   it('renders project name input', () => {
     render(<ResourcePlan {...defaultProps} />);
@@ -209,6 +211,29 @@ describe('ResourcePlan', () => {
     expect(onResourcePlansChange).not.toHaveBeenCalled();
   });
 
+  it('pairs the live overlay FX when Client currency changes after rates load', async () => {
+    setLiveExchangeRates({ EUR: 0.85, USD: 1, GBP: 0.74 });
+    const user = userEvent.setup();
+    const onProjectSettingsChange = vi.fn();
+    const onResourcePlansChange = vi.fn();
+    render(
+      <ResourcePlan
+        {...defaultProps}
+        onProjectSettingsChange={onProjectSettingsChange}
+        onResourcePlansChange={onResourcePlansChange}
+        resourcePlans={[allocatedPlan]}
+      />
+    );
+
+    await user.click(currencyTrigger());
+    await user.click(await screen.findByRole('option', { name: 'EUR' }));
+    expect(onProjectSettingsChange).toHaveBeenCalledWith({
+      clientCurrency: 'EUR',
+      exchangeRate: 0.85,
+    });
+    expect(onResourcePlansChange).not.toHaveBeenCalled();
+  });
+
   it('does not write settings when the current currency is reselected', async () => {
     const user = userEvent.setup();
     const onProjectSettingsChange = vi.fn();
@@ -246,11 +271,12 @@ describe('ResourcePlan', () => {
   });
 
   it('persists only exchangeRate when the Exchange rate field is edited', () => {
+    setLiveExchangeRates({ EUR: 0.85, USD: 1, GBP: 0.74 });
     const onProjectSettingsChange = vi.fn();
     render(
       <ResourcePlan
         {...defaultProps}
-        project={{ ...mockProject, clientCurrency: 'EUR', exchangeRate: 0.89 }}
+        project={{ ...mockProject, clientCurrency: 'EUR', exchangeRate: 0.85 }}
         onProjectSettingsChange={onProjectSettingsChange}
       />
     );

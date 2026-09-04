@@ -48,6 +48,7 @@ import {
 } from './src/utils/modeConversion';
 import { APP_DEFAULTS } from './src/config/defaults';
 import { wouldCreateCycle } from './src/utils/wbsTree';
+import { getDailyExchangeRates } from './server/exchangeRates';
 import { convertRoadmapItemsToMonthly, convertRoadmapItemsToWeekly } from './src/utils/roadmap';
 
 const app = express();
@@ -1779,6 +1780,15 @@ app.patch('/api/projects/:id/roadmap/reorder', async (req, res) => {
   } catch (error) {
     console.error('Error reordering roadmap:', error);
     res.status(500).json({ error: 'Failed to reorder roadmap' });
+  }
+});
+
+app.get('/api/exchange-rates', async (_req, res) => {
+  try {
+    res.json(await getDailyExchangeRates());
+  } catch (error) {
+    console.error('Error fetching exchange rates:', error);
+    res.status(500).json({ error: 'Failed to fetch exchange rates' });
   }
 });
 

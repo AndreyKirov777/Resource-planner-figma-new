@@ -56,6 +56,12 @@ export interface Phase {
   color?: string;
 }
 
+export interface ExchangeRates {
+  rates: { USD: number; EUR: number; GBP: number };
+  date?: string;
+  source: 'frankfurter' | 'cache' | 'fallback';
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -350,6 +356,12 @@ export const api = {
   async getRateCardMeta(): Promise<RateCardImportMeta> {
     const response = await apiFetch(`${API_BASE_URL}/rate-cards/meta`);
     if (!response.ok) throw new Error('Failed to fetch rate card import metadata');
+    return response.json();
+  },
+
+  async getExchangeRates(): Promise<ExchangeRates> {
+    const response = await apiFetch(`${API_BASE_URL}/exchange-rates`);
+    if (!response.ok) throw new Error('Failed to fetch exchange rates');
     return response.json();
   },
 

@@ -1,5 +1,5 @@
 import type { Express } from 'express';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import { isolateTestDb } from './testDb';
 
@@ -151,6 +151,31 @@ describe('API integration', () => {
       const metaRes = await request(app).get('/api/rate-cards/meta');
       expect(metaRes.body.fileName).toBeNull();
       expect(metaRes.body.importedAt).toBeNull();
+    });
+  });
+
+  describe('Exchange rates', () => {
+    it('GET /api/exchange-rates returns USD/EUR/GBP', async () => {
+      const { __resetExchangeRatesCache } = await import('./server/exchangeRates');
+      __resetExchangeRatesCache();
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => [
+          { date: '2026-09-04', base: 'USD', quote: 'EUR', rate: 0.85 },
+          { date: '2026-09-04', base: 'USD', quote: 'GBP', rate: 0.74 },
+        ],
+      } as Response);
+
+      try {
+        const res = await request(app).get('/api/exchange-rates');
+        expect(res.status).toBe(200);
+        expect(res.body.rates).toEqual({ USD: 1, EUR: 0.85, GBP: 0.74 });
+        expect(res.body.source).toMatch(/frankfurter|cache/);
+      } finally {
+        fetchMock.mockRestore();
+        __resetExchangeRatesCache();
+      }
     });
   });
 

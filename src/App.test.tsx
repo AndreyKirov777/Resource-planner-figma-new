@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { __resetLiveExchangeRates, exchangeRateForCurrency } from './config/defaults';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -106,6 +107,7 @@ vi.mock('./services/api', () => ({
     getResourceLists: vi.fn(),
     getRateCards: vi.fn(),
     getRateCardMeta: vi.fn(),
+    getExchangeRates: vi.fn(),
     getResourcePlans: vi.fn(),
     getWbsItems: vi.fn(),
     updateProject: vi.fn(),
@@ -128,9 +130,18 @@ beforeEach(async () => {
   vi.mocked(api.getResourceLists).mockResolvedValue([]);
   vi.mocked(api.getRateCards).mockResolvedValue([]);
   vi.mocked(api.getRateCardMeta).mockResolvedValue({ fileName: null, importedAt: null });
+  vi.mocked(api.getExchangeRates).mockResolvedValue({
+    rates: { USD: 1, EUR: 0.85, GBP: 0.74 },
+    date: '2026-09-04',
+    source: 'frankfurter',
+  });
   vi.mocked(api.getResourcePlans).mockResolvedValue([]);
   vi.mocked(api.getWbsItems).mockResolvedValue([]);
   vi.mocked(api.getRoadmap).mockResolvedValue({ lanes: [] });
+});
+
+afterEach(() => {
+  __resetLiveExchangeRates();
 });
 
 describe('App', () => {
@@ -339,5 +350,23 @@ describe('App', () => {
     expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
     expect(screen.getByTestId('resource-plan')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+  });
+
+  it('does not overwrite a stored project exchangeRate when live rates load', async () => {
+    const api = await getApi();
+    vi.mocked(api.updateProject).mockClear();
+    vi.mocked(api.getProjects).mockResolvedValue([
+      { ...mockProject, clientCurrency: 'GBP', exchangeRate: 0.79 },
+    ]);
+
+    renderApp();
+    await waitFor(() => {
+      expect(api.getExchangeRates).toHaveBeenCalled();
+      expect(exchangeRateForCurrency('EUR')).toBe(0.85);
+    });
+    expect(api.updateProject).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ exchangeRate: expect.anything() })
+    );
   });
 });

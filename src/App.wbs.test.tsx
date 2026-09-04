@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from './App';
 import type { WbsItem } from './services/api';
+import { __resetLiveExchangeRates } from './config/defaults';
 
 // Separate from App.test.tsx, which mocks `./components/Wbs` (like it mocks
 // every other tab) purely to keep App.tsx's own render/tab-switching tests
@@ -150,6 +151,7 @@ vi.mock('./services/api', () => ({
     getResourceLists: vi.fn(),
     getRateCards: vi.fn(),
     getRateCardMeta: vi.fn(),
+    getExchangeRates: vi.fn(),
     getResourcePlans: vi.fn(),
     getWbsItems: vi.fn(),
     createWbsItem: vi.fn(),
@@ -182,8 +184,17 @@ beforeEach(async () => {
   ]);
   vi.mocked(api.getRateCards).mockResolvedValue([]);
   vi.mocked(api.getRateCardMeta).mockResolvedValue({ fileName: null, importedAt: null });
+  vi.mocked(api.getExchangeRates).mockResolvedValue({
+    rates: { USD: 1, EUR: 0.85, GBP: 0.74 },
+    date: '2026-09-04',
+    source: 'frankfurter',
+  });
   vi.mocked(api.getResourcePlans).mockResolvedValue([]);
   vi.mocked(api.getRoadmap).mockResolvedValue({ lanes: [] });
+});
+
+afterEach(() => {
+  __resetLiveExchangeRates();
 });
 
 async function openWbsTab() {

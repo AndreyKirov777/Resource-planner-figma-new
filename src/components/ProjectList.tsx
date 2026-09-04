@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api, Project } from '../services/api';
-import { APP_DEFAULTS, SUPPORTED_CURRENCIES, LOCATIONS } from '../config/defaults';
+import { APP_DEFAULTS, SUPPORTED_CURRENCIES, LOCATIONS, exchangeRateForCurrency, setLiveExchangeRates } from '../config/defaults';
 import { PHASE_COLORS } from '../utils/phases';
 import { Button } from './ui/button';
 import {
@@ -84,6 +84,21 @@ export function ProjectList({
     fetchProjects();
   }, []);
 
+  useEffect(() => {
+    if (!showCreateDialog) return;
+    let cancelled = false;
+    api.getExchangeRates()
+      .then((data) => {
+        if (!cancelled) setLiveExchangeRates(data.rates);
+      })
+      .catch(() => {
+        // Leave overlay unset so create uses the static table.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showCreateDialog]);
+
   const handleCreateProject = async () => {
     try {
       const created = await api.createProject({
@@ -91,7 +106,7 @@ export function ProjectList({
         description: createDescription.trim() || undefined,
         daysInFTE: createDaysInFTE,
         clientCurrency: createCurrency,
-        exchangeRate: APP_DEFAULTS.exchangeRate,
+        exchangeRate: exchangeRateForCurrency(createCurrency),
         defaultMargin: createMargin,
         planningMode: createPlanningMode,
         defaultLocation: createDefaultLocation,

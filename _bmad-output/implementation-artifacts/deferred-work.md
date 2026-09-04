@@ -558,3 +558,7 @@ matched rather than fixed. None are regressions caused by this change.
 - source_spec: `_bmad-output/implementation-artifacts/spec-fix-margin-on-currency-change.md`
   summary: The Client currency label uses `htmlFor="clientCurrency"`, but the Radix `SelectTrigger` has no matching `id`, so the control is not name-associated for assistive tech or `getByLabelText`.
   evidence: Pre-existing markup; this story only changed `onValueChange`. The new tests have to walk `closest('div')` + `querySelector('[role="combobox"]')` because `getByLabelText('Client currency')` cannot find the trigger.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-daily-exchange-rates.md`
+  summary: App empty-database bootstrap still creates the default project with a hardcoded `exchangeRate: 0.89`.
+  evidence: Pre-existing `src/App.tsx` create path when `getProjects()` returns []. This story only required ProjectList create to pair live FX; the empty-db seed was left on the static EUR default.

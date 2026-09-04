@@ -41,7 +41,7 @@ import { canonicalLocationLabel, locationAbbr, resolveLocationLabel } from './ut
 import { findResourceForPlan } from './utils/resourceMatching';
 import { descendantIds } from './utils/wbsTree';
 import { applyRoadmapReorder } from './utils/roadmapOrder';
-import { APP_DEFAULTS } from './config/defaults';
+import { APP_DEFAULTS, setLiveExchangeRates } from './config/defaults';
 import { describeError } from './utils/apiErrors';
 
 // Register AG Grid modules
@@ -81,6 +81,12 @@ export default function App() {
       setRateCardMeta(meta);
     } catch (err) {
       console.error('Error loading global rate cards:', err);
+    }
+    try {
+      const exchangeRates = await api.getExchangeRates();
+      setLiveExchangeRates(exchangeRates.rates);
+    } catch (err) {
+      console.error('Error loading exchange rates:', err);
     }
   };
 
