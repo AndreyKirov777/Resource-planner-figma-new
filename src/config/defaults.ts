@@ -63,10 +63,14 @@ export function __resetLiveExchangeRates(): void {
   liveExchangeRates = undefined;
 }
 
+function roundExchangeRate(rate: number): number {
+  return Number(rate.toFixed(2));
+}
+
 /** Default FX for a client currency; unknown or empty codes use APP_DEFAULTS.exchangeRate. */
 export function exchangeRateForCurrency(code: string): number {
   if (liveExchangeRates && Object.prototype.hasOwnProperty.call(liveExchangeRates, code)) {
-    return liveExchangeRates[code];
+    return roundExchangeRate(liveExchangeRates[code]);
   }
   return EXCHANGE_RATE_BY_CURRENCY[code] ?? APP_DEFAULTS.exchangeRate;
 }

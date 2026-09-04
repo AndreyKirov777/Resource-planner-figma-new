@@ -1208,7 +1208,7 @@ export function ResourcePlan({
                   id="exchangeRate"
                   type="number"
                   step="0.01"
-                  value={project.exchangeRate}
+                  value={Number.isFinite(project.exchangeRate) ? project.exchangeRate.toFixed(2) : ''}
                   onChange={(e) => onProjectSettingsChange({ exchangeRate: parseFloat(e.target.value) || 0.89 })}
                 />
               </div>

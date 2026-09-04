@@ -1,4 +1,4 @@
----
+p---
 title: 'Recalculate margin when client currency changes'
 type: 'bugfix'
 created: '2026-09-04'

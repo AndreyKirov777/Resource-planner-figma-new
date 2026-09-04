@@ -270,6 +270,17 @@ describe('ResourcePlan', () => {
     expect(screen.getByText('Calculated Project Margin').closest('div')).toHaveTextContent('0.0%');
   });
 
+  it('displays the exchange rate rounded to two decimal places', () => {
+    render(
+      <ResourcePlan
+        {...defaultProps}
+        project={{ ...mockProject, clientCurrency: 'GBP', exchangeRate: 0.74022 }}
+      />
+    );
+
+    expect(screen.getByLabelText('Exchange rate (to USD)')).toHaveValue(0.74);
+  });
+
   it('persists only exchangeRate when the Exchange rate field is edited', () => {
     setLiveExchangeRates({ EUR: 0.85, USD: 1, GBP: 0.74 });
     const onProjectSettingsChange = vi.fn();
