@@ -71,6 +71,8 @@ interface RoadmapTimelineProps {
   viewportRef: React.MutableRefObject<HTMLDivElement | null>;
   /** Governs the whole lane summary layer — bar, caps, ticks, stripe and chip. Off is an early return, not hidden DOM. */
   showLaneBars: boolean;
+  /** When on (default), empty-scope bars/spreads use the dashed outline. Off: filled paint. */
+  showUnlinkedOutline: boolean;
   onToggleLane: (laneId: number) => void;
 }
 
@@ -99,6 +101,7 @@ export function RoadmapTimeline({
   onScroll,
   viewportRef,
   showLaneBars,
+  showUnlinkedOutline,
   onToggleLane,
 }: RoadmapTimelineProps) {
   const rowsWrapRef = useRef<HTMLDivElement | null>(null);
@@ -503,7 +506,7 @@ export function RoadmapTimeline({
                                   top: (ROW_HEIGHT - 10) / 2,
                                   height: 10,
                                   borderRadius: 2,
-                                  ...(row.emptyScope
+                                  ...(row.emptyScope && showUnlinkedOutline
                                     ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
                                     : {
                                         background: 'rgba(143,79,143,0.22)',
@@ -518,7 +521,7 @@ export function RoadmapTimeline({
                                   top: (ROW_HEIGHT - BAR_HEIGHT) / 2,
                                   height: BAR_HEIGHT,
                                   borderRadius: 4,
-                                  ...(row.emptyScope
+                                  ...(row.emptyScope && showUnlinkedOutline
                                     ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
                                     : { background: ACCENT }),
                                   ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
@@ -597,7 +600,7 @@ export function RoadmapTimeline({
                         {(row.kind === 'bar' || row.kind === 'spread') && (
                           <span
                             className="pointer-events-none absolute left-1.5 right-1.5 top-1/2 -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-white"
-                            style={row.emptyScope ? { color: ACCENT } : undefined}
+                            style={row.emptyScope && showUnlinkedOutline ? { color: ACCENT } : undefined}
                           >
                             {row.name}
                           </span>

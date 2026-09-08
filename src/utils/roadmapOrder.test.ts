@@ -11,10 +11,10 @@ const lanes: RoadmapRowLane[] = [
 
 function makeItems(): RoadmapRowItem[] {
   return [
-    { id: 10, laneId: 1, name: 'A', kind: 'bar', startPeriod: 1, periodCount: 3, displayOrder: 0 },
-    { id: 11, laneId: 1, name: 'B', kind: 'bar', startPeriod: 4, periodCount: 2, displayOrder: 1 },
-    { id: 12, laneId: 1, name: 'C', kind: 'bar', startPeriod: 6, periodCount: 1, displayOrder: 2 },
-    { id: 20, laneId: 2, name: 'D', kind: 'bar', startPeriod: 1, periodCount: 1, displayOrder: 0 },
+    { id: 10, laneId: 1, name: 'A', kind: 'bar', startPeriod: 1, periodCount: 3, displayOrder: 0, wbsItemIds: [] },
+    { id: 11, laneId: 1, name: 'B', kind: 'bar', startPeriod: 4, periodCount: 2, displayOrder: 1, wbsItemIds: [] },
+    { id: 12, laneId: 1, name: 'C', kind: 'bar', startPeriod: 6, periodCount: 1, displayOrder: 2, wbsItemIds: [] },
+    { id: 20, laneId: 2, name: 'D', kind: 'bar', startPeriod: 1, periodCount: 1, displayOrder: 0, wbsItemIds: [] },
   ];
 }
 
@@ -117,7 +117,7 @@ describe('buildReorder — milestone/spread (window never touched unless explici
   it('reordering a spread item vertically never emits window fields (none passed in)', () => {
     const items: RoadmapRowItem[] = [
       ...makeItems(),
-      { id: 30, laneId: 1, name: 'Spread', kind: 'spread', startPeriod: 1, periodCount: 0, displayOrder: 3 },
+      { id: 30, laneId: 1, name: 'Spread', kind: 'spread', startPeriod: 1, periodCount: 0, displayOrder: 3, wbsItemIds: [] },
     ];
     const commit: ItemReorderCommit = { entity: 'item', itemId: 30, laneId: 2, index: 0 };
     const payload = buildReorder(lanes, items, commit);

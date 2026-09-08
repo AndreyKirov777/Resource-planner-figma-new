@@ -27,13 +27,13 @@ A shadcn `Dialog` with a preview table: `Lane · Item · Hours · Window · Phas
 
 A single bordered container (`rounded-lg`, `border-gray-200`) holding, top to bottom:
 
-**Toolbar strip, 44px.** Left: `Start <date>` (or `Set start date` when null), planning unit, zoom −/+, `Fit`, `Lane bars` toggle, separator, `Load <role>`. Right: `Add lane`, `Add item`, fullscreen. All shadcn `outline`/`sm` buttons so the strip reads as app chrome, not as a library's toolbar.
+**Toolbar strip, 44px.** Left: `Start <date>` (or `Set start date` when null), planning unit, zoom −/+, `Fit`, then two labeled switches (`text-xs`, label then switch, no icons) — `Lane bars` and `Unlinked` — then a separator, then `Load <role>`. Right: `Add lane`, `Add item`, fullscreen. Buttons stay shadcn `outline`/`sm` so the strip reads as app chrome, not as a library's toolbar. `Unlinked` tooltip: `Dashed outline on bars and spreads with no WBS link`. Both switches default on and persist per project in localStorage.
 
 **Body**, a row of: left grid 320px — columns `Lane / Item` 200, `Hours` 64, `FTE` 56 — then the timeline, then the editor panel when open (360px, compressing the timeline rather than covering it).
 
 **Header, 44px on both sides.** Timeline header is two rows inside it — 22px phase bands over 21px period columns, the odd pixel going to the container's own bottom border: phase bands with WBS hour totals over period columns labelled `W4 · 28 Sep` (or `W4` alone without a start date). The left grid's header is one line vertically centred in the same 44px.
 
-**Rows, 34px,** matching `ROW_HEIGHT`. Lane rows use `#f6f6f6` / `#1f1f1f` / 600 as `SECTION_ROW_THEME` already does for WBS section rows; their `Hours` / `FTE` cells sum their items. When the `Lane bars` toggle is on (the default), a lane row also draws a summary bar — see "Bar visual language" below; off, the row is exactly the tinted band it always was, no bar. Item rows sit under their lane, one row per item. Lanes collapse and expand; collapse state is per project in localStorage like `loadHiddenColumns`, and the `Lane bars` toggle is a second, independent per-project localStorage preference alongside it.
+**Rows, 34px,** matching `ROW_HEIGHT`. Lane rows use `#f6f6f6` / `#1f1f1f` / 600 as `SECTION_ROW_THEME` already does for WBS section rows; their `Hours` / `FTE` cells sum their items. When the `Lane bars` toggle is on (the default), a lane row also draws a summary bar — see "Bar visual language" below; off, the row is exactly the tinted band it always was, no bar. Item rows sit under their lane, one row per item. Lanes collapse and expand; collapse state is per project in localStorage like `loadHiddenColumns`. `Lane bars` and `Unlinked` are independent per-project localStorage preferences alongside it.
 
 **Load strip, 64px,** below the rows, its label in the left-grid column and its cells in the timeline's column grid.
 
@@ -46,8 +46,8 @@ Colour encodes kind and state only; the phase already colours the background, so
 | Element | Treatment |
 |---|---|
 | Bar with scope | filled `#8f4f8f`, 18px, label is the item **name**; hours and FTE live in the left grid and the tooltip |
-| Bar without scope | dashed 1.5px `#8f4f8f` outline, translucent fill, label is the item **name** (same as a scoped bar) |
-| Spread | 10px hatched (or dashed empty-scope) band across the project, label is the item **name** |
+| Bar without scope | when Unlinked is on (default): dashed 1.5px `#8f4f8f` outline, translucent fill, accent name; when Unlinked is off: the same filled paint as a scoped bar. Without scope means no direct WBS link (`wbsItemIds.length === 0`), not zero hours. |
+| Spread | 10px hatched band across the project, or the same dashed empty-scope treatment as a bar when Unlinked is on and it has no WBS link; label is the item **name** |
 | Milestone | 12px `#030213` square rotated 45°, name to the right |
 | Demand above supply | 3px amber stripe along the bar's bottom **over the affected periods only** |
 | Phase mismatch | small amber marker at the bar's start edge; tooltip names the leaf and its phase |

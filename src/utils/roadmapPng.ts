@@ -71,6 +71,7 @@ export type RoadmapPngInput = {
   planningMode: 'weekly' | 'monthly';
   startDate: string | null;
   showLaneBars: boolean;
+  showUnlinkedOutline: boolean;
   scope: RoadmapPngScope;
   background: RoadmapPngBackground;
   /** Override for deterministic filename tests */
@@ -86,6 +87,7 @@ export type RoadmapPngExportModel = {
   planningMode: 'weekly' | 'monthly';
   startDate: string | null;
   showLaneBars: boolean;
+  showUnlinkedOutline: boolean;
   includeGrid: boolean;
   rows: RoadmapRow[];
   phases: RoadmapPngPhaseInput[];
@@ -165,6 +167,7 @@ export function buildRoadmapPngModel(
       planningMode: input.planningMode,
       startDate: input.startDate,
       showLaneBars: input.showLaneBars,
+      showUnlinkedOutline: input.showUnlinkedOutline,
       includeGrid,
       rows,
       phases: input.phases.map((p) => ({ ...p })),
@@ -472,7 +475,7 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
 
     if (row.kind === 'spread') {
       const top = y + (ROW_HEIGHT - 10) / 2;
-      if (row.emptyScope) {
+      if (row.emptyScope && model.showUnlinkedOutline) {
         ctx.fillStyle = 'rgba(143,79,143,0.08)';
         roundRect(ctx, left, top, rect.width, 10, 2);
         ctx.fill();
@@ -495,7 +498,7 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
         roundRect(ctx, left, top, rect.width, 10, 2);
         ctx.stroke();
       }
-      ctx.fillStyle = row.emptyScope ? ACCENT : '#ffffff';
+      ctx.fillStyle = row.emptyScope && model.showUnlinkedOutline ? ACCENT : '#ffffff';
       ctx.font = `500 11px ${font}`;
       clipText(
         ctx,
@@ -507,7 +510,7 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
     } else {
       // bar
       const top = y + (ROW_HEIGHT - BAR_HEIGHT) / 2;
-      if (row.emptyScope) {
+      if (row.emptyScope && model.showUnlinkedOutline) {
         ctx.fillStyle = 'rgba(143,79,143,0.08)';
         roundRect(ctx, left, top, rect.width, BAR_HEIGHT, 4);
         ctx.fill();

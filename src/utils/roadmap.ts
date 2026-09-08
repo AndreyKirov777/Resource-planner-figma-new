@@ -384,6 +384,8 @@ export interface RoadmapRowItem {
   startPeriod: number;
   periodCount: number;
   displayOrder: number;
+  /** Direct WBS links. Empty means unlinked. */
+  wbsItemIds: number[];
 }
 
 export interface RoadmapRow {
@@ -395,7 +397,7 @@ export interface RoadmapRow {
   periodCount: number;
   hours: number;
   fte: number;
-  /** True for a bar/spread item with no scope leaves at all — rendered with the "no scope" style. */
+  /** True for a bar/spread with no WBS link — dashed when Unlinked is on. */
   emptyScope: boolean;
   /** Periods where demand exceeds supply for this item. Slice A always passes []. */
   overDemandPeriods: number[];
@@ -556,7 +558,7 @@ export function toRoadmapRows(
         periodCount,
         hours,
         fte,
-        emptyScope: (item.kind === 'bar' || isSpread) && hours === 0,
+        emptyScope: (item.kind === 'bar' || isSpread) && (item.wbsItemIds ?? []).length === 0,
         overDemandPeriods: [...(overDemandByItemId?.get(item.id) ?? [])],
         collapsed: false,
         milestonePeriods: [],

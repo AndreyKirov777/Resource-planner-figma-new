@@ -574,3 +574,11 @@ matched rather than fixed. None are regressions caused by this change.
 - source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-bar-name-labels.md`
   summary: `emptyScope` is still `hours === 0`, not "no WBS links".
   evidence: Pre-existing `toRoadmapRows` derivation in `roadmap.ts`; a linked item with zero estimates still gets the dashed treatment and now shows Name.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-unlinked-outline-switch.md`
+  summary: `data-model.md` still describes empty-scope bar style as coming from `coverage` / hours, not `wbsItemIds`.
+  evidence: Pre-existing companion; this story only updated CAP-6 and ux-reference. Paint is now link-gated and the data-model blurb was left stale.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-unlinked-outline-switch.md`
+  summary: `delivery.md` still describes the empty-scope flag as the old hours / no-leaves marker.
+  evidence: Pre-existing companion not in this story's docs task; only SPEC.md and ux-reference were updated.

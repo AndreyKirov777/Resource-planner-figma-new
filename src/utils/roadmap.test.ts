@@ -372,8 +372,8 @@ describe('toRoadmapRows', () => {
   it('produces a lane row followed by its item rows, sums hours/fte on the lane', () => {
     const lanes = [{ id: 1, name: 'Backend', displayOrder: 0 }];
     const items = [
-      { id: 10, laneId: 1, name: 'API', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0 },
-      { id: 11, laneId: 1, name: 'Launch', kind: 'milestone' as const, startPeriod: 3, periodCount: 0, displayOrder: 1 },
+      { id: 10, laneId: 1, name: 'API', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0, wbsItemIds: [1] },
+      { id: 11, laneId: 1, name: 'Launch', kind: 'milestone' as const, startPeriod: 3, periodCount: 0, displayOrder: 1, wbsItemIds: [] },
     ];
     const effort = new Map([[10, new Map([['Backend', 80]])]]);
     const rows = toRoadmapRows(lanes, items, effort, new Set(), 40, 20);
@@ -386,28 +386,40 @@ describe('toRoadmapRows', () => {
   it('collapsing a lane hides its items but keeps the lane row', () => {
     const lanes = [{ id: 1, name: 'Backend', displayOrder: 0 }];
     const items = [
-      { id: 10, laneId: 1, name: 'API', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0 },
+      { id: 10, laneId: 1, name: 'API', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0, wbsItemIds: [] },
     ];
     const rows = toRoadmapRows(lanes, items, new Map(), new Set([1]), 40, 20);
     expect(rows).toHaveLength(1);
     expect(rows[0].collapsed).toBe(true);
   });
 
-  it('a bar with zero hours is flagged emptyScope; a milestone never is', () => {
+  it('an unlinked bar is emptyScope even when hours are present; a milestone never is', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
     const items = [
-      { id: 10, laneId: 1, name: 'Empty bar', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0 },
-      { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 3, periodCount: 0, displayOrder: 1 },
+      { id: 10, laneId: 1, name: 'Empty bar', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0, wbsItemIds: [] },
+      { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 3, periodCount: 0, displayOrder: 1, wbsItemIds: [] },
+    ];
+    const effort = new Map([[10, new Map([['Backend', 80]])]]);
+    const rows = toRoadmapRows(lanes, items, effort, new Set(), 40, 20);
+    expect(rows.find((r) => r.id === 10)?.emptyScope).toBe(true);
+    expect(rows.find((r) => r.id === 10)?.hours).toBe(80);
+    expect(rows.find((r) => r.id === 11)?.emptyScope).toBe(false);
+  });
+
+  it('a linked bar with no estimates is not emptyScope', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [
+      { id: 10, laneId: 1, name: 'Linked empty', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0, wbsItemIds: [99] },
     ];
     const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
-    expect(rows.find((r) => r.id === 10)?.emptyScope).toBe(true);
-    expect(rows.find((r) => r.id === 11)?.emptyScope).toBe(false);
+    expect(rows.find((r) => r.id === 10)?.emptyScope).toBe(false);
+    expect(rows.find((r) => r.id === 10)?.hours).toBe(0);
   });
 
   it('a spread item renders over the whole project [1, np], ignoring its stored (1, 0) sentinel', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
     const items = [
-      { id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0 },
+      { id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0, wbsItemIds: [1] },
     ];
     const effort = new Map([[12, new Map([['PM', 400]])]]);
     const rows = toRoadmapRows(lanes, items, effort, new Set(), 40, 20);
@@ -421,7 +433,7 @@ describe('toRoadmapRows', () => {
   it('a spread item with no scope is flagged emptyScope', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
     const items = [
-      { id: 13, laneId: 1, name: 'Empty spread', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0 },
+      { id: 13, laneId: 1, name: 'Empty spread', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0, wbsItemIds: [] },
     ];
     const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
     expect(rows.find((r) => r.id === 13)?.emptyScope).toBe(true);
@@ -430,8 +442,8 @@ describe('toRoadmapRows', () => {
   it('a lane with two bars and a gap draws one span, not two — min/max over the gap', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
     const items = [
-      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0 }, // W3-6
-      { id: 11, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 9, periodCount: 4, displayOrder: 1 }, // W9-12
+      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0, wbsItemIds: [] }, // W3-6
+      { id: 11, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 9, periodCount: 4, displayOrder: 1, wbsItemIds: [] }, // W9-12
     ];
     const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
     const lane = rows.find((r) => r.kind === 'lane')!;
@@ -442,8 +454,8 @@ describe('toRoadmapRows', () => {
   it('a trailing milestone extends the lane span', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
     const items = [
-      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0 }, // W3-6
-      { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 14, periodCount: 0, displayOrder: 1 },
+      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0, wbsItemIds: [] }, // W3-6
+      { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 14, periodCount: 0, displayOrder: 1, wbsItemIds: [] },
     ];
     const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
     const lane = rows.find((r) => r.kind === 'lane')!;
@@ -453,7 +465,7 @@ describe('toRoadmapRows', () => {
 
   it('a milestone-only lane spans one period', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
-    const items = [{ id: 10, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 7, periodCount: 0, displayOrder: 0 }];
+    const items = [{ id: 10, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 7, periodCount: 0, displayOrder: 0, wbsItemIds: [] }];
     const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
     const lane = rows.find((r) => r.kind === 'lane')!;
     expect(lane.startPeriod).toBe(7);
@@ -463,9 +475,9 @@ describe('toRoadmapRows', () => {
   it('a spread item never widens the span, but is reported via spreadItemCount/spreadItemNames', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
     const items = [
-      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0 }, // W3-6
-      { id: 11, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 9, periodCount: 4, displayOrder: 1 }, // W9-12
-      { id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 2 },
+      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0, wbsItemIds: [] }, // W3-6
+      { id: 11, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 9, periodCount: 4, displayOrder: 1, wbsItemIds: [] }, // W9-12
+      { id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 2, wbsItemIds: [] },
     ];
     const withSpread = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20).find((r) => r.kind === 'lane')!;
     const withoutSpread = toRoadmapRows(lanes, items.slice(0, 2), new Map(), new Set(), 40, 20).find(
@@ -479,7 +491,7 @@ describe('toRoadmapRows', () => {
 
   it('a lane with only spread items has no span (periodCount 0), chip alone marks it', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
-    const items = [{ id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0 }];
+    const items = [{ id: 12, laneId: 1, name: 'PM', kind: 'spread' as const, startPeriod: 1, periodCount: 0, displayOrder: 0, wbsItemIds: [] }];
     const lane = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20).find((r) => r.kind === 'lane')!;
     expect(lane.periodCount).toBe(0);
     expect(lane.spreadItemCount).toBe(1);
@@ -496,9 +508,9 @@ describe('toRoadmapRows', () => {
   it('rolls up milestone periods and the union of over-demand periods onto the lane row', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
     const items = [
-      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0 }, // W3-6
-      { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 5, periodCount: 0, displayOrder: 1 },
-      { id: 12, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 8, periodCount: 3, displayOrder: 2 }, // W8-10
+      { id: 10, laneId: 1, name: 'A', kind: 'bar' as const, startPeriod: 3, periodCount: 4, displayOrder: 0, wbsItemIds: [] }, // W3-6
+      { id: 11, laneId: 1, name: 'MS', kind: 'milestone' as const, startPeriod: 5, periodCount: 0, displayOrder: 1, wbsItemIds: [] },
+      { id: 12, laneId: 1, name: 'B', kind: 'bar' as const, startPeriod: 8, periodCount: 3, displayOrder: 2, wbsItemIds: [] }, // W8-10
     ];
     const overDemandByItemId = new Map<number, number[]>([
       [10, [4]],
@@ -513,7 +525,7 @@ describe('toRoadmapRows', () => {
 
 describe('laneSpan', () => {
   function item(overrides: Partial<RoadmapRowItem> & Pick<RoadmapRowItem, 'kind' | 'startPeriod' | 'periodCount'>): RoadmapRowItem {
-    return { id: 0, laneId: 1, name: '', displayOrder: 0, ...overrides };
+    return { id: 0, laneId: 1, name: '', displayOrder: 0, wbsItemIds: [], ...overrides };
   }
 
   it('returns null for an empty item list', () => {

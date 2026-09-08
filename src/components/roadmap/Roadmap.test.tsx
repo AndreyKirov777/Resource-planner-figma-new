@@ -129,7 +129,7 @@ function makeLanes(): RoadmapLaneWithItems[] {
   ];
 }
 
-function renderRoadmap(lanes = makeLanes(), wbs: WbsItem[] = wbsItems) {
+function renderRoadmap(lanes = makeLanes(), wbs: WbsItem[] = wbsItems, proj: Project = project) {
   const handlers = {
     onAddLane: vi.fn(() => Promise.resolve()),
     onUpdateLane: vi.fn(() => Promise.resolve()),
@@ -159,7 +159,7 @@ function renderRoadmap(lanes = makeLanes(), wbs: WbsItem[] = wbsItems) {
   };
   const utils = render(
     <Roadmap
-      project={project}
+      project={proj}
       wbsItems={wbs}
       roadmapLanes={lanes}
       resourcePlans={[]}
@@ -1499,12 +1499,12 @@ describe('Lane bars toggle', () => {
   it('is on by default, so the feature is discoverable', () => {
     renderRoadmap(makeLanesWithTwoBars());
     expect(screen.getByTestId('roadmap-lane-bar-1')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Lane bars/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('switch', { name: 'Lane bars' })).toBeChecked();
   });
 
   it('pressing the toggle hides the whole summary layer in one render; item rows, grid and load strip are untouched', () => {
     renderRoadmap(makeLanesWithTwoBars());
-    fireEvent.click(screen.getByRole('button', { name: /Lane bars/ }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Lane bars' }));
 
     expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('roadmap-lane-spread-chip-1')).not.toBeInTheDocument();
@@ -1515,13 +1515,13 @@ describe('Lane bars toggle', () => {
 
   it('persists to localStorage and restores across unmount/remount for the same project', () => {
     const first = renderRoadmap(makeLanesWithTwoBars());
-    fireEvent.click(screen.getByRole('button', { name: /Lane bars/ }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Lane bars' }));
     expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
     first.unmount();
 
     renderRoadmap(makeLanesWithTwoBars());
     expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Lane bars/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('switch', { name: 'Lane bars' })).not.toBeChecked();
   });
 
   it('defaults to on when localStorage throws, with nothing surfaced to the user', () => {
@@ -1564,6 +1564,7 @@ describe('Export PNG', () => {
     expect(model.scope).toBe('table-and-timeline');
     expect(model.background).toBe('white');
     expect(model.includeGrid).toBe(true);
+    expect(model.showUnlinkedOutline).toBe(true);
     expect(screen.queryByTestId('roadmap-export-png-dialog')).not.toBeInTheDocument();
   });
 
@@ -1579,5 +1580,183 @@ describe('Export PNG', () => {
     expect(model.scope).toBe('timeline-only');
     expect(model.background).toBe('transparent');
     expect(model.includeGrid).toBe(false);
+  });
+});
+
+describe('Unlinked switch', () => {
+  it('is on by default and paints unlinked bars/spreads with a dashed outline', () => {
+    const first = renderRoadmap();
+    expect(screen.getByRole('switch', { name: 'Unlinked' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Lane bars' })).toBeChecked();
+    expect(screen.getByTestId('roadmap-bar-10').style.border).toContain('dashed');
+    expect(within(screen.getByTestId('roadmap-bar-10')).getByText('API').style.color).toMatch(
+      /#8f4f8f|rgb\(143,\s*79,\s*143\)/
+    );
+    expect(screen.getByTestId('roadmap-grid-item-10')).toHaveTextContent('0');
+    first.unmount();
+    renderRoadmap();
+    expect(screen.getByRole('switch', { name: 'Unlinked' })).toBeChecked();
+  });
+
+  it('off paints unlinked bars filled; the grid still shows 0 h', () => {
+    renderRoadmap();
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    const bar = screen.getByTestId('roadmap-bar-10');
+    expect(bar.style.border).not.toContain('dashed');
+    expect(bar.style.background).toMatch(/#8f4f8f|rgb\(143,\s*79,\s*143\)/);
+    expect(within(bar).getByText('API').style.color).not.toMatch(/#8f4f8f|rgb\(143,\s*79,\s*143\)/);
+    expect(screen.getByTestId('roadmap-grid-item-10')).toHaveTextContent('0');
+  });
+
+  it('an unlinked spread is dashed when Unlinked is on and hatched when off', () => {
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'Backend',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 21,
+            name: 'Support',
+            kind: 'spread',
+            startPeriod: 1,
+            periodCount: 0,
+            displayOrder: 0,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+    renderRoadmap(lanes);
+    const spread = screen.getByTestId('roadmap-bar-21');
+    expect(spread.style.border).toContain('dashed');
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    const after = screen.getByTestId('roadmap-bar-21');
+    expect(after.style.border).not.toContain('dashed');
+    expect(after.style.backgroundImage).toContain('repeating-linear-gradient');
+  });
+
+  it('turning it back on restores the dashed outline on empty wbsItemIds', () => {
+    renderRoadmap();
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    expect(screen.getByTestId('roadmap-bar-10').style.border).toContain('dashed');
+  });
+
+  it('a linked bar with no estimates stays filled regardless of the switch', () => {
+    const linkedWbs: WbsItem[] = [
+      {
+        id: 500,
+        name: 'Linked leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [500];
+    renderRoadmap(lanes, linkedWbs);
+
+    const bar = screen.getByTestId('roadmap-bar-10');
+    expect(bar.style.border).not.toContain('dashed');
+    expect(bar.style.background).toMatch(/#8f4f8f|rgb\(143,\s*79,\s*143\)/);
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    expect(screen.getByTestId('roadmap-bar-10').style.border).not.toContain('dashed');
+    expect(screen.getByTestId('roadmap-bar-10').style.background).toMatch(/#8f4f8f|rgb\(143,\s*79,\s*143\)/);
+  });
+
+  it('Lane bars off leaves item paint unchanged', () => {
+    renderRoadmap();
+    const before = screen.getByTestId('roadmap-bar-10').style.border;
+    fireEvent.click(screen.getByRole('switch', { name: 'Lane bars' }));
+    expect(screen.queryByTestId('roadmap-lane-bar-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('roadmap-bar-10').style.border).toBe(before);
+    expect(screen.getByTestId('roadmap-bar-10').style.border).toContain('dashed');
+  });
+
+  it('persists off across remount; a never-toggled project stays on', () => {
+    const first = renderRoadmap();
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    first.unmount();
+
+    const remounted = renderRoadmap();
+    expect(screen.getByRole('switch', { name: 'Unlinked' })).not.toBeChecked();
+    expect(screen.getByTestId('roadmap-bar-10').style.border).not.toContain('dashed');
+    remounted.unmount();
+
+    renderRoadmap(makeLanes(), wbsItems, { ...project, id: 2 });
+    expect(screen.getByRole('switch', { name: 'Unlinked' })).toBeChecked();
+  });
+
+  it('defaults to on when localStorage throws, with nothing surfaced', () => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('blocked');
+      },
+    });
+    try {
+      renderRoadmap();
+      expect(screen.getByRole('switch', { name: 'Unlinked' })).toBeChecked();
+      expect(screen.getByTestId('roadmap-bar-10').style.border).toContain('dashed');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    } finally {
+      installMemoryLocalStorage();
+    }
+  });
+
+  it('milestones stay diamonds and never take the outline', () => {
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'Backend',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 20,
+            name: 'Go-live',
+            kind: 'milestone',
+            startPeriod: 8,
+            periodCount: 0,
+            displayOrder: 0,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+    renderRoadmap(lanes);
+    const diamond = screen.getByTestId('roadmap-bar-20');
+    expect(diamond.style.border).not.toContain('dashed');
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    expect(screen.getByTestId('roadmap-bar-20').style.border).not.toContain('dashed');
+  });
+
+  it('Export PNG follows the live Unlinked state', async () => {
+    vi.mocked(downloadRoadmapPng).mockClear();
+    const user = userEvent.setup();
+    renderRoadmap();
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    await user.click(screen.getByTestId('roadmap-export-png'));
+    await user.click(screen.getByTestId('roadmap-export-png-confirm'));
+    const model = vi.mocked(downloadRoadmapPng).mock.calls[0][0];
+    expect(model.showUnlinkedOutline).toBe(false);
   });
 });

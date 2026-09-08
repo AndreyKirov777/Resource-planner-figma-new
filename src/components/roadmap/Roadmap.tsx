@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Maximize2, Minimize2, Brackets } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import {
   Project,
   WbsItem,
@@ -63,6 +63,8 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { ExportPngDialog } from './ExportPngDialog';
 import { RoadmapDragCommit, useRoadmapDrag } from './useRoadmapDrag';
 import { Button } from '../ui/button';
+import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../ui/select';
 import {
   buildRoadmapPngModel,
@@ -145,6 +147,10 @@ function laneBarsStorageKey(projectId: number) {
   return `roadmap-lane-bars:${projectId}`;
 }
 
+function unlinkedOutlineStorageKey(projectId: number) {
+  return `roadmap-unlinked-outline:${projectId}`;
+}
+
 function loadShowLaneBars(projectId: number): boolean {
   try {
     const raw = window.localStorage.getItem(laneBarsStorageKey(projectId));
@@ -157,6 +163,23 @@ function loadShowLaneBars(projectId: number): boolean {
 function saveShowLaneBars(projectId: number, value: boolean) {
   try {
     window.localStorage.setItem(laneBarsStorageKey(projectId), String(value));
+  } catch {
+    /* private mode / quota — the choice simply won't survive a reload */
+  }
+}
+
+function loadShowUnlinkedOutline(projectId: number): boolean {
+  try {
+    const raw = window.localStorage.getItem(unlinkedOutlineStorageKey(projectId));
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function saveShowUnlinkedOutline(projectId: number, value: boolean) {
+  try {
+    window.localStorage.setItem(unlinkedOutlineStorageKey(projectId), String(value));
   } catch {
     /* private mode / quota — the choice simply won't survive a reload */
   }
@@ -196,6 +219,7 @@ export function Roadmap({
   const [fitWidth, setFitWidth] = useState<number | null>(null);
   const periodWidth = fitWidth ?? ZOOM_LADDER[zoomIndex];
   const [showLaneBars, setShowLaneBars] = useState(() => loadShowLaneBars(project.id));
+  const [showUnlinkedOutline, setShowUnlinkedOutline] = useState(() => loadShowUnlinkedOutline(project.id));
   const [collapsed, setCollapsed] = useState<Set<number>>(() => loadCollapsedLanes(project.id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [editorItemId, setEditorItemId] = useState<number | null>(null);
@@ -221,6 +245,7 @@ export function Roadmap({
     setCollapsed(loadCollapsedLanes(project.id));
     setZoomIndex(loadZoomIndex(project.id));
     setShowLaneBars(loadShowLaneBars(project.id));
+    setShowUnlinkedOutline(loadShowUnlinkedOutline(project.id));
     setSelectedItemId(null);
     setEditorItemId(null);
   }, [project.id]);
@@ -254,6 +279,11 @@ export function Roadmap({
     saveShowLaneBars(project.id, next);
   }
 
+  function applyShowUnlinkedOutline(next: boolean) {
+    setShowUnlinkedOutline(next);
+    saveShowUnlinkedOutline(project.id, next);
+  }
+
   const tree = useMemo(() => buildWbsTree(wbsItems), [wbsItems]);
   const allItems = useMemo(() => roadmapLanes.flatMap((l) => l.items), [roadmapLanes]);
   const links: RoadmapLinkRecord[] = useMemo(
@@ -281,6 +311,7 @@ export function Roadmap({
         startPeriod: i.startPeriod,
         periodCount: i.periodCount,
         displayOrder: i.displayOrder,
+        wbsItemIds: i.wbsItemIds,
       })),
     [allItems]
   );
@@ -674,6 +705,7 @@ export function Roadmap({
       planningMode,
       startDate: project.startDate ?? null,
       showLaneBars,
+      showUnlinkedOutline,
       scope: options.scope,
       background: options.background,
     });
@@ -745,16 +777,30 @@ export function Roadmap({
           {startDateLabel ? `Start ${startDateLabel}` : 'Set start date'}
         </Button>
         <span className="text-muted-foreground text-xs">{planningMode}</span>
-        <Button
-          variant="outline"
-          size="sm"
-          aria-pressed={showLaneBars}
-          onClick={() => applyShowLaneBars(!showLaneBars)}
-          className={showLaneBars ? 'bg-accent text-accent-foreground' : undefined}
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor="roadmap-switch-lane-bars" className="text-xs font-normal">
+            Lane bars
+          </Label>
+          <Switch
+            id="roadmap-switch-lane-bars"
+            checked={showLaneBars}
+            onCheckedChange={applyShowLaneBars}
+          />
+        </div>
+        <div
+          className="flex items-center gap-1.5"
+          title="Dashed outline on bars and spreads with no WBS link"
         >
-          <Brackets className="h-3.5 w-3.5" />
-          Lane bars
-        </Button>
+          <Label htmlFor="roadmap-switch-unlinked" className="text-xs font-normal">
+            Unlinked
+          </Label>
+          <Switch
+            id="roadmap-switch-unlinked"
+            checked={showUnlinkedOutline}
+            onCheckedChange={applyShowUnlinkedOutline}
+            title="Dashed outline on bars and spreads with no WBS link"
+          />
+        </div>
         <div className="mx-1 h-5 w-px bg-border" aria-hidden />
         <Select
           value={effectiveLoadSelection ? `${effectiveLoadSelection.dimension}:${effectiveLoadSelection.key}` : undefined}
@@ -900,6 +946,7 @@ export function Roadmap({
               }}
               viewportRef={viewportRef}
               showLaneBars={showLaneBars}
+              showUnlinkedOutline={showUnlinkedOutline}
               onToggleLane={toggleLane}
             />
           </div>

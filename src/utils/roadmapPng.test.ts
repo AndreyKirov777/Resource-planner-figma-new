@@ -60,6 +60,7 @@ const baseInput: RoadmapPngInput = {
   planningMode: 'weekly',
   startDate: null,
   showLaneBars: true,
+  showUnlinkedOutline: true,
   scope: 'table-and-timeline',
   background: 'white',
   now: new Date('2026-09-08T12:00:00.000Z'),
@@ -136,6 +137,19 @@ describe('buildRoadmapPngModel', () => {
     expect(result.model.drawnLabels).toContain('Unlinked work');
     expect(result.model.drawnLabels).toContain('Unlinked support');
     expect(result.model.drawnLabels).not.toContain('no scope linked');
+    expect(result.model.showUnlinkedOutline).toBe(true);
+  });
+
+  it('threads showUnlinkedOutline through the export model', () => {
+    const off = buildRoadmapPngModel({ ...baseInput, showUnlinkedOutline: false });
+    expect(off.ok).toBe(true);
+    if (!off.ok) return;
+    expect(off.model.showUnlinkedOutline).toBe(false);
+
+    const on = buildRoadmapPngModel({ ...baseInput, showUnlinkedOutline: true });
+    expect(on.ok).toBe(true);
+    if (!on.ok) return;
+    expect(on.model.showUnlinkedOutline).toBe(true);
   });
 
   it('never puts Load strip chrome into drawn labels', () => {
@@ -179,11 +193,15 @@ describe('downloadRoadmapPng', () => {
   let clickCount = 0;
   let capturedDownload: string | null;
   let fillRectCalls: Array<{ fillStyle: unknown; args: number[] }> = [];
+  let setLineDashCalls: unknown[][] = [];
+  let fillCalls: Array<{ fillStyle: unknown }> = [];
 
   beforeEach(() => {
     clickCount = 0;
     capturedDownload = null;
     fillRectCalls = [];
+    setLineDashCalls = [];
+    fillCalls = [];
     vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       if (tag === 'canvas') {
         const canvas = originalCreateElement('canvas') as HTMLCanvasElement;
@@ -203,10 +221,14 @@ describe('downloadRoadmapPng', () => {
           rect: vi.fn(),
           clip: vi.fn(),
           closePath: vi.fn(),
-          fill: vi.fn(),
+          fill: vi.fn(() => {
+            fillCalls.push({ fillStyle: mockCtx.fillStyle });
+          }),
           translate: vi.fn(),
           rotate: vi.fn(),
-          setLineDash: vi.fn(),
+          setLineDash: vi.fn((dash: unknown[]) => {
+            setLineDashCalls.push(dash);
+          }),
           createPattern: vi.fn(() => null),
           fillStyle: '#000000' as string | CanvasGradient | CanvasPattern,
           strokeStyle: '#000000',
@@ -265,5 +287,56 @@ describe('downloadRoadmapPng', () => {
     expect(fillRectCalls.some((c) => c.fillStyle === '#ffffff' && c.args[0] === 0 && c.args[1] === 0)).toBe(
       false
     );
+  });
+
+  it('draws empty-scope bars dashed only when showUnlinkedOutline is on', () => {
+    const rows = [laneRow(), barRow({ name: 'Unlinked work', hours: 0, emptyScope: true })];
+
+    const on = buildRoadmapPngModel({ ...baseInput, rows, showUnlinkedOutline: true });
+    expect(on.ok).toBe(true);
+    if (!on.ok) return;
+    setLineDashCalls = [];
+    fillCalls = [];
+    downloadRoadmapPng(on.model);
+    expect(setLineDashCalls).toContainEqual([3, 2]);
+    expect(fillCalls.some((c) => c.fillStyle === 'rgba(143,79,143,0.08)')).toBe(true);
+
+    const off = buildRoadmapPngModel({ ...baseInput, rows, showUnlinkedOutline: false });
+    expect(off.ok).toBe(true);
+    if (!off.ok) return;
+    setLineDashCalls = [];
+    fillCalls = [];
+    downloadRoadmapPng(off.model);
+    expect(setLineDashCalls).not.toContainEqual([3, 2]);
+    expect(fillCalls.some((c) => c.fillStyle === '#8f4f8f')).toBe(true);
+  });
+
+  it('draws empty-scope spreads dashed only when showUnlinkedOutline is on', () => {
+    const rows = [
+      laneRow(),
+      barRow({
+        id: 21,
+        kind: 'spread',
+        name: 'Unlinked support',
+        hours: 0,
+        emptyScope: true,
+        startPeriod: 1,
+        periodCount: 8,
+      }),
+    ];
+
+    const on = buildRoadmapPngModel({ ...baseInput, rows, showUnlinkedOutline: true });
+    expect(on.ok).toBe(true);
+    if (!on.ok) return;
+    setLineDashCalls = [];
+    downloadRoadmapPng(on.model);
+    expect(setLineDashCalls).toContainEqual([3, 2]);
+
+    const off = buildRoadmapPngModel({ ...baseInput, rows, showUnlinkedOutline: false });
+    expect(off.ok).toBe(true);
+    if (!off.ok) return;
+    setLineDashCalls = [];
+    downloadRoadmapPng(off.model);
+    expect(setLineDashCalls).not.toContainEqual([3, 2]);
   });
 });
