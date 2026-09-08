@@ -41,18 +41,18 @@ A single bordered container (`rounded-lg`, `border-gray-200`) holding, top to bo
 
 ## Bar visual language
 
-Colour encodes kind and state only; the phase already colours the background, so bars do not also encode phase or lane.
+Kind is encoded by **shape** (18px bar, 10px spread, diamond milestone). Colour is **item identity** — a planner-picked fill from the same `PHASE_COLORS` pastel swatches as the Resource Plan (default `#8f4f8f` until picked). Phase bands still colour the header background; bars do not encode phase or lane. Lane summary bars stay slate so they are never misread as schedulable. Name text is dark on pastel fills and white on the historic accent.
 
 | Element | Treatment |
 |---|---|
-| Bar with scope | filled `#8f4f8f`, 18px, label is the item **name**; hours and FTE live in the left grid and the tooltip |
-| Bar without scope | when Unlinked is on (default): dashed 1.5px `#8f4f8f` outline, translucent fill, accent name; when Unlinked is off: the same filled paint as a scoped bar. Without scope means no direct WBS link (`wbsItemIds.length === 0`), not zero hours. |
-| Spread | 10px band across the project filled solid `#c084c0` (lighter than a bar), or the same dashed empty-scope treatment as a bar when Unlinked is on and it has no WBS link; label is the item **name** |
-| Milestone | 12px `#030213` square rotated 45°, name to the right |
+| Bar with scope | filled with the item colour, 18px, label is the item **name**; hours and FTE live in the left grid and the tooltip |
+| Bar without scope | when Unlinked is on (default): dashed 1.5px outline in the item colour, translucent wash, name in that colour; when Unlinked is off: the same filled paint as a scoped bar. Without scope means no direct WBS link (`wbsItemIds.length === 0`), not zero hours. |
+| Spread | 10px band across the project filled with a lightened mix of the item colour (lighter than a bar of the same hue), or the same dashed empty-scope treatment as a bar when Unlinked is on and it has no WBS link; label is the item **name** |
+| Milestone | 12px square rotated 45° filled with the item colour, name to the right |
 | Demand above supply | 3px amber stripe along the bar's bottom **over the affected periods only** |
 | Phase mismatch | small amber marker at the bar's start edge; tooltip names the leaf and its phase |
 | Selected | 2px `#030213` ring plus a tinted row |
-| Lane summary bar | bracket-with-end-caps silhouette (flat slab + short downward tab at each end), a neutral slate `LANE_BAR` (`#33627D`, dark `#7FA8C0`) — deliberately not the item accent, so it is never misread as schedulable; spans the union window of the lane's window-bearing items (a spread item never widens it — see the chip below); read-out only, click toggles collapse |
+| Lane summary bar | bracket-with-end-caps silhouette (flat slab + short downward tab at each end), a neutral slate `LANE_BAR` (`#33627D`, dark `#7FA8C0`) — deliberately not an item colour, so it is never misread as schedulable; spans the union window of the lane's window-bearing items (a spread item never widens it — see the chip below); read-out only, click toggles collapse |
 | Lane bar, collapsed | additionally carries the lane's rolled-up milestone ticks and the union of its children's over-demand periods as the same amber stripe |
 | Lane spans-project chip | `» N spread`, pinned at the timeline's left edge, for a lane owning one or more spread items — the bar's window is unaffected |
 
@@ -76,7 +76,7 @@ One cell per period: a demand column against a dashed supply line, plus `demand 
 
 Non-modal by design — the planner must see the bar move while typing. Opens on `Space`, on double-click of a bar, or from the row menu.
 
-Fields, top to bottom: Name; Lane (select); Kind (`Bar` / `Milestone` toggle — switching to milestone with scope linked is refused with an explanation); Start (period picker, not a free date); Duration (stepper in periods, hidden for milestones).
+Fields, top to bottom: Name; Lane (select); Kind (`Bar` / `Milestone` / `Spread` toggle — switching to milestone with scope linked is refused with an explanation); Color (the same 5×2 pastel swatch grid as phase colours, commits on click); Start (period picker, not a free date); Duration (stepper in periods, hidden for milestones and spreads).
 
 **Scope** section: a search box and the WBS tree with checkboxes, indented, hours at the right of every node. Checking a node checks its subtree visually and stores one link. A node inherited from a checked ancestor shows a muted check it cannot toggle individually — to carve it out, check it explicitly, which creates its own link. A node owned by *another* item is muted with that item's name; checking it moves it, and the panel says so before the write. The section header shows `Linked: 1 240 h across 14 leaves`.
 

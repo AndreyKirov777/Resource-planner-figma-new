@@ -37,13 +37,18 @@ import {
 import { DragGhost, ItemDragStartArgs, LaneDragStartArgs, RoadmapDragCommit, keyboardVerticalCommit, dropIndicatorFor } from './useRoadmapDrag';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../ui/utils';
+import {
+  emptyWash,
+  fillLabelColor,
+  itemStrokeColor,
+  resolveRoadmapItemColor,
+  spreadFill,
+} from '../../utils/roadmapColors';
 
 const ACCENT = '#8f4f8f';
-/** Lighter accent so a spread reads as the same family as a bar, not the same object. */
-const SPREAD_FILL = '#c084c0';
 const AMBER = '#d97706';
 /** The lane summary bar's colour, one place for both themes — a neutral slate that is
- * deliberately not `ACCENT`, so a lane bar is never misread as something schedulable. */
+ * deliberately not item accent, so a lane bar is never misread as something schedulable. */
 const LANE_BAR_CLASS = 'text-[#33627D] dark:text-[#7FA8C0]';
 const STRIPE_EPSILON = 1e-6;
 
@@ -225,12 +230,14 @@ export function RoadmapTimeline({
     const originTop = rowIndex * ROW_HEIGHT;
     const snappedTop = indicatorY({ laneId: ghost.laneId, index: ghost.dropIndex }, rowDescriptors, ROW_HEIGHT);
     const resizeMode = ghost.mode === 'resizeStart' || ghost.mode === 'resizeEnd' ? ghost.mode : null;
+    const color = resolveRoadmapItemColor(originRow.color);
 
     if (isMilestone) {
       const originLeft = milestoneX(originRow.startPeriod, periodWidth) - MILESTONE_HIT / 2;
       const snappedLeft = milestoneX(ghost.startPeriod, periodWidth) - MILESTONE_HIT / 2;
       return {
         kind: 'move' as const,
+        color,
         follow: {
           left: originLeft + ghost.dxPx,
           top: originTop + (ROW_HEIGHT - MILESTONE_HIT) / 2 + ghost.dyPx,
@@ -256,6 +263,7 @@ export function RoadmapTimeline({
       const followRect = resizeFollowRect(resizeMode, originRect, ghost.dxPx);
       return {
         kind: 'resize' as const,
+        color,
         follow: {
           left: followRect.left,
           top: barTop,
@@ -275,6 +283,7 @@ export function RoadmapTimeline({
 
     return {
       kind: 'move' as const,
+      color,
       follow: {
         left: originRect.left + ghost.dxPx,
         top: barTop + ghost.dyPx,
@@ -467,6 +476,9 @@ export function RoadmapTimeline({
               const effort = effortByItemId.get(row.id);
               const roleLines = effort ? Array.from(effort.entries()) : [];
               const isTargetLane = targetLaneId === row.laneId;
+              const itemColor = resolveRoadmapItemColor(row.color);
+              const strokeColor = itemStrokeColor(itemColor);
+              const emptyOutline = Boolean(row.emptyScope && showUnlinkedOutline);
               // CAP-9: the warning stripe over exactly the over-demand periods.
               const stripeRects =
                 row.kind !== 'milestone' && row.overDemandPeriods.length > 0
@@ -508,9 +520,9 @@ export function RoadmapTimeline({
                                   top: (ROW_HEIGHT - 10) / 2,
                                   height: 10,
                                   borderRadius: 2,
-                                  ...(row.emptyScope && showUnlinkedOutline
-                                    ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
-                                    : { background: SPREAD_FILL }),
+                                  ...(emptyOutline
+                                    ? { border: `1.5px dashed ${strokeColor}`, background: emptyWash(itemColor) }
+                                    : { background: spreadFill(itemColor) }),
                                   ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
                                 }
                               : {
@@ -519,9 +531,9 @@ export function RoadmapTimeline({
                                   top: (ROW_HEIGHT - BAR_HEIGHT) / 2,
                                   height: BAR_HEIGHT,
                                   borderRadius: 4,
-                                  ...(row.emptyScope && showUnlinkedOutline
-                                    ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
-                                    : { background: ACCENT }),
+                                  ...(emptyOutline
+                                    ? { border: `1.5px dashed ${strokeColor}`, background: emptyWash(itemColor) }
+                                    : { background: itemColor }),
                                   ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
                                 }
                         }
@@ -597,8 +609,8 @@ export function RoadmapTimeline({
                         )}
                         {(row.kind === 'bar' || row.kind === 'spread') && (
                           <span
-                            className="pointer-events-none absolute left-1.5 right-1.5 top-1/2 -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-white"
-                            style={row.emptyScope && showUnlinkedOutline ? { color: ACCENT } : undefined}
+                            className="pointer-events-none absolute left-1.5 right-1.5 top-1/2 -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium"
+                            style={{ color: emptyOutline ? strokeColor : fillLabelColor(itemColor) }}
                           >
                             {row.name}
                           </span>
@@ -612,7 +624,7 @@ export function RoadmapTimeline({
                               marginLeft: -MILESTONE_SIZE / 2,
                               marginTop: -MILESTONE_SIZE / 2,
                               borderRadius: 1.5,
-                              background: ACCENT,
+                              background: itemColor,
                               transform: 'rotate(45deg)',
                               ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
                             }}
@@ -711,7 +723,7 @@ export function RoadmapTimeline({
                           top: floatingDrag.follow.top,
                           width: floatingDrag.follow.width,
                           height: floatingDrag.follow.height,
-                          background: ACCENT,
+                          background: floatingDrag.color,
                           transform: 'rotate(45deg)',
                           opacity: 0.85,
                         }
@@ -720,7 +732,7 @@ export function RoadmapTimeline({
                           top: floatingDrag.follow.top,
                           width: floatingDrag.follow.width,
                           height: floatingDrag.follow.height,
-                          background: ACCENT,
+                          background: floatingDrag.color,
                           borderRadius: 4,
                           opacity: floatingDrag.kind === 'resize' ? 0.55 : 0.85,
                         }
@@ -734,7 +746,7 @@ export function RoadmapTimeline({
                     top: floatingDrag.snapped.top,
                     width: floatingDrag.snapped.width,
                     height: floatingDrag.snapped.height,
-                    border: `1.5px dashed ${ACCENT}`,
+                    border: `1.5px dashed ${floatingDrag.color}`,
                     borderRadius: floatingDrag.snapped.milestone ? 1.5 : 4,
                     transform: floatingDrag.snapped.milestone ? 'rotate(45deg)' : undefined,
                   }}

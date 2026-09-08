@@ -11,6 +11,7 @@
 import { Phase, WbsItem } from '../services/api';
 import { buildWbsTree, effectivePhases, rollupHours, WbsTreeNode } from './wbsTree';
 import { getPhaseForPeriod, phaseStartOffset, remapPeriodNumber } from './phases';
+import { ROADMAP_ITEM_DEFAULT_COLOR, resolveRoadmapItemColor } from './roadmapColors';
 
 // ---------------------------------------------------------------------------
 // Link inheritance
@@ -386,6 +387,8 @@ export interface RoadmapRowItem {
   displayOrder: number;
   /** Direct WBS links. Empty means unlinked. */
   wbsItemIds: number[];
+  /** Planner-picked fill; omit → default accent when building rows. */
+  color?: string;
 }
 
 export interface RoadmapRow {
@@ -410,6 +413,8 @@ export interface RoadmapRow {
   spreadItemNames: string[];
   /** Total items (bar + milestone + spread) owned by a lane, for the summary tooltip. Always 0 for item rows. */
   itemCount: number;
+  /** Item fill from ROADMAP_ITEM_COLORS. Lanes use the default (unused for paint). */
+  color: string;
 }
 
 interface WindowBearing {
@@ -565,6 +570,7 @@ export function toRoadmapRows(
         spreadItemCount: 0,
         spreadItemNames: [],
         itemCount: 0,
+        color: resolveRoadmapItemColor(item.color),
       };
     });
 
@@ -595,6 +601,7 @@ export function toRoadmapRows(
       spreadItemCount,
       spreadItemNames,
       itemCount: laneItems.length,
+      color: ROADMAP_ITEM_DEFAULT_COLOR,
     });
     if (!collapsed.has(lane.id)) rows.push(...itemRows);
   }

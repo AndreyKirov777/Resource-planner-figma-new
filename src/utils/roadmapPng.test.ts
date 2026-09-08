@@ -26,6 +26,7 @@ function laneRow(overrides: Partial<RoadmapRow> = {}): RoadmapRow {
     spreadItemCount: 0,
     spreadItemNames: [],
     itemCount: 1,
+    color: '#8f4f8f',
     ...overrides,
   };
 }
@@ -47,6 +48,7 @@ function barRow(overrides: Partial<RoadmapRow> = {}): RoadmapRow {
     spreadItemCount: 0,
     spreadItemNames: [],
     itemCount: 0,
+    color: '#8f4f8f',
     ...overrides,
   };
 }
@@ -339,6 +341,28 @@ describe('downloadRoadmapPng', () => {
     fillCalls = [];
     downloadRoadmapPng(off.model);
     expect(setLineDashCalls).not.toContainEqual([3, 2]);
-    expect(fillCalls.some((c) => c.fillStyle === '#c084c0')).toBe(true);
+    expect(fillCalls.some((c) => c.fillStyle === '#b68db6')).toBe(true);
+  });
+
+  it('draws bars and milestones with the row colour from the palette', () => {
+    const pastel = '#E3F2FD';
+    const rows = [
+      laneRow(),
+      barRow({ color: pastel, name: 'Blue bar' }),
+      barRow({
+        id: 11,
+        kind: 'milestone',
+        name: 'Blue MS',
+        startPeriod: 5,
+        periodCount: 0,
+        color: pastel,
+      }),
+    ];
+    const model = buildRoadmapPngModel({ ...baseInput, rows });
+    expect(model.ok).toBe(true);
+    if (!model.ok) return;
+    fillCalls = [];
+    downloadRoadmapPng(model.model);
+    expect(fillCalls.some((c) => c.fillStyle === pastel)).toBe(true);
   });
 });

@@ -87,7 +87,7 @@ context:
 
 ## Design Notes
 
-Canvas redraw is required so chrome cannot leak. Reuse the same `rows` / `periodWidth` / `showLaneBars` / phases already computed in `Roadmap.tsx`. Phase band colors and accent `#8f4f8f` / amber `#d97706` / lane bar `#33627D` match the live timeline. Spread bars use a lighter solid fill `#c084c0` so they stay distinct from bars.
+Canvas redraw is required so chrome cannot leak. Reuse the same `rows` / `periodWidth` / `showLaneBars` / phases already computed in `Roadmap.tsx`. Phase band colors and accent `#8f4f8f` / amber `#d97706` / lane bar `#33627D` match the live timeline. Spread bars use a lightened mix of the item colour so they stay distinct from bars.
 
 ## Verification
 

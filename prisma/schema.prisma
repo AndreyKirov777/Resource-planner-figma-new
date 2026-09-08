@@ -181,6 +181,10 @@ model RoadmapItem {
   // sentinel; the demand engine (roadmapLoad.ts) never reads them for a
   // spread item and always spans [1, projectPeriodCount] instead.
   displayOrder    Int             @default(0)
+  // Planner-picked fill for bars / spreads / milestones. Palette is
+  // PHASE_COLORS (see src/utils/roadmapColors.ts); default matches the
+  // historic accent so existing roadmaps look unchanged until recoloured.
+  color           String          @default("#8f4f8f")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { REGION_COLUMNS } from './server/planner/rateCard';
+import { isRoadmapItemColor } from './src/utils/roadmapColors';
 
 // Whitelisted schemas for API input — no id, createdAt, updatedAt, or relation IDs from client
 
@@ -288,12 +289,20 @@ function refineRoadmapItemPeriodCount(
   }
 }
 
+const roadmapItemColorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, 'color must be #rrggbb')
+  .refine((value) => isRoadmapItemColor(value), {
+    message: 'color must be one of the ROADMAP_ITEM_COLORS palette',
+  });
+
 export const roadmapItemCreateSchema = z.object({
   laneId: z.number().int().positive(),
   name: z.string().min(1).max(500),
   kind: roadmapItemKindSchema.optional(),
   startPeriod: z.number().int().min(1),
   periodCount: z.number().int().min(0),
+  color: roadmapItemColorSchema.optional(),
 }).strict().superRefine((data, ctx) => {
   refineRoadmapItemPeriodCount(data.kind ?? 'bar', data.periodCount, ctx, data.startPeriod);
 });
@@ -309,6 +318,7 @@ export const roadmapItemUpdateSchema = z.object({
   startPeriod: z.number().int().min(1).optional(),
   periodCount: z.number().int().min(0).optional(),
   displayOrder: z.number().int().min(0).optional(),
+  color: roadmapItemColorSchema.optional(),
 }).strict().superRefine((data, ctx) => {
   if (data.kind !== undefined && data.periodCount !== undefined) {
     refineRoadmapItemPeriodCount(data.kind, data.periodCount, ctx, data.startPeriod);

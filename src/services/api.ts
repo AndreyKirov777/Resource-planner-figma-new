@@ -183,6 +183,8 @@ export interface RoadmapItem {
   /** >= 1 for a bar; 0 for a milestone. */
   periodCount: number;
   displayOrder: number;
+  /** Planner-picked fill from ROADMAP_ITEM_COLORS; default `#8f4f8f`. */
+  color: string;
   laneId: number;
   projectId: number;
   createdAt: string;
@@ -641,7 +643,14 @@ export const api = {
 
   async createRoadmapItem(
     projectId: number,
-    data: { laneId: number; name: string; kind?: RoadmapItemKind; startPeriod: number; periodCount: number }
+    data: {
+      laneId: number;
+      name: string;
+      kind?: RoadmapItemKind;
+      startPeriod: number;
+      periodCount: number;
+      color?: string;
+    }
   ): Promise<RoadmapItem> {
     const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/roadmap/items`, {
       method: 'POST',
@@ -664,13 +673,14 @@ export const api = {
       startPeriod: number;
       periodCount: number;
       displayOrder: number;
+      color: string;
     }>
   ): Promise<RoadmapItem> {
     const response = await apiFetch(`${API_BASE_URL}/roadmap-items/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(
-        pickDefined(data, ['name', 'laneId', 'kind', 'startPeriod', 'periodCount', 'displayOrder'])
+        pickDefined(data, ['name', 'laneId', 'kind', 'startPeriod', 'periodCount', 'displayOrder', 'color'])
       ),
     });
     if (!response.ok) {

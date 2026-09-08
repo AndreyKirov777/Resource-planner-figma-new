@@ -416,6 +416,17 @@ describe('toRoadmapRows', () => {
     expect(rows.find((r) => r.id === 10)?.hours).toBe(0);
   });
 
+  it('carries the item colour through, defaulting when omitted', () => {
+    const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
+    const items = [
+      { id: 10, laneId: 1, name: 'Blue', kind: 'bar' as const, startPeriod: 1, periodCount: 2, displayOrder: 0, wbsItemIds: [], color: '#E3F2FD' },
+      { id: 11, laneId: 1, name: 'Default', kind: 'bar' as const, startPeriod: 3, periodCount: 1, displayOrder: 1, wbsItemIds: [] },
+    ];
+    const rows = toRoadmapRows(lanes, items, new Map(), new Set(), 40, 20);
+    expect(rows.find((r) => r.id === 10)?.color).toBe('#E3F2FD');
+    expect(rows.find((r) => r.id === 11)?.color).toBe('#8f4f8f');
+  });
+
   it('a spread item renders over the whole project [1, np], ignoring its stored (1, 0) sentinel', () => {
     const lanes = [{ id: 1, name: 'Lane', displayOrder: 0 }];
     const items = [
@@ -568,6 +579,7 @@ describe('recomputeLaneSpans', () => {
       spreadItemCount: 0,
       spreadItemNames: [],
       itemCount: 0,
+      color: '#8f4f8f',
       ...overrides,
     };
   }
@@ -586,6 +598,7 @@ describe('recomputeLaneSpans', () => {
       spreadItemCount: 0,
       spreadItemNames: [],
       itemCount: 0,
+      color: '#8f4f8f',
       ...overrides,
     };
   }

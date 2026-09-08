@@ -1454,7 +1454,7 @@ app.post('/api/projects/:id/roadmap/items', async (req, res) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
     const projectId = parseInt(req.params.id);
-    const { laneId, name, kind, startPeriod, periodCount } = parsed.data;
+    const { laneId, name, kind, startPeriod, periodCount, color } = parsed.data;
     const lane = await prisma.roadmapLane.findUnique({ where: { id: laneId } });
     if (!lane || lane.projectId !== projectId) {
       return res.status(400).json({ error: 'laneId must reference a roadmap lane in the same project' });
@@ -1469,6 +1469,7 @@ app.post('/api/projects/:id/roadmap/items', async (req, res) => {
         laneId,
         projectId,
         displayOrder: (agg._max.displayOrder ?? -1) + 1,
+        ...(color !== undefined ? { color } : {}),
       },
     });
     res.status(201).json({ ...item, wbsItemIds: [] });

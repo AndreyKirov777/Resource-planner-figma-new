@@ -196,6 +196,7 @@ describe('applyRoadmapReorder', () => {
       projectId: 1,
       createdAt: '',
       updatedAt: '',
+      color: '#8f4f8f',
       wbsItemIds: [],
     };
   }

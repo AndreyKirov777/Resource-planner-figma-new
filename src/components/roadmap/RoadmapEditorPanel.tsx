@@ -17,6 +17,7 @@ import {
   worstConflictInWindow,
   contributorsForPeriod,
 } from '../../utils/roadmapLoad';
+import { ROADMAP_ITEM_COLORS, resolveRoadmapItemColor } from '../../utils/roadmapColors';
 import { ScopePicker } from './ScopePicker';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -26,6 +27,15 @@ import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group';
 import { cn } from '../ui/utils';
 
 const FTE_EPSILON = 1e-6;
+
+type ItemPatch = Partial<{
+  name: string;
+  laneId: number;
+  kind: RoadmapItemKind;
+  startPeriod: number;
+  periodCount: number;
+  color: string;
+}>;
 
 interface RoadmapEditorPanelProps {
   item: RoadmapItem;
@@ -38,7 +48,7 @@ interface RoadmapEditorPanelProps {
   roadmapLoad: RoadmapLoad;
   roadmapItems: readonly RoadmapLoadItemInput[];
   hrsPerPeriod: number;
-  onUpdate: (id: number, patch: Partial<{ name: string; laneId: number; kind: RoadmapItemKind; startPeriod: number; periodCount: number }>) => Promise<void>;
+  onUpdate: (id: number, patch: ItemPatch) => Promise<void>;
   onReplaceLinks: (itemId: number, wbsItemIds: number[]) => Promise<void>;
   onClose: () => void;
 }
@@ -83,7 +93,7 @@ export function RoadmapEditorPanel({
     setFieldError(null);
   }, [item.id, item.name, item.startPeriod, item.periodCount]);
 
-  async function commit(patch: Partial<{ name: string; laneId: number; kind: RoadmapItemKind; startPeriod: number; periodCount: number }>, revert: () => void) {
+  async function commit(patch: ItemPatch, revert: () => void) {
     try {
       await onUpdate(item.id, patch);
       setFieldError(null);
@@ -137,13 +147,18 @@ export function RoadmapEditorPanel({
     // A spread item's window is a fixed (startPeriod: 1, periodCount: 0)
     // sentinel — it always demands over the whole project (decision 2), never
     // a draggable window like a bar's.
-    const patch: Partial<{ kind: RoadmapItemKind; startPeriod: number; periodCount: number }> =
+    const patch: ItemPatch =
       kind === 'milestone'
         ? { kind, periodCount: 0 }
         : kind === 'spread'
           ? { kind, startPeriod: 1, periodCount: 0 }
           : { kind, periodCount: Math.max(1, item.kind === 'bar' ? item.periodCount : 1) };
     void commit(patch, () => {});
+  }
+
+  function changeColor(color: string) {
+    if (resolveRoadmapItemColor(item.color) === color) return;
+    void commit({ color }, () => {});
   }
 
   // Read-only demand block (Slice B, rest of CAP-11) — never written from here.
@@ -214,6 +229,40 @@ export function RoadmapEditorPanel({
             Demands evenly across the whole project — not draggable or resizable.
           </p>
         )}
+      </div>
+
+      <div className="space-y-1.5">
+        <Label id="roadmap-item-color-label">Color</Label>
+        <div
+          className="w-fit rounded-md border bg-popover p-1"
+          data-testid="roadmap-item-color-swatches"
+        >
+          <div
+            className="grid grid-cols-5 gap-1"
+            role="listbox"
+            aria-labelledby="roadmap-item-color-label"
+          >
+            {ROADMAP_ITEM_COLORS.map((c) => {
+              const selected = resolveRoadmapItemColor(item.color) === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  aria-label={`Color ${c}`}
+                  title={c}
+                  className={cn(
+                    'h-6 w-6 rounded border border-border shrink-0 hover:ring-2 hover:ring-primary',
+                    selected && 'ring-2 ring-primary'
+                  )}
+                  style={{ backgroundColor: c }}
+                  onClick={() => changeColor(c)}
+                />
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {item.kind !== 'spread' && (

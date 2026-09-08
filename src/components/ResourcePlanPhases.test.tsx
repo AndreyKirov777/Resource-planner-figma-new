@@ -94,6 +94,7 @@ function roadmapItem(overrides: Partial<RoadmapItem> & { id: number; startPeriod
     projectId: 1,
     createdAt: '',
     updatedAt: '',
+    color: '#8f4f8f',
     wbsItemIds: [],
     ...overrides,
   };

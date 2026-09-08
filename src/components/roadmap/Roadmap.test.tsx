@@ -113,6 +113,7 @@ function makeLanes(): RoadmapLaneWithItems[] {
           projectId: 1,
           createdAt: '',
           updatedAt: '',
+          color: '#8f4f8f',
           wbsItemIds: [],
         },
       ],
@@ -146,6 +147,7 @@ function renderRoadmap(lanes = makeLanes(), wbs: WbsItem[] = wbsItems, proj: Pro
         projectId: 1,
         createdAt: '',
         updatedAt: '',
+        color: '#8f4f8f',
         wbsItemIds: [],
       })
     ),
@@ -266,6 +268,7 @@ describe('Roadmap keyboard parity (CAP-4)', () => {
       projectId: 1,
       createdAt: '',
       updatedAt: '',
+      color: '#8f4f8f',
       wbsItemIds: [],
     });
     const handlers = renderRoadmap(lanes);
@@ -303,6 +306,7 @@ describe('Roadmap keyboard parity (CAP-4)', () => {
       projectId: 1,
       createdAt: '',
       updatedAt: '',
+      color: '#8f4f8f',
       wbsItemIds: [],
     });
     // renderRoadmap already rendered once above; render fresh with the two-item lane.
@@ -391,6 +395,7 @@ describe('RoadmapGrid keyboard parity (grid rows take the same bindings as bars)
       projectId: 1,
       createdAt: '',
       updatedAt: '',
+      color: '#8f4f8f',
       wbsItemIds: [],
     });
     const handlers = renderRoadmap(lanes);
@@ -445,6 +450,7 @@ describe('Row menu Move up / Move down route through the same atomic reorder pat
       projectId: 1,
       createdAt: '',
       updatedAt: '',
+      color: '#8f4f8f',
       wbsItemIds: [],
     });
     const handlers = renderRoadmap(lanes);
@@ -1031,6 +1037,7 @@ function makeLanesWithTwoBars(): RoadmapLaneWithItems[] {
           projectId: 1,
           createdAt: '',
           updatedAt: '',
+          color: '#8f4f8f',
           wbsItemIds: [],
         },
         {
@@ -1044,6 +1051,7 @@ function makeLanesWithTwoBars(): RoadmapLaneWithItems[] {
           projectId: 1,
           createdAt: '',
           updatedAt: '',
+          color: '#8f4f8f',
           wbsItemIds: [],
         },
       ],
@@ -1084,6 +1092,7 @@ describe('bar edge resize cursor', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
           {
@@ -1097,6 +1106,7 @@ describe('bar edge resize cursor', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
         ],
@@ -1134,6 +1144,7 @@ describe('bar and spread name labels', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
           {
@@ -1147,6 +1158,7 @@ describe('bar and spread name labels', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
         ],
@@ -1212,6 +1224,7 @@ describe('milestone name label', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
           {
@@ -1225,6 +1238,7 @@ describe('milestone name label', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
           {
@@ -1238,6 +1252,7 @@ describe('milestone name label', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
         ],
@@ -1342,6 +1357,7 @@ describe('lane summary bars', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
         ],
@@ -1365,6 +1381,7 @@ describe('lane summary bars', () => {
       projectId: 1,
       createdAt: '',
       updatedAt: '',
+      color: '#8f4f8f',
       wbsItemIds: [],
     });
     renderRoadmap(lanes);
@@ -1442,6 +1459,7 @@ describe('collapsed lane rollups', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [500],
           },
           {
@@ -1455,6 +1473,7 @@ describe('collapsed lane rollups', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
         ],
@@ -1629,6 +1648,7 @@ describe('Unlinked switch', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
         ],
@@ -1640,7 +1660,7 @@ describe('Unlinked switch', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
     const after = screen.getByTestId('roadmap-bar-21');
     expect(after.style.border).not.toContain('dashed');
-    expect(after.style.background).toMatch(/#c084c0|rgb\(192,\s*132,\s*192\)/);
+    expect(after.style.background).toMatch(/#b68db6|rgb\(182,\s*141,\s*182\)/);
   });
 
   it('turning it back on restores the dashed outline on empty wbsItemIds', () => {
@@ -1737,6 +1757,7 @@ describe('Unlinked switch', () => {
             projectId: 1,
             createdAt: '',
             updatedAt: '',
+            color: '#8f4f8f',
             wbsItemIds: [],
           },
         ],
@@ -1758,5 +1779,89 @@ describe('Unlinked switch', () => {
     await user.click(screen.getByTestId('roadmap-export-png-confirm'));
     const model = vi.mocked(downloadRoadmapPng).mock.calls[0][0];
     expect(model.showUnlinkedOutline).toBe(false);
+  });
+});
+
+describe('Per-item bar colours', () => {
+  it('paints a filled bar and milestone with the stored colour', () => {
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'Backend',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 10,
+            name: 'API',
+            kind: 'bar',
+            startPeriod: 5,
+            periodCount: 4,
+            displayOrder: 0,
+            color: '#E3F2FD',
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [1],
+          },
+          {
+            id: 20,
+            name: 'Go-live',
+            kind: 'milestone',
+            startPeriod: 8,
+            periodCount: 0,
+            displayOrder: 1,
+            color: '#E3F2FD',
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+    renderRoadmap(lanes);
+    fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
+    expect(screen.getByTestId('roadmap-bar-10').style.background).toMatch(/#E3F2FD|rgb\(227,\s*242,\s*253\)/);
+    const ms = screen.getByTestId('roadmap-bar-20').querySelector('span');
+    expect(ms?.getAttribute('style') ?? '').toMatch(/#E3F2FD|rgb\(227,\s*242,\s*253\)/);
+  });
+
+  it('uses the item colour for the unlinked dashed outline', () => {
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'Backend',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 10,
+            name: 'API',
+            kind: 'bar',
+            startPeriod: 5,
+            periodCount: 4,
+            displayOrder: 0,
+            color: '#E3F2FD',
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+    renderRoadmap(lanes);
+    const bar = screen.getByTestId('roadmap-bar-10');
+    expect(bar.style.border).toMatch(/dashed/);
+    expect(bar.style.border).toMatch(/#889198|rgb\(136,\s*145,\s*152\)/);
+    expect(within(bar).getByText('API').style.color).toMatch(/#889198|rgb\(136,\s*145,\s*152\)/);
   });
 });

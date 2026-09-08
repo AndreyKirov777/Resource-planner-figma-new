@@ -23,9 +23,14 @@ import {
   phaseBands,
   stripeSegments,
 } from './roadmapGeometry';
+import {
+  emptyWash,
+  fillLabelColor,
+  itemStrokeColor,
+  resolveRoadmapItemColor,
+  spreadFill,
+} from './roadmapColors';
 
-const ACCENT = '#8f4f8f';
-const SPREAD_FILL = '#c084c0';
 const AMBER = '#d97706';
 const LANE_BAR = '#33627D';
 const GRID_W = 320;
@@ -443,7 +448,8 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
     if (row.kind === 'milestone') {
       const mx = timelineX + milestoneX(row.startPeriod, model.periodWidth);
       const cy = y + ROW_HEIGHT / 2;
-      drawDiamond(ctx, mx, cy, MILESTONE_SIZE, ACCENT);
+      const itemColor = resolveRoadmapItemColor(row.color);
+      drawDiamond(ctx, mx, cy, MILESTONE_SIZE, itemColor);
       ctx.fillStyle = 'rgba(17,24,39,0.8)';
       ctx.font = `500 11px ${font}`;
       ctx.fillText(row.name, mx + (MILESTONE_SIZE * Math.SQRT2) / 2 + 6, cy + 4);
@@ -452,25 +458,28 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
 
     const rect = barRect(row.startPeriod, row.periodCount, model.periodWidth);
     const left = timelineX + rect.left;
+    const itemColor = resolveRoadmapItemColor(row.color);
+    const strokeColor = itemStrokeColor(itemColor);
+    const emptyOutline = Boolean(row.emptyScope && model.showUnlinkedOutline);
 
     if (row.kind === 'spread') {
       const top = y + (ROW_HEIGHT - 10) / 2;
-      if (row.emptyScope && model.showUnlinkedOutline) {
-        ctx.fillStyle = 'rgba(143,79,143,0.08)';
+      if (emptyOutline) {
+        ctx.fillStyle = emptyWash(itemColor);
         roundRect(ctx, left, top, rect.width, 10, 2);
         ctx.fill();
-        ctx.strokeStyle = ACCENT;
+        ctx.strokeStyle = strokeColor;
         ctx.setLineDash([3, 2]);
         ctx.lineWidth = 1.5;
         roundRect(ctx, left, top, rect.width, 10, 2);
         ctx.stroke();
         ctx.setLineDash([]);
       } else {
-        ctx.fillStyle = SPREAD_FILL;
+        ctx.fillStyle = spreadFill(itemColor);
         roundRect(ctx, left, top, rect.width, 10, 2);
         ctx.fill();
       }
-      ctx.fillStyle = row.emptyScope && model.showUnlinkedOutline ? ACCENT : '#ffffff';
+      ctx.fillStyle = emptyOutline ? strokeColor : fillLabelColor(itemColor);
       ctx.font = `500 11px ${font}`;
       clipText(
         ctx,
@@ -482,22 +491,22 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
     } else {
       // bar
       const top = y + (ROW_HEIGHT - BAR_HEIGHT) / 2;
-      if (row.emptyScope && model.showUnlinkedOutline) {
-        ctx.fillStyle = 'rgba(143,79,143,0.08)';
+      if (emptyOutline) {
+        ctx.fillStyle = emptyWash(itemColor);
         roundRect(ctx, left, top, rect.width, BAR_HEIGHT, 4);
         ctx.fill();
-        ctx.strokeStyle = ACCENT;
+        ctx.strokeStyle = strokeColor;
         ctx.setLineDash([3, 2]);
         ctx.lineWidth = 1.5;
         roundRect(ctx, left, top, rect.width, BAR_HEIGHT, 4);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = ACCENT;
+        ctx.fillStyle = strokeColor;
       } else {
-        ctx.fillStyle = ACCENT;
+        ctx.fillStyle = itemColor;
         roundRect(ctx, left, top, rect.width, BAR_HEIGHT, 4);
         ctx.fill();
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = fillLabelColor(itemColor);
       }
       ctx.font = `500 11px ${font}`;
       clipText(

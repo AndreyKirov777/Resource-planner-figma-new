@@ -81,6 +81,7 @@ type RoadmapItemPatch = Partial<{
   startPeriod: number;
   periodCount: number;
   displayOrder: number;
+  color: string;
 }>;
 
 interface RoadmapProps {
@@ -312,6 +313,7 @@ export function Roadmap({
         periodCount: i.periodCount,
         displayOrder: i.displayOrder,
         wbsItemIds: i.wbsItemIds,
+        color: i.color,
       })),
     [allItems]
   );

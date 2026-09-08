@@ -401,6 +401,27 @@ describe('server-validation Zod schemas', () => {
     it('rejects an unlisted field (strict)', () => {
       expect(roadmapItemUpdateSchema.safeParse({ id: 1 }).success).toBe(false);
     });
+
+    it('accepts a palette colour and rejects an unknown hex', () => {
+      expect(roadmapItemUpdateSchema.safeParse({ color: '#E3F2FD' }).success).toBe(true);
+      expect(roadmapItemUpdateSchema.safeParse({ color: '#8F4F8F' }).success).toBe(true);
+      expect(roadmapItemUpdateSchema.safeParse({ color: '#1d4ed8' }).success).toBe(false);
+      expect(roadmapItemUpdateSchema.safeParse({ color: '#ff00aa' }).success).toBe(false);
+      expect(roadmapItemUpdateSchema.safeParse({ color: 'red' }).success).toBe(false);
+      expect(roadmapItemCreateSchema.safeParse({
+        laneId: 1,
+        name: 'API',
+        startPeriod: 1,
+        periodCount: 2,
+        color: '#E3F2FD',
+      }).success).toBe(true);
+      expect(roadmapItemCreateSchema.safeParse({
+        laneId: 1,
+        name: 'API',
+        startPeriod: 1,
+        periodCount: 2,
+      }).success).toBe(true);
+    });
   });
 
   describe('roadmapLinksReplaceSchema', () => {

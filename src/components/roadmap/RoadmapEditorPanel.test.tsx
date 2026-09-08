@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { RoadmapEditorPanel } from './RoadmapEditorPanel';
 import { RoadmapItem, RoadmapLaneWithItems, ResourcePlan, WbsItem } from '../../services/api';
 import { RoadmapLinkRecord } from '../../utils/roadmap';
@@ -16,6 +17,7 @@ function makeItem(overrides: Partial<RoadmapItem> & { id: number }): RoadmapItem
     startPeriod: 1,
     periodCount: 4,
     displayOrder: 0,
+    color: '#8f4f8f',
     laneId: 1,
     projectId: 1,
     createdAt: '',
@@ -38,6 +40,7 @@ function renderPanel({
   links: RoadmapLinkRecord[];
   resourcePlans?: ResourcePlan[];
 }) {
+  const onUpdate = vi.fn(() => Promise.resolve());
   const roadmapLoad = buildRoadmapLoad({
     wbsItems,
     roadmapItems: loadItems,
@@ -61,11 +64,13 @@ function renderPanel({
       roadmapLoad={roadmapLoad}
       roadmapItems={loadItems}
       hrsPerPeriod={40}
-      onUpdate={vi.fn(() => Promise.resolve())}
+      onUpdate={onUpdate}
       onReplaceLinks={vi.fn(() => Promise.resolve())}
       onClose={vi.fn()}
     />
   );
+
+  return { onUpdate };
 }
 
 describe('RoadmapEditorPanel — read-only demand block (CAP-11)', () => {
@@ -207,5 +212,24 @@ describe('RoadmapEditorPanel — read-only demand block (CAP-11)', () => {
     expect(conflict).toHaveTextContent('Backend Developer needed');
     expect(conflict).toHaveTextContent('across Platform and Mobile');
     expect(conflict).toHaveTextContent('0.0 planned');
+  });
+});
+
+describe('RoadmapEditorPanel — color swatches', () => {
+  it('shows a labeled swatch grid and PATCHes color on click', async () => {
+    const user = userEvent.setup();
+    const item = makeItem({ id: 10 });
+    const { onUpdate } = renderPanel({
+      item,
+      wbsItems: [],
+      loadItems: [{ id: 10, name: 'API', kind: 'bar', startPeriod: 1, periodCount: 4 }],
+      links: [],
+    });
+
+    expect(screen.getByTestId('roadmap-item-color-swatches')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Color #E3F2FD' })).toHaveAttribute('aria-selected', 'false');
+
+    await user.click(screen.getByRole('option', { name: 'Color #E3F2FD' }));
+    expect(onUpdate).toHaveBeenCalledWith(10, { color: '#E3F2FD' });
   });
 });
