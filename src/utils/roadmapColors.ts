@@ -1,29 +1,44 @@
 /**
- * Per-item roadmap bar colours — same pastel palette as phase bands
- * (`PHASE_COLORS`). Lane-bar slate `#33627D` stays reserved for lane summaries.
- * Historic accent `#8f4f8f` remains the stored default so existing items
- * look unchanged until the planner picks a swatch.
+ * Per-item roadmap bar colours. Lane-bar slate `#33627D` stays reserved
+ * for lane summaries. Default is dusty slate `#5D6E85`. The historic
+ * accent `#8f4f8f` is still accepted and maps to the new default.
  */
-import { PHASE_COLORS } from './phases';
 
-export const ROADMAP_ITEM_DEFAULT_COLOR = '#8f4f8f';
+export const ROADMAP_ITEM_DEFAULT_COLOR = '#5D6E85';
 
-export const ROADMAP_ITEM_COLORS = PHASE_COLORS;
+/** Historic stored defaults — treated as "never picked" / replaced swatch. */
+const LEGACY_DEFAULT_COLORS = ['#8f4f8f', '#5d748e'] as const;
+
+/** Warm coral → steel-blue spectrum (sampled from the product palette). */
+export const ROADMAP_ITEM_COLORS = [
+  '#E6514C',
+  '#E37A40',
+  '#EB9B3F',
+  '#EA8A57',
+  '#F1C965',
+  '#9ABD76',
+  '#60A88D',
+  '#5E8F8E',
+  ROADMAP_ITEM_DEFAULT_COLOR,
+  '#417B9E',
+] as const;
 
 const PALETTE_SET = new Set(
-  [...ROADMAP_ITEM_COLORS, ROADMAP_ITEM_DEFAULT_COLOR].map((c) => c.toLowerCase())
+  [...ROADMAP_ITEM_COLORS, ...LEGACY_DEFAULT_COLORS].map((c) => c.toLowerCase())
 );
 
-/** Hex `#rrggbb` in the phase palette or the legacy default (case-insensitive). */
+/** Hex `#rrggbb` in the palette or the legacy default (case-insensitive). */
 export function isRoadmapItemColor(value: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(value) && PALETTE_SET.has(value.toLowerCase());
 }
 
-/** Resolve stored/partial colour; unknown or missing → default accent. */
+/** Resolve stored/partial colour; unknown, missing, or legacy accent → default slate. */
 export function resolveRoadmapItemColor(color: string | null | undefined): string {
   if (!color) return ROADMAP_ITEM_DEFAULT_COLOR;
   const lower = color.toLowerCase();
-  if (lower === ROADMAP_ITEM_DEFAULT_COLOR.toLowerCase()) return ROADMAP_ITEM_DEFAULT_COLOR;
+  if (LEGACY_DEFAULT_COLORS.includes(lower as (typeof LEGACY_DEFAULT_COLORS)[number])) {
+    return ROADMAP_ITEM_DEFAULT_COLOR;
+  }
   const found = ROADMAP_ITEM_COLORS.find((c) => c.toLowerCase() === lower);
   return found ?? ROADMAP_ITEM_DEFAULT_COLOR;
 }

@@ -22,7 +22,7 @@ context:
 
 **Always:**
 
-- Store `RoadmapItem.color` (default `#8f4f8f`) on the server; validate against `PHASE_COLORS` plus the legacy default.
+- Store `RoadmapItem.color` (default `#5D6E85`) on the server; validate against `ROADMAP_ITEM_COLORS` plus the legacy `#8f4f8f` (mapped to the new default).
 - Kind stays encoded by shape; colour is item identity. Spreads use a lightened mix of the same hue.
 - Unlinked dashed outline and name colour follow the item colour when Unlinked is on.
 - Lane summary bars / collapsed milestone ticks stay `#33627D` / dark `#7FA8C0`.
@@ -38,7 +38,7 @@ context:
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |---|---|---|---|
-| Default | existing / new item, no colour pick | Paint `#8f4f8f` | N/A |
+| Default | existing / new item, no colour pick | Paint `#5D6E85` | N/A |
 | Swatch click | editor Color grid | PATCH `{ color }` | Failed save reverts + field error |
 | Unknown hex | API body `#ff00aa` | 400 validation | Zod refine |
 | Unlinked on | empty `wbsItemIds`, custom colour | Dashed outline in that colour | N/A |
@@ -68,9 +68,9 @@ context:
 
 **Acceptance Criteria:**
 
-- Given a bar with colour `#E3F2FD`, when Unlinked is off, then the bar fills that colour.
-- Given an unlinked bar with a non-default colour and Unlinked on, then the dashed outline and name use a darkened stroke of that colour.
-- Given the editor Color swatch `#E3F2FD`, when clicked, then `onUpdate` receives `{ color: '#E3F2FD' }`.
+- Given a bar with colour `#417B9E`, when Unlinked is off, then the bar fills that colour.
+- Given an unlinked bar with a non-default colour and Unlinked on, then the dashed outline and name use that colour (darkened if the fill is light).
+- Given the editor Color swatch `#417B9E`, when clicked, then `onUpdate` receives `{ color: '#417B9E' }`.
 - Given PNG export of a coloured bar, when drawn, then canvas fill styles include that hex.
 
 ## Verification

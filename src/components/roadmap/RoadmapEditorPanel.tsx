@@ -234,34 +234,30 @@ export function RoadmapEditorPanel({
       <div className="space-y-1.5">
         <Label id="roadmap-item-color-label">Color</Label>
         <div
-          className="w-fit rounded-md border bg-popover p-1"
+          className="flex h-7 w-full overflow-hidden rounded-md"
+          role="listbox"
+          aria-labelledby="roadmap-item-color-label"
           data-testid="roadmap-item-color-swatches"
         >
-          <div
-            className="grid grid-cols-5 gap-1"
-            role="listbox"
-            aria-labelledby="roadmap-item-color-label"
-          >
-            {ROADMAP_ITEM_COLORS.map((c) => {
-              const selected = resolveRoadmapItemColor(item.color) === c;
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  aria-label={`Color ${c}`}
-                  title={c}
-                  className={cn(
-                    'h-6 w-6 rounded border border-border shrink-0 hover:ring-2 hover:ring-primary',
-                    selected && 'ring-2 ring-primary'
-                  )}
-                  style={{ backgroundColor: c }}
-                  onClick={() => changeColor(c)}
-                />
-              );
-            })}
-          </div>
+          {ROADMAP_ITEM_COLORS.map((c) => {
+            const selected = resolveRoadmapItemColor(item.color) === c;
+            return (
+              <button
+                key={c}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                aria-label={`Color ${c}`}
+                title={c}
+                className={cn(
+                  'h-full min-w-0 flex-1 outline-none hover:brightness-95',
+                  selected && 'ring-2 ring-inset ring-foreground'
+                )}
+                style={{ backgroundColor: c }}
+                onClick={() => changeColor(c)}
+              />
+            );
+          })}
         </div>
       </div>
 

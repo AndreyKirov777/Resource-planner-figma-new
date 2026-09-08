@@ -403,8 +403,9 @@ describe('server-validation Zod schemas', () => {
     });
 
     it('accepts a palette colour and rejects an unknown hex', () => {
-      expect(roadmapItemUpdateSchema.safeParse({ color: '#E3F2FD' }).success).toBe(true);
+      expect(roadmapItemUpdateSchema.safeParse({ color: '#417B9E' }).success).toBe(true);
       expect(roadmapItemUpdateSchema.safeParse({ color: '#8F4F8F' }).success).toBe(true);
+      expect(roadmapItemUpdateSchema.safeParse({ color: '#E3F2FD' }).success).toBe(false);
       expect(roadmapItemUpdateSchema.safeParse({ color: '#1d4ed8' }).success).toBe(false);
       expect(roadmapItemUpdateSchema.safeParse({ color: '#ff00aa' }).success).toBe(false);
       expect(roadmapItemUpdateSchema.safeParse({ color: 'red' }).success).toBe(false);
@@ -413,7 +414,7 @@ describe('server-validation Zod schemas', () => {
         name: 'API',
         startPeriod: 1,
         periodCount: 2,
-        color: '#E3F2FD',
+        color: '#417B9E',
       }).success).toBe(true);
       expect(roadmapItemCreateSchema.safeParse({
         laneId: 1,

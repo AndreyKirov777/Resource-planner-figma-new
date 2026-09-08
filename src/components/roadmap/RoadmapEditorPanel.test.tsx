@@ -227,9 +227,10 @@ describe('RoadmapEditorPanel — color swatches', () => {
     });
 
     expect(screen.getByTestId('roadmap-item-color-swatches')).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Color #E3F2FD' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('option', { name: 'Color #5D6E85' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: 'Color #E6514C' })).toHaveAttribute('aria-selected', 'false');
 
-    await user.click(screen.getByRole('option', { name: 'Color #E3F2FD' }));
-    expect(onUpdate).toHaveBeenCalledWith(10, { color: '#E3F2FD' });
+    await user.click(screen.getByRole('option', { name: 'Color #417B9E' }));
+    expect(onUpdate).toHaveBeenCalledWith(10, { color: '#417B9E' });
   });
 });

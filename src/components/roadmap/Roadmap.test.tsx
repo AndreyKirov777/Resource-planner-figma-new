@@ -1609,7 +1609,7 @@ describe('Unlinked switch', () => {
     expect(screen.getByRole('switch', { name: 'Lane bars' })).toBeChecked();
     expect(screen.getByTestId('roadmap-bar-10').style.border).toContain('dashed');
     expect(within(screen.getByTestId('roadmap-bar-10')).getByText('API').style.color).toMatch(
-      /#8f4f8f|rgb\(143,\s*79,\s*143\)/
+      /#5[Dd]6[Ee]85|rgb\(93,\s*110,\s*133\)/
     );
     expect(screen.getByTestId('roadmap-grid-item-10')).toHaveTextContent('0');
     first.unmount();
@@ -1622,8 +1622,8 @@ describe('Unlinked switch', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
     const bar = screen.getByTestId('roadmap-bar-10');
     expect(bar.style.border).not.toContain('dashed');
-    expect(bar.style.background).toMatch(/#8f4f8f|rgb\(143,\s*79,\s*143\)/);
-    expect(within(bar).getByText('API').style.color).not.toMatch(/#8f4f8f|rgb\(143,\s*79,\s*143\)/);
+    expect(bar.style.background).toMatch(/#5[Dd]6[Ee]85|rgb\(93,\s*110,\s*133\)/);
+    expect(within(bar).getByText('API').style.color).not.toMatch(/#5[Dd]6[Ee]85|rgb\(93,\s*110,\s*133\)/);
     expect(screen.getByTestId('roadmap-grid-item-10')).toHaveTextContent('0');
   });
 
@@ -1660,7 +1660,7 @@ describe('Unlinked switch', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
     const after = screen.getByTestId('roadmap-bar-21');
     expect(after.style.border).not.toContain('dashed');
-    expect(after.style.background).toMatch(/#b68db6|rgb\(182,\s*141,\s*182\)/);
+    expect(after.style.background).toMatch(/#96a1b0|rgb\(150,\s*161,\s*176\)/);
   });
 
   it('turning it back on restores the dashed outline on empty wbsItemIds', () => {
@@ -1690,10 +1690,10 @@ describe('Unlinked switch', () => {
 
     const bar = screen.getByTestId('roadmap-bar-10');
     expect(bar.style.border).not.toContain('dashed');
-    expect(bar.style.background).toMatch(/#8f4f8f|rgb\(143,\s*79,\s*143\)/);
+    expect(bar.style.background).toMatch(/#5[Dd]6[Ee]85|rgb\(93,\s*110,\s*133\)/);
     fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
     expect(screen.getByTestId('roadmap-bar-10').style.border).not.toContain('dashed');
-    expect(screen.getByTestId('roadmap-bar-10').style.background).toMatch(/#8f4f8f|rgb\(143,\s*79,\s*143\)/);
+    expect(screen.getByTestId('roadmap-bar-10').style.background).toMatch(/#5[Dd]6[Ee]85|rgb\(93,\s*110,\s*133\)/);
   });
 
   it('Lane bars off leaves item paint unchanged', () => {
@@ -1800,7 +1800,7 @@ describe('Per-item bar colours', () => {
             startPeriod: 5,
             periodCount: 4,
             displayOrder: 0,
-            color: '#E3F2FD',
+            color: '#417B9E',
             laneId: 1,
             projectId: 1,
             createdAt: '',
@@ -1814,7 +1814,7 @@ describe('Per-item bar colours', () => {
             startPeriod: 8,
             periodCount: 0,
             displayOrder: 1,
-            color: '#E3F2FD',
+            color: '#417B9E',
             laneId: 1,
             projectId: 1,
             createdAt: '',
@@ -1826,9 +1826,9 @@ describe('Per-item bar colours', () => {
     ];
     renderRoadmap(lanes);
     fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
-    expect(screen.getByTestId('roadmap-bar-10').style.background).toMatch(/#E3F2FD|rgb\(227,\s*242,\s*253\)/);
+    expect(screen.getByTestId('roadmap-bar-10').style.background).toMatch(/#417B9E|rgb\(65,\s*123,\s*158\)/);
     const ms = screen.getByTestId('roadmap-bar-20').querySelector('span');
-    expect(ms?.getAttribute('style') ?? '').toMatch(/#E3F2FD|rgb\(227,\s*242,\s*253\)/);
+    expect(ms?.getAttribute('style') ?? '').toMatch(/#417B9E|rgb\(65,\s*123,\s*158\)/);
   });
 
   it('uses the item colour for the unlinked dashed outline', () => {
@@ -1848,7 +1848,7 @@ describe('Per-item bar colours', () => {
             startPeriod: 5,
             periodCount: 4,
             displayOrder: 0,
-            color: '#E3F2FD',
+            color: '#417B9E',
             laneId: 1,
             projectId: 1,
             createdAt: '',
@@ -1861,7 +1861,7 @@ describe('Per-item bar colours', () => {
     renderRoadmap(lanes);
     const bar = screen.getByTestId('roadmap-bar-10');
     expect(bar.style.border).toMatch(/dashed/);
-    expect(bar.style.border).toMatch(/#889198|rgb\(136,\s*145,\s*152\)/);
-    expect(within(bar).getByText('API').style.color).toMatch(/#889198|rgb\(136,\s*145,\s*152\)/);
+    expect(bar.style.border).toMatch(/#417B9E|rgb\(65,\s*123,\s*158\)/);
+    expect(within(bar).getByText('API').style.color).toMatch(/#417B9E|rgb\(65,\s*123,\s*158\)/);
   });
 });

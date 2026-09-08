@@ -35,7 +35,7 @@ model RoadmapItem {
   startPeriod     Int                            // 1-based, in the project's planningMode unit
   periodCount     Int           @default(1)      // >= 1 for bars; 0 for milestones
   displayOrder    Int           @default(0)
-  color           String        @default("#8f4f8f")
+  color           String        @default("#5D6E85")
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

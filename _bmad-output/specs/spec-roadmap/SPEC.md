@@ -62,7 +62,7 @@ This is a **planning** instrument. Nothing here tracks progress or records what 
 
 - **CAP-6 — Bars carry effort, not status**
   - **intent:** A planner sees, on each bar, how much work it holds and how many people that implies.
-  - **success:** Each bar and spread is labelled with the item name; hours and FTE live in the left grid and the tooltip (broken down by role); each item has a planner-picked colour from the same `PHASE_COLORS` pastels as the Resource Plan (default `#8f4f8f` until picked); an item with no WBS link still shows its name and, while Unlinked is on, renders distinctly (dashed outline in that colour); with Unlinked off every bar and spread uses the filled paint; no progress affordance exists anywhere.
+  - **success:** Each bar and spread is labelled with the item name; hours and FTE live in the left grid and the tooltip (broken down by role); each item has a planner-picked colour from `ROADMAP_ITEM_COLORS` (default `#5D6E85` until picked); an item with no WBS link still shows its name and, while Unlinked is on, renders distinctly (dashed outline in that colour); with Unlinked off every bar and spread uses the filled paint; no progress affordance exists anywhere.
 
 - **CAP-7 — Coverage reconciliation (WHAT ↔ WHEN)**
   - **intent:** A planner sees what part of the estimate has not been placed in time, and which windows have no estimate behind them.

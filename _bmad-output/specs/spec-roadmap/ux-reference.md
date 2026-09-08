@@ -41,7 +41,7 @@ A single bordered container (`rounded-lg`, `border-gray-200`) holding, top to bo
 
 ## Bar visual language
 
-Kind is encoded by **shape** (18px bar, 10px spread, diamond milestone). Colour is **item identity** — a planner-picked fill from the same `PHASE_COLORS` pastel swatches as the Resource Plan (default `#8f4f8f` until picked). Phase bands still colour the header background; bars do not encode phase or lane. Lane summary bars stay slate so they are never misread as schedulable. Name text is dark on pastel fills and white on the historic accent.
+Kind is encoded by **shape** (18px bar, 10px spread, diamond milestone). Colour is **item identity** — a planner-picked fill from the coral-to-steel `ROADMAP_ITEM_COLORS` spectrum (default `#5D6E85` until picked). Phase bands still colour the header background; bars do not encode phase or lane. Lane summary bars stay slate so they are never misread as schedulable. Name text is dark on light fills and white on darker ones.
 
 | Element | Treatment |
 |---|---|
@@ -76,7 +76,7 @@ One cell per period: a demand column against a dashed supply line, plus `demand 
 
 Non-modal by design — the planner must see the bar move while typing. Opens on `Space`, on double-click of a bar, or from the row menu.
 
-Fields, top to bottom: Name; Lane (select); Kind (`Bar` / `Milestone` / `Spread` toggle — switching to milestone with scope linked is refused with an explanation); Color (the same 5×2 pastel swatch grid as phase colours, commits on click); Start (period picker, not a free date); Duration (stepper in periods, hidden for milestones and spreads).
+Fields, top to bottom: Name; Lane (select); Kind (`Bar` / `Milestone` / `Spread` toggle — switching to milestone with scope linked is refused with an explanation); Color (full-width 10-swatch spectrum bar, commits on click); Start (period picker, not a free date); Duration (stepper in periods, hidden for milestones and spreads).
 
 **Scope** section: a search box and the WBS tree with checkboxes, indented, hours at the right of every node. Checking a node checks its subtree visually and stores one link. A node inherited from a checked ancestor shows a muted check it cannot toggle individually — to carve it out, check it explicitly, which creates its own link. A node owned by *another* item is muted with that item's name; checking it moves it, and the panel says so before the write. The section header shows `Linked: 1 240 h across 14 leaves`.
 

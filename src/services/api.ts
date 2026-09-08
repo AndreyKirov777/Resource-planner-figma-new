@@ -183,7 +183,7 @@ export interface RoadmapItem {
   /** >= 1 for a bar; 0 for a milestone. */
   periodCount: number;
   displayOrder: number;
-  /** Planner-picked fill from ROADMAP_ITEM_COLORS; default `#8f4f8f`. */
+  /** Planner-picked fill from ROADMAP_ITEM_COLORS; default `#5D6E85`. */
   color: string;
   laneId: number;
   projectId: number;

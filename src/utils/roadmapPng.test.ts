@@ -301,7 +301,7 @@ describe('downloadRoadmapPng', () => {
     fillCalls = [];
     downloadRoadmapPng(on.model);
     expect(setLineDashCalls).toContainEqual([3, 2]);
-    expect(fillCalls.some((c) => c.fillStyle === 'rgba(143,79,143,0.08)')).toBe(true);
+    expect(fillCalls.some((c) => c.fillStyle === 'rgba(93,110,133,0.08)')).toBe(true);
 
     const off = buildRoadmapPngModel({ ...baseInput, rows, showUnlinkedOutline: false });
     expect(off.ok).toBe(true);
@@ -310,7 +310,7 @@ describe('downloadRoadmapPng', () => {
     fillCalls = [];
     downloadRoadmapPng(off.model);
     expect(setLineDashCalls).not.toContainEqual([3, 2]);
-    expect(fillCalls.some((c) => c.fillStyle === '#8f4f8f')).toBe(true);
+    expect(fillCalls.some((c) => c.fillStyle === '#5D6E85')).toBe(true);
   });
 
   it('draws empty-scope spreads dashed only when showUnlinkedOutline is on', () => {
@@ -341,11 +341,11 @@ describe('downloadRoadmapPng', () => {
     fillCalls = [];
     downloadRoadmapPng(off.model);
     expect(setLineDashCalls).not.toContainEqual([3, 2]);
-    expect(fillCalls.some((c) => c.fillStyle === '#b68db6')).toBe(true);
+    expect(fillCalls.some((c) => c.fillStyle === '#96a1b0')).toBe(true);
   });
 
   it('draws bars and milestones with the row colour from the palette', () => {
-    const pastel = '#E3F2FD';
+    const pastel = '#417B9E';
     const rows = [
       laneRow(),
       barRow({ color: pastel, name: 'Blue bar' }),

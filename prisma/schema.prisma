@@ -182,9 +182,9 @@ model RoadmapItem {
   // spread item and always spans [1, projectPeriodCount] instead.
   displayOrder    Int             @default(0)
   // Planner-picked fill for bars / spreads / milestones. Palette is
-  // PHASE_COLORS (see src/utils/roadmapColors.ts); default matches the
+  // ROADMAP_ITEM_COLORS in src/utils/roadmapColors.ts; default matches the
   // historic accent so existing roadmaps look unchanged until recoloured.
-  color           String          @default("#8f4f8f")
+  color           String          @default("#5D6E85")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
