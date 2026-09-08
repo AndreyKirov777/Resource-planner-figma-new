@@ -60,9 +60,17 @@ import { TextPromptDialog } from './TextPromptDialog';
 import { AddItemDialog } from './AddItemDialog';
 import { StartDateDialog } from './StartDateDialog';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ExportPngDialog } from './ExportPngDialog';
 import { RoadmapDragCommit, useRoadmapDrag } from './useRoadmapDrag';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../ui/select';
+import {
+  buildRoadmapPngModel,
+  downloadRoadmapPng,
+  phasesForPng,
+  type RoadmapPngBackground,
+  type RoadmapPngScope,
+} from '../../utils/roadmapPng';
 
 type RoadmapItemPatch = Partial<{
   name: string;
@@ -198,6 +206,8 @@ export function Roadmap({
   const [renameLaneId, setRenameLaneId] = useState<number | null>(null);
   const [addItemKind, setAddItemKind] = useState<RoadmapItemKind | null>(null);
   const [startDateOpen, setStartDateOpen] = useState(false);
+  const [exportPngOpen, setExportPngOpen] = useState(false);
+  const [exportPngKey, setExportPngKey] = useState(0);
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -654,6 +664,34 @@ export function Roadmap({
     setStartDateOpen(false);
   }
 
+  function confirmExportPng(options: { scope: RoadmapPngScope; background: RoadmapPngBackground }) {
+    const built = buildRoadmapPngModel({
+      projectName: project.name,
+      rows,
+      phases: phasesForPng(phases, phaseHours),
+      periodWidth,
+      np,
+      planningMode,
+      startDate: project.startDate ?? null,
+      showLaneBars,
+      scope: options.scope,
+      background: options.background,
+    });
+    if (!built.ok) {
+      toast.error('No roadmap data to export');
+      setExportPngOpen(false);
+      return;
+    }
+    try {
+      downloadRoadmapPng(built.model);
+      setExportPngOpen(false);
+    } catch (err) {
+      toast.error('Failed to export PNG', {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    }
+  }
+
   if (roadmapLanes.length === 0) {
     return (
       <div className="rounded-lg border border-gray-200 p-12">
@@ -792,6 +830,17 @@ export function Roadmap({
         <Button
           variant="outline"
           size="sm"
+          data-testid="roadmap-export-png"
+          onClick={() => {
+            setExportPngKey((k) => k + 1);
+            setExportPngOpen(true);
+          }}
+        >
+          Export PNG
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => setFullscreen((f) => !f)}
           aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
@@ -888,6 +937,12 @@ export function Roadmap({
         preview={bootstrapPreview}
         onCancel={() => setBootstrapPreview(null)}
         onConfirm={confirmBootstrap}
+      />
+      <ExportPngDialog
+        key={exportPngKey}
+        open={exportPngOpen}
+        onCancel={() => setExportPngOpen(false)}
+        onConfirm={confirmExportPng}
       />
       <GeneratePlanSheet
         open={draftPlan !== null}

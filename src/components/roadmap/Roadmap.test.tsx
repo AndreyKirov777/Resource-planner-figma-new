@@ -6,6 +6,15 @@ import { Project, RoadmapLaneWithItems, WbsItem } from '../../services/api';
 import { snapDrag, ZOOM_LADDER, DEFAULT_ZOOM_INDEX, periodX } from '../../utils/roadmapGeometry';
 import { buildRoadmapLoad, buildByPeriodMatrix, demandHours, supplyHours } from '../../utils/roadmapLoad';
 import { ReconciliationPanel } from '../ReconciliationPanel';
+import { downloadRoadmapPng } from '../../utils/roadmapPng';
+
+vi.mock('../../utils/roadmapPng', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/roadmapPng')>();
+  return {
+    ...actual,
+    downloadRoadmapPng: vi.fn(),
+  };
+});
 
 /**
  * Drives the KEYBOARD path, not the pointer path — no pointer harness needed,
@@ -1450,5 +1459,47 @@ describe('Lane bars toggle', () => {
     } finally {
       installMemoryLocalStorage();
     }
+  });
+});
+
+describe('Export PNG', () => {
+  beforeEach(() => {
+    vi.mocked(downloadRoadmapPng).mockClear();
+  });
+
+  it('opens the export dialog from the toolbar', async () => {
+    const user = userEvent.setup();
+    renderRoadmap();
+    await user.click(screen.getByTestId('roadmap-export-png'));
+    expect(screen.getByTestId('roadmap-export-png-dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Table + roadmap')).toBeChecked();
+    expect(screen.getByLabelText('White')).toBeChecked();
+  });
+
+  it('exports table+timeline / white by default', async () => {
+    const user = userEvent.setup();
+    renderRoadmap();
+    await user.click(screen.getByTestId('roadmap-export-png'));
+    await user.click(screen.getByTestId('roadmap-export-png-confirm'));
+    expect(downloadRoadmapPng).toHaveBeenCalledTimes(1);
+    const model = vi.mocked(downloadRoadmapPng).mock.calls[0][0];
+    expect(model.scope).toBe('table-and-timeline');
+    expect(model.background).toBe('white');
+    expect(model.includeGrid).toBe(true);
+    expect(screen.queryByTestId('roadmap-export-png-dialog')).not.toBeInTheDocument();
+  });
+
+  it('exports roadmap-only / transparent when those options are selected', async () => {
+    const user = userEvent.setup();
+    renderRoadmap();
+    await user.click(screen.getByTestId('roadmap-export-png'));
+    await user.click(screen.getByLabelText('Roadmap only'));
+    await user.click(screen.getByLabelText('Transparent'));
+    await user.click(screen.getByTestId('roadmap-export-png-confirm'));
+    expect(downloadRoadmapPng).toHaveBeenCalledTimes(1);
+    const model = vi.mocked(downloadRoadmapPng).mock.calls[0][0];
+    expect(model.scope).toBe('timeline-only');
+    expect(model.background).toBe('transparent');
+    expect(model.includeGrid).toBe(false);
   });
 });
