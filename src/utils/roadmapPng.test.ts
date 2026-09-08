@@ -336,7 +336,9 @@ describe('downloadRoadmapPng', () => {
     expect(off.ok).toBe(true);
     if (!off.ok) return;
     setLineDashCalls = [];
+    fillCalls = [];
     downloadRoadmapPng(off.model);
     expect(setLineDashCalls).not.toContainEqual([3, 2]);
+    expect(fillCalls.some((c) => c.fillStyle === '#c084c0')).toBe(true);
   });
 });

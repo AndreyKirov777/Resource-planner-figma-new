@@ -39,6 +39,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../ui/utils';
 
 const ACCENT = '#8f4f8f';
+/** Lighter accent so a spread reads as the same family as a bar, not the same object. */
+const SPREAD_FILL = '#c084c0';
 const AMBER = '#d97706';
 /** The lane summary bar's colour, one place for both themes — a neutral slate that is
  * deliberately not `ACCENT`, so a lane bar is never misread as something schedulable. */
@@ -508,11 +510,7 @@ export function RoadmapTimeline({
                                   borderRadius: 2,
                                   ...(row.emptyScope && showUnlinkedOutline
                                     ? { border: `1.5px dashed ${ACCENT}`, background: 'rgba(143,79,143,0.08)' }
-                                    : {
-                                        background: 'rgba(143,79,143,0.22)',
-                                        backgroundImage: `repeating-linear-gradient(135deg, ${ACCENT} 0px, ${ACCENT} 3px, transparent 3px, transparent 7px)`,
-                                        border: `1px solid ${ACCENT}`,
-                                      }),
+                                    : { background: SPREAD_FILL }),
                                   ...(isSelected ? { boxShadow: `0 0 0 2px #030213` } : {}),
                                 }
                               : {

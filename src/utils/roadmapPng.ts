@@ -25,6 +25,7 @@ import {
 } from './roadmapGeometry';
 
 const ACCENT = '#8f4f8f';
+const SPREAD_FILL = '#c084c0';
 const AMBER = '#d97706';
 const LANE_BAR = '#33627D';
 const GRID_W = 320;
@@ -231,25 +232,6 @@ function drawLaneSummaryBar(
   ctx.fillRect(w - cap, h, cap, drop);
 }
 
-function makeSpreadPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
-  const tile = document.createElement('canvas');
-  tile.width = 8;
-  tile.height = 8;
-  const tctx = tile.getContext('2d');
-  if (!tctx) return null;
-  tctx.fillStyle = 'rgba(143,79,143,0.22)';
-  tctx.fillRect(0, 0, 8, 8);
-  tctx.strokeStyle = ACCENT;
-  tctx.lineWidth = 2;
-  tctx.beginPath();
-  tctx.moveTo(-2, 8);
-  tctx.lineTo(8, -2);
-  tctx.moveTo(0, 10);
-  tctx.lineTo(10, 0);
-  tctx.stroke();
-  return ctx.createPattern(tile, 'repeat');
-}
-
 function drawDiamond(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -414,8 +396,6 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
     ctx.globalAlpha = 1;
   });
 
-  const spreadPattern = makeSpreadPattern(ctx);
-
   // ── Timeline rows ────────────────────────────────────────────────────────
   model.rows.forEach((row, i) => {
     const y = HEADER_HEIGHT + i * ROW_HEIGHT;
@@ -486,17 +466,9 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
         ctx.stroke();
         ctx.setLineDash([]);
       } else {
-        if (spreadPattern) {
-          ctx.fillStyle = spreadPattern;
-        } else {
-          ctx.fillStyle = 'rgba(143,79,143,0.22)';
-        }
+        ctx.fillStyle = SPREAD_FILL;
         roundRect(ctx, left, top, rect.width, 10, 2);
         ctx.fill();
-        ctx.strokeStyle = ACCENT;
-        ctx.lineWidth = 1;
-        roundRect(ctx, left, top, rect.width, 10, 2);
-        ctx.stroke();
       }
       ctx.fillStyle = row.emptyScope && model.showUnlinkedOutline ? ACCENT : '#ffffff';
       ctx.font = `500 11px ${font}`;

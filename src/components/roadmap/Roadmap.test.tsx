@@ -1608,7 +1608,7 @@ describe('Unlinked switch', () => {
     expect(screen.getByTestId('roadmap-grid-item-10')).toHaveTextContent('0');
   });
 
-  it('an unlinked spread is dashed when Unlinked is on and hatched when off', () => {
+  it('an unlinked spread is dashed when Unlinked is on and solid when off', () => {
     const lanes: RoadmapLaneWithItems[] = [
       {
         id: 1,
@@ -1640,7 +1640,7 @@ describe('Unlinked switch', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Unlinked' }));
     const after = screen.getByTestId('roadmap-bar-21');
     expect(after.style.border).not.toContain('dashed');
-    expect(after.style.backgroundImage).toContain('repeating-linear-gradient');
+    expect(after.style.background).toMatch(/#c084c0|rgb\(192,\s*132,\s*192\)/);
   });
 
   it('turning it back on restores the dashed outline on empty wbsItemIds', () => {

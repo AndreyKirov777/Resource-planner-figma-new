@@ -47,7 +47,7 @@ Colour encodes kind and state only; the phase already colours the background, so
 |---|---|
 | Bar with scope | filled `#8f4f8f`, 18px, label is the item **name**; hours and FTE live in the left grid and the tooltip |
 | Bar without scope | when Unlinked is on (default): dashed 1.5px `#8f4f8f` outline, translucent fill, accent name; when Unlinked is off: the same filled paint as a scoped bar. Without scope means no direct WBS link (`wbsItemIds.length === 0`), not zero hours. |
-| Spread | 10px hatched band across the project, or the same dashed empty-scope treatment as a bar when Unlinked is on and it has no WBS link; label is the item **name** |
+| Spread | 10px band across the project filled solid `#c084c0` (lighter than a bar), or the same dashed empty-scope treatment as a bar when Unlinked is on and it has no WBS link; label is the item **name** |
 | Milestone | 12px `#030213` square rotated 45°, name to the right |
 | Demand above supply | 3px amber stripe along the bar's bottom **over the affected periods only** |
 | Phase mismatch | small amber marker at the bar's start edge; tooltip names the leaf and its phase |
