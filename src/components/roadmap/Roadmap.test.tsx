@@ -129,7 +129,7 @@ function makeLanes(): RoadmapLaneWithItems[] {
   ];
 }
 
-function renderRoadmap(lanes = makeLanes()) {
+function renderRoadmap(lanes = makeLanes(), wbs: WbsItem[] = wbsItems) {
   const handlers = {
     onAddLane: vi.fn(() => Promise.resolve()),
     onUpdateLane: vi.fn(() => Promise.resolve()),
@@ -160,7 +160,7 @@ function renderRoadmap(lanes = makeLanes()) {
   const utils = render(
     <Roadmap
       project={project}
-      wbsItems={wbsItems}
+      wbsItems={wbs}
       roadmapLanes={lanes}
       resourcePlans={[]}
       rateCards={[]}
@@ -1112,8 +1112,86 @@ describe('bar edge resize cursor', () => {
   });
 });
 
+describe('bar and spread name labels', () => {
+  it('always paints the item name on bars and spreads, including empty-scope items', () => {
+    const lanes: RoadmapLaneWithItems[] = [
+      {
+        id: 1,
+        name: 'Backend',
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        items: [
+          {
+            id: 10,
+            name: 'API',
+            kind: 'bar',
+            startPeriod: 5,
+            periodCount: 4,
+            displayOrder: 0,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+          {
+            id: 21,
+            name: 'Support',
+            kind: 'spread',
+            startPeriod: 1,
+            periodCount: 0,
+            displayOrder: 1,
+            laneId: 1,
+            projectId: 1,
+            createdAt: '',
+            updatedAt: '',
+            wbsItemIds: [],
+          },
+        ],
+      },
+    ];
+    renderRoadmap(lanes);
+    expect(screen.getByTestId('roadmap-bar-10')).toHaveTextContent('API');
+    expect(screen.getByTestId('roadmap-bar-21')).toHaveTextContent('Support');
+    expect(screen.queryByText('no scope linked')).not.toBeInTheDocument();
+  });
+
+  it('still paints the item name on a scoped bar with hours', () => {
+    const scopedWbs: WbsItem[] = [
+      {
+        id: 500,
+        name: 'Backend leaf',
+        parentId: null,
+        phaseName: null,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        estimates: [
+          {
+            id: 1,
+            discipline: 'Engineering',
+            role: 'Backend Developer',
+            hours: 40,
+            wbsItemId: 500,
+            createdAt: '',
+            updatedAt: '',
+          },
+        ],
+      },
+    ];
+    const lanes = makeLanes();
+    lanes[0].items[0].wbsItemIds = [500];
+    renderRoadmap(lanes, scopedWbs);
+    expect(screen.getByTestId('roadmap-bar-10')).toHaveTextContent('API');
+    expect(screen.queryByText('no scope linked')).not.toBeInTheDocument();
+  });
+});
+
 describe('milestone name label', () => {
-  it('renders the item name to the right of the diamond; bars and spreads stay unlabeled', () => {
+  it('renders the item name to the right of the diamond; bars and spreads have no sidecar milestone label', () => {
     const lanes: RoadmapLaneWithItems[] = [
       {
         id: 1,

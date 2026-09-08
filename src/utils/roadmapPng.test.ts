@@ -114,6 +114,30 @@ describe('buildRoadmapPngModel', () => {
     expect(result.model.filename).toBe('roadmap-Acme_Q3_Plan_-2026-09-08.png');
   });
 
+  it('labels empty-scope bars and spreads with the item name, not a placeholder', () => {
+    const result = buildRoadmapPngModel({
+      ...baseInput,
+      rows: [
+        laneRow(),
+        barRow({ name: 'Unlinked work', hours: 0, emptyScope: true }),
+        barRow({
+          id: 21,
+          kind: 'spread',
+          name: 'Unlinked support',
+          hours: 0,
+          emptyScope: true,
+          startPeriod: 1,
+          periodCount: 8,
+        }),
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.model.drawnLabels).toContain('Unlinked work');
+    expect(result.model.drawnLabels).toContain('Unlinked support');
+    expect(result.model.drawnLabels).not.toContain('no scope linked');
+  });
+
   it('never puts Load strip chrome into drawn labels', () => {
     const result = buildRoadmapPngModel(baseInput);
     expect(result.ok).toBe(true);

@@ -133,9 +133,6 @@ function collectDrawnLabels(
       labels.push(formatHours(row.hours));
       labels.push(row.fte.toFixed(1));
     }
-    if ((row.kind === 'bar' || row.kind === 'spread') && row.emptyScope) {
-      labels.push('no scope linked');
-    }
   }
   return labels;
 }
@@ -502,7 +499,7 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
       ctx.font = `500 11px ${font}`;
       clipText(
         ctx,
-        row.emptyScope ? 'no scope linked' : row.name,
+        row.name,
         left + 6,
         top + 8,
         Math.max(0, rect.width - 12)
@@ -530,7 +527,7 @@ export function downloadRoadmapPng(model: RoadmapPngExportModel): void {
       ctx.font = `500 11px ${font}`;
       clipText(
         ctx,
-        row.emptyScope ? 'no scope linked' : row.name,
+        row.name,
         left + 6,
         top + 13,
         Math.max(0, rect.width - 12)

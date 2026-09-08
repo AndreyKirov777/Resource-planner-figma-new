@@ -599,7 +599,7 @@ export function RoadmapTimeline({
                             className="pointer-events-none absolute left-1.5 right-1.5 top-1/2 -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-white"
                             style={row.emptyScope ? { color: ACCENT } : undefined}
                           >
-                            {row.emptyScope ? 'no scope linked' : row.name}
+                            {row.name}
                           </span>
                         )}
                         {row.kind === 'milestone' && (

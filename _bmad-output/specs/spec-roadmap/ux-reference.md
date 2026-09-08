@@ -45,8 +45,9 @@ Colour encodes kind and state only; the phase already colours the background, so
 
 | Element | Treatment |
 |---|---|
-| Bar with scope | filled `#8f4f8f`, 18px, label `1 240 h · 3.1 FTE` |
-| Bar without scope | dashed 1.5px `#8f4f8f` outline, translucent fill, label `no scope linked` |
+| Bar with scope | filled `#8f4f8f`, 18px, label is the item **name**; hours and FTE live in the left grid and the tooltip |
+| Bar without scope | dashed 1.5px `#8f4f8f` outline, translucent fill, label is the item **name** (same as a scoped bar) |
+| Spread | 10px hatched (or dashed empty-scope) band across the project, label is the item **name** |
 | Milestone | 12px `#030213` square rotated 45°, name to the right |
 | Demand above supply | 3px amber stripe along the bar's bottom **over the affected periods only** |
 | Phase mismatch | small amber marker at the bar's start edge; tooltip names the leaf and its phase |

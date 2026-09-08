@@ -62,7 +62,7 @@ This is a **planning** instrument. Nothing here tracks progress or records what 
 
 - **CAP-6 — Bars carry effort, not status**
   - **intent:** A planner sees, on each bar, how much work it holds and how many people that implies.
-  - **success:** Each bar is labelled with the hours and FTE of its linked scope; its tooltip breaks that down by role; an item with no scope renders distinctly and says so; no progress affordance exists anywhere.
+  - **success:** Each bar and spread is labelled with the item name; hours and FTE live in the left grid and the tooltip (broken down by role); an item with no scope still shows its name but renders distinctly (dashed outline); no progress affordance exists anywhere.
 
 - **CAP-7 — Coverage reconciliation (WHAT ↔ WHEN)**
   - **intent:** A planner sees what part of the estimate has not been placed in time, and which windows have no estimate behind them.

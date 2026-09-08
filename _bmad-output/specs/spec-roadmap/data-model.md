@@ -199,7 +199,7 @@ feasiblePeriods(R)  = max over roles r of ceil( E(R, r) / avgSupplyHours(r, wind
 
 One engine, five readers — none of them re-implements the math:
 
-- the bar's hours/FTE label and its out-of-capacity stripe (CAP-6, CAP-9)
+- the bar's name label and its out-of-capacity stripe (CAP-6, CAP-9)
 - the tooltip's per-role demand-versus-supply lines (CAP-6)
 - the load strip (CAP-9)
 - the by-period matrix in `ReconciliationPanel` (CAP-10)

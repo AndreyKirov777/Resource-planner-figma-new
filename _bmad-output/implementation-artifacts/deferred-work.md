@@ -562,3 +562,15 @@ matched rather than fixed. None are regressions caused by this change.
 - source_spec: `_bmad-output/implementation-artifacts/spec-daily-exchange-rates.md`
   summary: App empty-database bootstrap still creates the default project with a hardcoded `exchangeRate: 0.89`.
   evidence: Pre-existing `src/App.tsx` create path when `getProjects()` returns []. This story only required ProjectList create to pair live FX; the empty-db seed was left on the static EUR default.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-bar-name-labels.md`
+  summary: PNG tests assert `drawnLabels` (which already includes `row.name` from the grid) rather than spying on the canvas `clipText`/`fillText` paint path.
+  evidence: `collectDrawnLabels` pushed `row.name` for every row before this change; reverting only the bar/spread `clipText` strings would still pass the new test.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-bar-name-labels.md`
+  summary: Drag/resize follow-layer ghosts stay unlabeled solid-accent copies of the bar.
+  evidence: Pre-existing preview drawing in `RoadmapTimeline.tsx`; this change only relabeled resting bars and PNG.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-roadmap-bar-name-labels.md`
+  summary: `emptyScope` is still `hours === 0`, not "no WBS links".
+  evidence: Pre-existing `toRoadmapRows` derivation in `roadmap.ts`; a linked item with zero estimates still gets the dashed treatment and now shows Name.
