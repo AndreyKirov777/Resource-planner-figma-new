@@ -21,7 +21,7 @@ rules:
     - List every file to touch, annotated with its role; name read-only files too
   tasks:
     - One task per file where possible; include a typecheck task and a focused-test task
-    - Docs task: update the affected openspec/specs delta, never the frozen archive
+    - "Docs task: update the affected openspec/specs delta, never the frozen archive"
 
 operations:
   apply:
