@@ -74,7 +74,8 @@ Resource planner figma/
 │   └── generated/                 # ⚠ Prisma client output — DO NOT EDIT (has stale "* 2.js" dup files)
 │
 ├── docs/                          # ── This documentation set ─────────────────────────────────────
-├── _bmad/ , _bmad-output/         # BMAD framework + generated artifacts (project-context.md)
+├── docs/bmad-archive/             # Frozen pre-OpenSpec planning history (project-context.md)
+├── openspec/                      # Current requirements (specs, changes) — see openspec/specs/
 ├── build/ , dist/                 # Build output (gitignored)
 └── logs/                          # run.sh logs (server.log, vite.log)
 ```
