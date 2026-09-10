@@ -2,7 +2,7 @@
 title: 'Roadmap lane summary bars: a lane draws its own span on the timeline'
 type: 'feature'
 created: '2026-08-22'
-status: 'planned'
+status: 'done'
 baseline_commit: '8b263d1511a8af8b91b6a2998d073c2cdbdfde32'
 context:
   - '{project-root}/_bmad-output/project-context.md'

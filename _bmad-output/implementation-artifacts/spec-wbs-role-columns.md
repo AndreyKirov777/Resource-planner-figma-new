@@ -2,7 +2,7 @@
 title: 'WBS role columns — TOTAL plus one hours column per Resource List role'
 type: 'feature'
 created: '2026-08-29'
-status: 'draft'
+status: 'done'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
