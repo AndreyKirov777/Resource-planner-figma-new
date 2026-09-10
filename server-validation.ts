@@ -235,7 +235,7 @@ export type WbsItemCreateInput = z.infer<typeof wbsItemCreateSchema>;
 export type WbsItemUpdateInput = z.infer<typeof wbsItemUpdateSchema>;
 
 // ---------------------------------------------------------------------------
-// Project Roadmap (Slice A) — see _bmad-output/specs/spec-roadmap/data-model.md
+// Project Roadmap (Slice A) — see docs/bmad-archive/specs/spec-roadmap/data-model.md
 // ---------------------------------------------------------------------------
 
 export const roadmapLaneCreateSchema = z.object({

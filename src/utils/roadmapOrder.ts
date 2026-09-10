@@ -2,7 +2,7 @@
  * Turns a resolved vertical-drag target into the wire payload for
  * `PATCH /api/projects/:id/roadmap/reorder`, and captures the pre-drag
  * order for Undo. Pure — no React, no DOM. See
- * `_bmad-output/implementation-artifacts/spec-roadmap-vertical-drag.md`.
+ * `docs/bmad-archive/implementation-artifacts/spec-roadmap-vertical-drag.md`.
  *
  * Kept deliberately simple: rather than diff row-by-row, both lanes/items
  * touched by a move are always renumbered and emitted in full (renumbering

@@ -152,7 +152,7 @@ model WbsEstimate {
 }
 
 // ---------------------------------------------------------------------------
-// Project Roadmap (Slice A) — see _bmad-output/specs/spec-roadmap/data-model.md
+// Project Roadmap (Slice A) — see docs/bmad-archive/specs/spec-roadmap/data-model.md
 // Flat by design: lanes hold items; items hold nothing. No nesting.
 // ---------------------------------------------------------------------------
 

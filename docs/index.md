@@ -38,7 +38,8 @@ _Generated: 2026-06-30 · Initial scan (deep) · This is the primary entry point
 - [README.md](../README.md) — feature overview + test-guarded API list
 - [DEPLOYMENT.md](../DEPLOYMENT.md) · [DEPLOYMENT_SUMMARY.md](../DEPLOYMENT_SUMMARY.md) — deployment runbook
 - [docs/ai-resource-plan-generation-spec.md](./ai-resource-plan-generation-spec.md) — AI plan-generation spec
-- [_bmad-output/project-context.md](../_bmad-output/project-context.md) — **agent rules & conventions (read first when coding)**
+- [bmad-archive/project-context.md](bmad-archive/project-context.md) — **agent rules & conventions (read first when coding)**
+- [bmad-archive/](bmad-archive/) — frozen pre-OpenSpec planning history; current requirements live in `openspec/specs/`
 - [src/guidelines/Guidelines.md](../src/guidelines/Guidelines.md) — design guidelines
 
 ## Getting Started
@@ -62,11 +63,11 @@ for production.
 4. **Region slug ≠ DB column** (`eastern-europe` vs `easternEurope`).
 5. **Strict Zod** — strip `id`/timestamps/relation IDs before POST/PUT.
 6. **Right grid per component** — Glide (ResourcePlan, ClientView) vs AG Grid (ResourceList, RateCard).
-7. **Trust the code over the README**; conventions captured in `_bmad-output/project-context.md`.
+7. **Trust the code over the README**; conventions captured in `bmad-archive/project-context.md`.
 
 ## For AI Agents
 
-- **Read [_bmad-output/project-context.md](../_bmad-output/project-context.md) first** — it encodes the
+- **Read [bmad-archive/project-context.md](bmad-archive/project-context.md) first** — it encodes the
   non-obvious rules.
 - Schema source of truth: [prisma/schema.prisma](../prisma/schema.prisma). API source of truth:
   [server.ts](../server.ts) + [src/services/api.ts](../src/services/api.ts).

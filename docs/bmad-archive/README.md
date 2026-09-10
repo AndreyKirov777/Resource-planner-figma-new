@@ -1,0 +1,1 @@
+Frozen 2026-09-10. BMAD Method output, kept as history. Current requirements live in `openspec/specs/`; new work goes through `/opsx:propose`. Do not edit files here. `implementation-artifacts/deferred-work.md` is the only file that still changes.

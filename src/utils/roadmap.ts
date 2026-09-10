@@ -1,7 +1,7 @@
 /**
  * The roadmap's pure logic: link inheritance, scope/effort, coverage,
  * bootstrap and the period<->calendar adapters. No React, no DOM — see
- * `_bmad-output/specs/spec-roadmap/data-model.md` for the frozen contract.
+ * `docs/bmad-archive/specs/spec-roadmap/data-model.md` for the frozen contract.
  *
  * "Leaf" below follows the spec's usage, not tree topology: it means "a WBS
  * node's OWN estimate rows", exactly the unit `rollupHours`/`buildReconciliationReport`

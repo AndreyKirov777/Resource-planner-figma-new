@@ -3,7 +3,7 @@
 _Generated: 2026-06-30 · Deep scan_
 
 How to set up, run, test, and extend the app locally. Authoritative scripts live in
-[package.json](../package.json); conventions in [_bmad-output/project-context.md](../_bmad-output/project-context.md).
+[package.json](../package.json); conventions in [bmad-archive/project-context.md](bmad-archive/project-context.md).
 
 ## Prerequisites
 

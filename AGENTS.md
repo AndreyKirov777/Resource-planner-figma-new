@@ -1,11 +1,14 @@
-<!-- bmad:context -->
-<!-- Verified 2026-08-14 against f50b922. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
-
 ## Resource Planning Application
 
 Staffing plans with cost, effort and margin estimation. React 18 + Vite + TypeScript SPA over a
 single-file Express 5 + Prisma API on SQLite. Generated reference docs live in `docs/` — start at
-`docs/index.md`; BMad planning artifacts in `_bmad-output/`.
+`docs/index.md`.
+
+## Workflow
+
+Requirements live in `openspec/specs/`; they are current truth. Propose a change with
+`/opsx:propose` before writing code, and archive it on merge. `docs/bmad-archive/` is frozen
+history from the project's prior planning method — read-only, not where new decisions go.
 
 ## Policy
 
@@ -36,5 +39,3 @@ single-file Express 5 + Prisma API on SQLite. Generated reference docs live in `
 
 - On the Cursor Cloud VM, `node_modules/.bin` shims lose their execute bit after `npm install`
   (`sh: 1: vite: Permission denied`). Fix with `chmod +x node_modules/.bin/*`.
-
-<!-- /bmad:context -->

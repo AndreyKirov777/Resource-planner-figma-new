@@ -2,7 +2,7 @@
  * Reconciliation engine: compares the WBS's bottom-up hour estimates against
  * the resource plan's top-down allocations, at project-total, per-discipline,
  * and per-phase-x-discipline granularity. Pure, no React/DOM — see
- * `_bmad-output/implementation-artifacts/spec-wbs-3-reconciliation-engine.md`
+ * `docs/bmad-archive/implementation-artifacts/spec-wbs-3-reconciliation-engine.md`
  * for the frozen contract this implements.
  *
  * Deliberately reuses existing pure helpers rather than re-deriving their

@@ -156,7 +156,7 @@ Six SQLite tables (full detail in [data-models.md](./data-models.md)):
   add the alias if you add such an import.
 - **Excel rate-card import requires the `"RMNG RATES"` sheet.**
 - **Trust the code over the README** where they disagree; conventions are captured in
-  [_bmad-output/project-context.md](../_bmad-output/project-context.md).
+  [bmad-archive/project-context.md](bmad-archive/project-context.md).
 
 ## Testing Strategy
 

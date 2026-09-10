@@ -164,7 +164,7 @@ export interface WbsItem {
   estimates: WbsEstimate[];
 }
 
-// Roadmap (Slice A: CAP-1..7, 11, 12) — see _bmad-output/specs/spec-roadmap/data-model.md
+// Roadmap (Slice A: CAP-1..7, 11, 12) — see docs/bmad-archive/specs/spec-roadmap/data-model.md
 
 export type RoadmapItemKind = 'bar' | 'milestone' | 'spread';
 

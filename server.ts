@@ -1374,7 +1374,7 @@ app.put('/api/wbs-items/:id/estimates', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Project Roadmap (Slice A) — see _bmad-output/specs/spec-roadmap/data-model.md
+// Project Roadmap (Slice A) — see docs/bmad-archive/specs/spec-roadmap/data-model.md
 //
 // Two invariants enforced at the boundary, both 400: wbsItem.projectId ===
 // roadmapItem.projectId, and a milestone never carries scope.

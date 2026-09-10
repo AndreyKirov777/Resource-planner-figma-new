@@ -2,7 +2,7 @@
  * The roadmap's demand engine (Slice B, CAP-8): derives, from linked effort
  * and roadmap windows, how much of each role/discipline is needed in each
  * period, and compares it with Resource Plan supply. Pure, no React/DOM — see
- * `_bmad-output/specs/spec-roadmap/data-model.md`'s "Demand engine" section
+ * `docs/bmad-archive/specs/spec-roadmap/data-model.md`'s "Demand engine" section
  * for the frozen contract this implements.
  *
  * ONE engine, five readers (the bar's stripe, the tooltip's supply lines, the

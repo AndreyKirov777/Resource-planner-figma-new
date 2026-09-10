@@ -50,7 +50,7 @@ backend live in one repository and ship as one Docker image.
 | Testing | Vitest / Testing Library / supertest | 4 / 16 / 7 | `environment: jsdom`, `globals: true` |
 
 > Versions and rules above are the authoritative agent context captured in
-> [_bmad-output/project-context.md](../_bmad-output/project-context.md). Where this overview and the
+> [bmad-archive/project-context.md](bmad-archive/project-context.md). Where this overview and the
 > code disagree, trust the code (`prisma/schema.prisma`, `server.ts`, `src/services/api.ts`).
 
 ## Architecture Type
@@ -95,5 +95,5 @@ See [source-tree-analysis.md](./source-tree-analysis.md) for the annotated tree.
 - [README.md](../README.md) — feature overview + test-guarded API list
 - [DEPLOYMENT.md](../DEPLOYMENT.md) / [DEPLOYMENT_SUMMARY.md](../DEPLOYMENT_SUMMARY.md) — deployment runbook
 - [docs/ai-resource-plan-generation-spec.md](./ai-resource-plan-generation-spec.md) — spec for AI-assisted plan generation
-- [_bmad-output/project-context.md](../_bmad-output/project-context.md) — agent rules & conventions
+- [bmad-archive/project-context.md](bmad-archive/project-context.md) — agent rules & conventions
 - [src/guidelines/Guidelines.md](../src/guidelines/Guidelines.md) — design guidelines

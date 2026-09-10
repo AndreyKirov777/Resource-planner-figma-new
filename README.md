@@ -225,7 +225,7 @@
 
   ### Keeping this README accurate
   This README rotted once because it duplicated details that live in code. To prevent that:
-  - **Source of truth lives in code.** For anything beyond a high-level overview, link to the real file (`prisma/schema.prisma`, `server.ts`, `src/services/api.ts`) instead of re-describing it here. Conventions and gotchas are captured in [`_bmad-output/project-context.md`](_bmad-output/project-context.md).
+  - **Source of truth lives in code.** For anything beyond a high-level overview, link to the real file (`prisma/schema.prisma`, `server.ts`, `src/services/api.ts`) instead of re-describing it here. Conventions and gotchas are captured in [`docs/bmad-archive/project-context.md`](docs/bmad-archive/project-context.md).
   - **The API list is test-guarded.** `readme.test.ts` parses the routes out of `server.ts` and fails `npm test` if the README's endpoint list drifts (missing, extra, or renamed routes). Keep the two in sync.
 
   ## Technologies Used
