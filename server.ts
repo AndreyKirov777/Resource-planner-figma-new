@@ -754,6 +754,12 @@ app.delete('/api/resource-lists/:id', async (req, res) => {
 });
 
 // Resource Plan endpoints
+// D6 (2026-08-12 WBS proposal): plan-side role is constrained to the project's resource
+// list once it has entries; an empty list leaves rows unconstrained.
+function isRoleAllowed(role: string, resourceList: { role: string }[]): boolean {
+  return resourceList.length === 0 || resourceList.some(r => r.role === role);
+}
+
 app.get('/api/projects/:projectId/resource-plans', async (req, res) => {
   try {
     const resourcePlans = await prisma.resourcePlan.findMany({
@@ -776,6 +782,12 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
     const parsed = resourcePlanCreateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    const resourceList = await prisma.resourceList.findMany({
+      where: { projectId: parseInt(req.params.projectId) }
+    });
+    if (!isRoleAllowed(parsed.data.role, resourceList)) {
+      return res.status(400).json({ error: 'Validation failed', details: 'role must match an entry in the project resource list' });
     }
     const validAllocations = (parsed.data.allocations || [])
       .filter(a => a.periodNumber > 0)
@@ -817,6 +829,19 @@ app.put('/api/resource-plans/:id', async (req, res) => {
     const parsed = resourcePlanUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    if (parsed.data.role !== undefined) {
+      const existing = await prisma.resourcePlan.findUnique({
+        where: { id: parseInt(req.params.id) },
+        select: { projectId: true }
+      });
+      if (!existing) {
+        return res.status(404).json({ error: 'Resource plan not found', details: 'The resource plan you are trying to update does not exist' });
+      }
+      const resourceList = await prisma.resourceList.findMany({ where: { projectId: existing.projectId } });
+      if (!isRoleAllowed(parsed.data.role, resourceList)) {
+        return res.status(400).json({ error: 'Validation failed', details: 'role must match an entry in the project resource list' });
+      }
     }
     const { allocations: incomingAllocations, ...updateData } = parsed.data;
 

@@ -523,6 +523,12 @@ export function ResourcePlan({
     return empty;
   }, [resourcePlans, periodNumbers, currencySymbol, resourceLists, removeRole, project.exchangeRate, visibleLeadColumns]);
 
+  // D6 (2026-08-12 WBS proposal): a role is allowed once the project has resources listed
+  // and it matches one of them; an empty resource list leaves plan roles unconstrained.
+  const validateRole = useCallback((role: string): boolean => {
+    return resourceLists.length === 0 || resourceLists.some(r => r.role === role);
+  }, [resourceLists]);
+
   // Handle cell editing
   const onCellEdited = useCallback((cell: Item, newValue: EditableGridCell) => {
     const [col, row] = cell;
@@ -532,7 +538,9 @@ export function ResourcePlan({
     const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length);
 
     if (resolved.kind === 'lead') {
-      // Rate card role (free-text fallback; primary path is the role picker dialog)
+      // Role cell: primary path is the role picker dialog. Typed text is matched against
+      // the project resource list; an unmatched value reverts once the list is non-empty
+      // (D6 — plan-side roles are constrained to the resource list, not free text).
       if (resolved.id === 'role' && newValue.kind === GridCellKind.Text) {
         const newRole = newValue.data;
         // An ambiguous role still has to land somewhere here, so fall back to the first match.
@@ -544,11 +552,11 @@ export function ResourcePlan({
           const defaultMargin = project.defaultMargin || 25.0;
           const marginDecimal = defaultMargin / 100;
           const clientHourlyRate = calcClientHourlyRate(selectedResource.intRate, marginDecimal, project.exchangeRate);
-          
+
           const updatedResourcePlans = resourcePlans.map(p =>
             p.id === plan.id
-              ? { 
-                  ...p, 
+              ? {
+                  ...p,
                   role: selectedResource.role,
                   intHourlyRate: selectedResource.intRate,
                   clientHourlyRate: clientHourlyRate,
@@ -558,6 +566,10 @@ export function ResourcePlan({
               : p
           );
           onResourcePlansChange(updatedResourcePlans);
+        } else if (!validateRole(newRole)) {
+          // No match, and the resource list is non-empty (or the role is otherwise
+          // invalid): revert instead of persisting free text.
+          return;
         } else {
           const updatedResourcePlans = resourcePlans.map(p =>
             p.id === plan.id ? { ...p, role: newRole } : p
@@ -630,7 +642,7 @@ export function ResourcePlan({
       
       onResourcePlansChange(updatedResourcePlans);
     }
-  }, [resourcePlans, periodNumbers, resourceLists, project.defaultMargin, project.exchangeRate, onResourcePlansChange, visibleLeadColumns]);
+  }, [resourcePlans, periodNumbers, resourceLists, project.defaultMargin, project.exchangeRate, onResourcePlansChange, visibleLeadColumns, validateRole]);
 
   // Handle batch cell edits (used by fill handle)
   const onCellsEdited = useCallback((newValues: readonly { location: Item; value: EditableGridCell }[]) => {
@@ -871,8 +883,10 @@ export function ResourcePlan({
 
   const addRole = useCallback(() => {
     // Send only fields allowed by server resourcePlanCreateSchema (strict): role, clientRole, name, intHourlyRate, clientHourlyRate, allocations (each only periodNumber + allocation)
+    // Seed from the project's resource list when there is one (D6): the server now rejects
+    // a role outside it, so an arbitrary placeholder would fail on create.
     const newResourcePlan = {
-      role: 'New role', // placeholder; schema requires min(1); user can change via grid or role picker
+      role: resourceLists[0]?.role ?? 'New role',
       clientRole: undefined as string | undefined,
       name: undefined as string | undefined,
       intHourlyRate: 0,
@@ -883,11 +897,7 @@ export function ResourcePlan({
       }))
     };
     onAddResourcePlan(newResourcePlan);
-  }, [periodNumbers, onAddResourcePlan]);
-
-  const validateRole = useCallback((role: string): boolean => {
-    return resourceLists.some(r => r.role === role);
-  }, [resourceLists]);
+  }, [periodNumbers, onAddResourcePlan, resourceLists]);
 
   // Handle header context menu (right-click on column headers)
   const handleHeaderContextMenu = useCallback((colIndex: number, event: HeaderClickedEventArgs) => {

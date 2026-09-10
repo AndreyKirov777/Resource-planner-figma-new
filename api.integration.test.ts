@@ -12,6 +12,7 @@ const TEST_PROJECT_NAMES = [
   'Updated Name',
   'Strict Test',
   'Rate Card Test',
+  'Role Constraint Test',
 ];
 
 // Resource plan created by "Resource plans and weekly allocations" test – used for cleanup so it doesn't persist in the DB
@@ -209,6 +210,50 @@ describe('API integration', () => {
       const found = plansRes.body.find((p: { id: number }) => p.id === planId);
       expect(found).toBeDefined();
       expect(found?.weeklyAllocations?.length).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('Plan-side role constraint (D6)', () => {
+    it('accepts a role matching the project resource list, rejects one that does not, and stays unconstrained when the list is empty', async () => {
+      const projectRes = await request(app).post('/api/projects').send({ name: 'Role Constraint Test' });
+      expect(projectRes.status).toBe(200);
+      const projectId = projectRes.body.id;
+
+      // Empty resource list: any role is accepted (regression guard for existing behavior).
+      const unconstrainedRes = await request(app)
+        .post(`/api/projects/${projectId}/resource-plans`)
+        .send({ role: 'Anything Goes' });
+      expect(unconstrainedRes.status).toBe(200);
+
+      const resourceListRes = await request(app)
+        .post(`/api/projects/${projectId}/resource-lists`)
+        .send({ role: 'Backend Developer', intRate: 40 });
+      expect(resourceListRes.status).toBe(200);
+
+      // Non-empty list: a matching role is accepted.
+      const matchingRes = await request(app)
+        .post(`/api/projects/${projectId}/resource-plans`)
+        .send({ role: 'Backend Developer' });
+      expect(matchingRes.status).toBe(200);
+      const planId = matchingRes.body.id;
+
+      // Non-empty list: a non-matching role is rejected, both on create and update.
+      const rejectedCreateRes = await request(app)
+        .post(`/api/projects/${projectId}/resource-plans`)
+        .send({ role: 'Not On The List' });
+      expect(rejectedCreateRes.status).toBe(400);
+
+      const rejectedUpdateRes = await request(app)
+        .put(`/api/resource-plans/${planId}`)
+        .send({ role: 'Also Not On The List' });
+      expect(rejectedUpdateRes.status).toBe(400);
+
+      // Updating a field other than role is unaffected.
+      const otherFieldRes = await request(app)
+        .put(`/api/resource-plans/${planId}`)
+        .send({ intHourlyRate: 55 });
+      expect(otherFieldRes.status).toBe(200);
+      expect(otherFieldRes.body.role).toBe('Backend Developer');
     });
   });
 });

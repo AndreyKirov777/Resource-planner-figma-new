@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { GridCellKind } from '@glideapps/glide-data-grid';
 import { ResourcePlan } from './ResourcePlan';
 import type { Project, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType } from '../services/api';
 import { columnStorageKey } from './planningColumns';
@@ -19,11 +20,18 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
+// Captures the grid's onCellEdited prop so tests can invoke it directly — the grid
+// itself renders to canvas and cannot be driven through the DOM.
+const capturedGridProps: { onCellEdited?: (cell: [number, number], newValue: unknown) => void } = {};
+
 vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
   const actual = await importOriginal() as object;
   return {
     ...actual,
-    default: () => <div data-testid="glide-grid">Grid</div>,
+    default: (props: { onCellEdited?: (cell: [number, number], newValue: unknown) => void }) => {
+      capturedGridProps.onCellEdited = props.onCellEdited;
+      return <div data-testid="glide-grid">Grid</div>;
+    },
   };
 });
 
@@ -373,5 +381,90 @@ describe('ResourcePlan', () => {
 
     expect(screen.getByText('Calculated Project Margin').closest('div')).toHaveTextContent('55.5%');
     expect(onResourcePlansChange).not.toHaveBeenCalled();
+  });
+
+  describe('Plan-side role constraint (D6)', () => {
+    const resourceList: ResourceListType[] = [
+      { id: 1, role: 'Backend Developer', intRate: 40, projectId: 1, createdAt: '', updatedAt: '' },
+    ];
+    const rolePlan: ResourcePlanType = {
+      id: 7,
+      role: 'Backend Developer',
+      intHourlyRate: 40,
+      clientHourlyRate: 60,
+      displayOrder: 0,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+      allocations: [],
+    };
+
+    it('reverts an unmatched typed role once the resource list is non-empty', () => {
+      const onResourcePlansChange = vi.fn();
+      render(
+        <ResourcePlan
+          {...defaultProps}
+          resourceLists={resourceList}
+          resourcePlans={[rolePlan]}
+          onResourcePlansChange={onResourcePlansChange}
+        />
+      );
+
+      capturedGridProps.onCellEdited?.([1, 0], { kind: GridCellKind.Text, data: 'Not On The List' } as never);
+
+      expect(onResourcePlansChange).not.toHaveBeenCalled();
+    });
+
+    it('still accepts a typed role when the resource list is empty', () => {
+      const onResourcePlansChange = vi.fn();
+      render(
+        <ResourcePlan
+          {...defaultProps}
+          resourceLists={[]}
+          resourcePlans={[rolePlan]}
+          onResourcePlansChange={onResourcePlansChange}
+        />
+      );
+
+      capturedGridProps.onCellEdited?.([1, 0], { kind: GridCellKind.Text, data: 'Whatever' } as never);
+
+      expect(onResourcePlansChange).toHaveBeenCalledWith([{ ...rolePlan, role: 'Whatever' }]);
+    });
+
+    it('seeds a new row from the resource list when it has entries', async () => {
+      const user = userEvent.setup();
+      const onAddResourcePlan = vi.fn();
+      render(
+        <ResourcePlan
+          {...defaultProps}
+          resourceLists={resourceList}
+          onAddResourcePlan={onAddResourcePlan}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /add role/i }));
+
+      expect(onAddResourcePlan).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'Backend Developer' })
+      );
+    });
+
+    it('falls back to the placeholder role when the resource list is empty', async () => {
+      const user = userEvent.setup();
+      const onAddResourcePlan = vi.fn();
+      render(
+        <ResourcePlan
+          {...defaultProps}
+          resourceLists={[]}
+          onAddResourcePlan={onAddResourcePlan}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /add role/i }));
+
+      expect(onAddResourcePlan).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'New role' })
+      );
+    });
   });
 });
