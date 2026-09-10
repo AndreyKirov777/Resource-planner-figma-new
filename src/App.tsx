@@ -787,7 +787,13 @@ export default function App() {
       const periodLbl = isMonthlyExport ? 'Month' : 'Week';
       const hrsPerPrd = hoursPerPeriod(planMode, currentProject.daysInFTE);
 
-      const financials = buildPlanFinancials(resourcePlans, phases, hrsPerPrd, currentProject.exchangeRate);
+      const financials = buildPlanFinancials(
+        resourcePlans,
+        phases,
+        hrsPerPrd,
+        currentProject.exchangeRate,
+        currentProject.investment ?? 0,
+      );
       const financialsByPlan = new Map(financials.rows.map((r) => [r.plan, r]));
 
       const totalWeeks = phases.reduce((s, p) => s + (p.periodCount ?? p.weekCount ?? 0), 0);
@@ -851,7 +857,7 @@ export default function App() {
         'Margin (%)',
         ...weekNumbers.map((w) => `${periodLbl} ${w} (%)`),
         'Total Internal Cost ($)',
-        `Total Price (${currencySymbol})`,
+        `Total cost (${currencySymbol})`,
         'Estimated Efforts (h)',
       ];
       const headerRow = worksheet.addRow(headers);
@@ -943,6 +949,28 @@ export default function App() {
         if (r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
       });
 
+      // Project financial summary (investment-aware)
+      worksheet.addRow([]);
+      const finSummaryTitle = worksheet.addRow(['Financial Summary']);
+      finSummaryTitle.font = { bold: true };
+      const investmentAmount = currentProject.investment ?? 0;
+      const investmentPctLabel = financials.totals.investmentPct == null
+        ? '—'
+        : Math.round(financials.totals.investmentPct * 100) / 100;
+      ([
+        ['Total Internal Cost ($)', Math.round(financials.totals.intCost * 100) / 100],
+        [`Total cost (${currencySymbol})`, Math.round(financials.totals.price * 100) / 100],
+        [`Discounted cost (${currencySymbol})`, Math.round(financials.totals.discountedCost * 100) / 100],
+        [`Investment (${currencySymbol})`, Math.round(investmentAmount * 100) / 100],
+        ['Investment %', investmentPctLabel],
+        ['Project Margin (%)', Math.round(financials.totals.margin * 100) / 100],
+        [`Blended Hourly Rate (${currencySymbol})`, Math.round(financials.totals.blendedHourlyRate * 100) / 100],
+        [`Blended Daily Rate (${currencySymbol})`, Math.round(financials.totals.blendedDailyRate * 100) / 100],
+      ] as Array<[string, string | number]>).forEach(([label, value]) => {
+        const row = worksheet.addRow([label, value]);
+        row.getCell(1).font = { bold: true };
+      });
+
       // Auto-fit columns
       worksheet.columns.forEach((column) => {
         if (column.eachCell) {
@@ -1029,7 +1057,13 @@ export default function App() {
       : currentProject.clientCurrency === 'GBP' ? '£' : '$';
 
     // Per-row financial data
-    const financials = buildPlanFinancials(resourcePlans, phases, hrsPerPrd, currentProject.exchangeRate);
+    const financials = buildPlanFinancials(
+      resourcePlans,
+      phases,
+      hrsPerPrd,
+      currentProject.exchangeRate,
+      currentProject.investment ?? 0,
+    );
     const rows = financials.rows.map(({ plan, effortHours, intCost, price, margin }) => ({
       role: plan.role || '',
       clientRole: plan.clientRole || '',
@@ -1048,10 +1082,15 @@ export default function App() {
     // Project-level totals
     const grandIntCost = financials.totals.intCost;
     const grandPrice = financials.totals.price;
+    const grandDiscounted = financials.totals.discountedCost;
     const grandEfforts = financials.totals.effortHours;
     const projectMargin = financials.totals.margin;
     const blendedHourlyRate = financials.totals.blendedHourlyRate;
     const blendedDailyRate = financials.totals.blendedDailyRate;
+    const investmentAmount = currentProject.investment ?? 0;
+    const investmentPctDisplay = financials.totals.investmentPct == null
+      ? '—'
+      : `${financials.totals.investmentPct.toFixed(1)}%`;
 
     // ── Canvas layout constants ──────────────────────────────────────────────
     const SCALE = 2; // retina / HiDPI
@@ -1059,7 +1098,7 @@ export default function App() {
     const HEADER_H = 88;      // project title + date
     const COL_H = 38;         // column header row
     const ROW_H = 30;         // data row
-    const SUMMARY_H = 240;    // financial summary card (3 rows of metrics)
+    const SUMMARY_H = 300;    // financial summary card (investment metrics)
     const GAP = 24;           // vertical gap between sections
 
     const columns = [
@@ -1071,7 +1110,7 @@ export default function App() {
       { label: `Client Hourly (${currencySymbol})`, w: 120 },
       { label: 'Margin %',                          w: 80  },
       { label: 'Total Int. Cost ($)',               w: 130 },
-      { label: `Total Price (${currencySymbol})`,   w: 120 },
+      { label: `Total cost (${currencySymbol})`,    w: 120 },
       { label: 'Est. Efforts (h)',                  w: 110 },
     ];
 
@@ -1240,7 +1279,10 @@ export default function App() {
 
     const metrics = [
       { label: 'Total Internal Cost',                      value: `$${Math.round(grandIntCost).toLocaleString()}` },
-      { label: `Total Price (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandPrice).toLocaleString()}` },
+      { label: `Total cost (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandPrice).toLocaleString()}` },
+      { label: `Discounted cost (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandDiscounted).toLocaleString()}` },
+      { label: `Investment (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(investmentAmount).toLocaleString()}` },
+      { label: 'Investment %',                             value: investmentPctDisplay },
       { label: 'Total Estimated Efforts',                  value: `${Math.round(grandEfforts).toLocaleString()} h` },
       { label: pngDurationLabel,                           value: `${totalPeriods}` },
       { label: 'Project Margin',                           value: `${projectMargin.toFixed(1)}%`, highlight: projectMargin > 0 },
@@ -1248,7 +1290,7 @@ export default function App() {
       { label: `Blended Daily Rate (${currentProject.clientCurrency})`,  value: `${currencySymbol}${blendedDailyRate.toFixed(0)}` },
     ];
 
-    const METRICS_COLS = 3;
+    const METRICS_COLS = 4;
     const metricW = cardW / METRICS_COLS;
     metrics.forEach((m, i) => {
       const col = i % METRICS_COLS;

@@ -19,6 +19,7 @@ model Project {
   clientCurrency  String          @default("EUR")
   exchangeRate    Float           @default(0.89)
   defaultMargin   Float?          @default(45.0)
+  investment      Float           @default(0)
   planningMode    String          @default("weekly")
   defaultLocation String?         @default("ukraine")
   phases          String?         @default("[{\"name\":\"Phase 1\",\"periodCount\":8,\"color\":\"#E3F2FD\"}]")

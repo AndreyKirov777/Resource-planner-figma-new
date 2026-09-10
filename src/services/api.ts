@@ -70,6 +70,8 @@ export interface Project {
   clientCurrency: string;
   exchangeRate: number;
   defaultMargin?: number;
+  /** Deal investment / discount amount in client currency */
+  investment?: number;
   planningMode: string; // 'weekly' | 'monthly'
   defaultLocation?: string;
   phases?: string;

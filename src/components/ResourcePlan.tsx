@@ -240,8 +240,8 @@ export function ResourcePlan({
   const hrsPerPeriod = hoursPerPeriod(planningMode, project.daysInFTE);
 
   const financials = useMemo(
-    () => buildPlanFinancials(resourcePlans, phases, hrsPerPeriod, project.exchangeRate),
-    [resourcePlans, phases, hrsPerPeriod, project.exchangeRate]
+    () => buildPlanFinancials(resourcePlans, phases, hrsPerPeriod, project.exchangeRate, project.investment ?? 0),
+    [resourcePlans, phases, hrsPerPeriod, project.exchangeRate, project.investment]
   );
   const financialsByPlan = useMemo(
     () => new Map(financials.rows.map((r) => [r.plan, r])),
@@ -1008,6 +1008,8 @@ export function ResourcePlan({
     return {
       totalIntCost: t.intCost,
       totalPrice: t.price,
+      discountedCost: t.discountedCost,
+      investmentPct: t.investmentPct,
       totalEfforts: t.effortHours,
       calculatedMargin: t.margin,
       blendedHourlyRate: t.blendedHourlyRate,
@@ -1240,34 +1242,81 @@ export function ResourcePlan({
       </Card>
       <Card>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-7 gap-4">
-            <div>
+          <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+            <div className="min-w-[7rem]">
               <Label>Total Internal Cost</Label>
               <div className="text-lg">${Math.round(totals.totalIntCost)}</div>
             </div>
-            <div>
-              <Label>Total Price</Label>
+            <div className="min-w-[7rem]">
+              <Label>Total cost</Label>
               <div className="text-lg">{currencySymbol}{Math.round(totals.totalPrice)}</div>
             </div>
-            <div>
+            <div className="min-w-[7rem]">
+              <Label>Discounted cost</Label>
+              <div className="text-lg">{currencySymbol}{Math.round(totals.discountedCost)}</div>
+            </div>
+            <div className="min-w-[7rem]">
               <Label>Total Estimated Efforts</Label>
               <div className="text-lg">{Math.round(totals.totalEfforts)}h</div>
             </div>
-            <div>
+            <div className="min-w-[6rem]">
               <Label>Duration ({periodLabelPlural.toLowerCase()})</Label>
               <div className="text-lg">{totalPeriods}</div>
             </div>
-            <div>
+            <div className="min-w-[7rem]">
               <Label>Calculated Project Margin</Label>
               <div className="text-lg">{totals.calculatedMargin.toFixed(1)}%</div>
             </div>
-            <div>
+            <div className="min-w-[7rem]">
               <Label>Blended Hourly Rate</Label>
               <div className="text-lg">{currencySymbol}{totals.blendedHourlyRate.toFixed(0)}</div>
             </div>
-            <div>
-              <Label>Blended Daily Rate</Label>
-              <div className="text-lg">{currencySymbol}{totals.blendedDailyRate.toFixed(0)}</div>
+            {/* Keep Blended Daily Rate and Investment on the same line together */}
+            <div className="flex shrink-0 items-end gap-4">
+              <div className="min-w-[7rem]">
+                <Label>Blended Daily Rate</Label>
+                <div className="text-lg">{currencySymbol}{totals.blendedDailyRate.toFixed(0)}</div>
+              </div>
+              <div
+                className="flex items-end gap-3 rounded-lg border px-3 py-1.5"
+                style={{
+                  backgroundColor: '#fffbeb',
+                  borderColor: '#fde68a',
+                  borderLeftWidth: 3,
+                  borderLeftColor: '#d97706',
+                }}
+              >
+                <div className="space-y-0.5">
+                  <span className="text-xs font-medium uppercase tracking-wide text-amber-800">Investment</span>
+                  <Label htmlFor="investment" className="sr-only">Investment</Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                      {currencySymbol}
+                    </span>
+                    <Input
+                      id="investment"
+                      type="number"
+                      min={0}
+                      step="1"
+                      className="h-9 w-28 pl-6"
+                      value={Number.isFinite(project.investment) ? project.investment : 0}
+                      onChange={(e) => {
+                        const raw = parseFloat(e.target.value);
+                        onProjectSettingsChange({
+                          investment: Number.isFinite(raw) && raw >= 0 ? raw : 0,
+                        });
+                      }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>Investment %</Label>
+                  <div className="text-lg leading-tight">
+                    {totals.investmentPct == null ? '—' : `${totals.investmentPct.toFixed(1)}%`}
+                  </div>
+                  <div className="text-xs text-muted-foreground">of Total cost</div>
+                </div>
+              </div>
             </div>
           </div>
           {phaseTotals.length > 0 && (

@@ -100,11 +100,14 @@ describe('ResourcePlan', () => {
     expect(screen.getByPlaceholderText(/enter project name/i)).toBeInTheDocument();
   });
 
-  it('renders Total Internal Cost, Total Price, and Total Estimated Efforts in summary', () => {
+  it('renders Total Internal Cost, Total cost, Discounted cost, and Investment in summary', () => {
     render(<ResourcePlan {...defaultProps} />);
     expect(screen.getByText('Total Internal Cost')).toBeInTheDocument();
-    expect(screen.getByText('Total Price')).toBeInTheDocument();
+    expect(screen.getByText('Total cost')).toBeInTheDocument();
+    expect(screen.getByText('Discounted cost')).toBeInTheDocument();
     expect(screen.getByText('Total Estimated Efforts')).toBeInTheDocument();
+    expect(screen.getByLabelText('Investment')).toBeInTheDocument();
+    expect(screen.getByText('Investment %')).toBeInTheDocument();
   });
 
   it('displays zero totals when resourcePlans is empty', () => {
@@ -112,6 +115,50 @@ describe('ResourcePlan', () => {
     expect(screen.getByText('Total Internal Cost')).toBeInTheDocument();
     const internalCostDiv = screen.getByText('Total Internal Cost').closest('div')?.parentElement;
     expect(internalCostDiv?.textContent).toMatch(/\$0|0/);
+  });
+
+  it('shows Investment % and lowers project margin when investment is set', () => {
+    const plan: ResourcePlanType = {
+      id: 1,
+      role: 'Dev',
+      intHourlyRate: 200,
+      clientHourlyRate: 250,
+      displayOrder: 0,
+      projectId: 1,
+      createdAt: '',
+      updatedAt: '',
+      allocations: Array.from({ length: 10 }, (_, i) => ({
+        id: i + 1,
+        periodNumber: i + 1,
+        allocation: 100,
+        resourcePlanId: 1,
+        createdAt: '',
+        updatedAt: '',
+      })),
+    };
+    render(
+      <ResourcePlan
+        {...defaultProps}
+        project={{
+          ...mockProject,
+          clientCurrency: 'EUR',
+          exchangeRate: 0.89,
+          investment: 8000,
+          phases: JSON.stringify([{ name: 'Phase 1', periodCount: 10 }]),
+        }}
+        resourcePlans={[plan]}
+      />,
+    );
+    expect(screen.getByText('8.0%')).toBeInTheDocument();
+    expect(screen.getByText('22.6%')).toBeInTheDocument();
+    expect((screen.getByLabelText('Investment') as HTMLInputElement).value).toBe('8000');
+  });
+
+  it('persists investment edits via onProjectSettingsChange', () => {
+    const onProjectSettingsChange = vi.fn();
+    render(<ResourcePlan {...defaultProps} onProjectSettingsChange={onProjectSettingsChange} />);
+    fireEvent.change(screen.getByLabelText('Investment'), { target: { value: '1500' } });
+    expect(onProjectSettingsChange).toHaveBeenCalledWith({ investment: 1500 });
   });
 
   it('renders the Columns toggle in the Planning Table toolbar', () => {

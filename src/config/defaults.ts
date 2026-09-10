@@ -4,6 +4,7 @@ export const APP_DEFAULTS: {
   clientCurrency: string;
   exchangeRate: number;
   defaultMargin: number;
+  investment: number;
   planningMode: 'weekly' | 'monthly';
   defaultLocation: string;
   durationPeriods: number;
@@ -16,6 +17,8 @@ export const APP_DEFAULTS: {
   exchangeRate: 0.89,
   /** Default margin percentage applied to client rates */
   defaultMargin: 45,
+  /** Deal investment / discount amount in client currency */
+  investment: 0,
   /** Default planning granularity */
   planningMode: 'weekly',
   /** Default rate card region tab slug */

@@ -156,10 +156,63 @@ describe('calculations', () => {
       const { totals } = buildPlanFinancials(plans, phases, hrsPerPeriod, exchangeRate);
       expect(totals.intCost).toBeCloseTo(90980, 6);
       expect(totals.price).toBeCloseTo(161944.4, 6);
+      expect(totals.discountedCost).toBeCloseTo(161944.4, 6);
+      expect(totals.investmentPct).toBe(0);
       expect(totals.effortHours).toBeCloseTo(2994, 6);
       expect(totals.margin).toBeCloseTo(50, 6);
       expect(totals.blendedHourlyRate).toBeCloseTo(54.089645958583844, 6);
       expect(totals.blendedDailyRate).toBeCloseTo(432.71716766867075, 6);
+    });
+
+    it('applies investment as a discount against Total cost for project margin', () => {
+      // 10 × 100% × 40h = 400h; int = 80000; price = 100000; investment 8000
+      // margin = (92000 - 71200) / 92000 * 100
+      const bigPlan = plan(1, 200, 250, Array(10).fill(100));
+      const { totals } = buildPlanFinancials(
+        [bigPlan],
+        [{ name: 'Phase 1', periodCount: 10 }],
+        hrsPerPeriod,
+        exchangeRate,
+        8000,
+      );
+      expect(totals.intCost).toBeCloseTo(80000, 6);
+      expect(totals.price).toBeCloseTo(100000, 6);
+      expect(totals.discountedCost).toBeCloseTo(92000, 6);
+      expect(totals.investmentPct).toBeCloseTo(8, 6);
+      expect(totals.margin).toBeCloseTo(22.608695652173914, 6);
+      expect(totals.blendedHourlyRate).toBeCloseTo(250, 6);
+    });
+
+    it('clamps Discounted cost to 0 when investment exceeds Total cost', () => {
+      const p = plan(1, 50, 100, [100]);
+      const { totals } = buildPlanFinancials(
+        [p],
+        [{ name: 'Phase 1', periodCount: 1 }],
+        hrsPerPeriod,
+        1,
+        99999,
+      );
+      expect(totals.discountedCost).toBe(0);
+      expect(totals.margin).toBe(0);
+    });
+
+    it('returns null investmentPct and margin 0 when Total cost is 0', () => {
+      const p = plan(1, 50, 0, [100]);
+      const { totals } = buildPlanFinancials(
+        [p],
+        [{ name: 'Phase 1', periodCount: 1 }],
+        hrsPerPeriod,
+        1,
+        100,
+      );
+      expect(totals.investmentPct).toBeNull();
+      expect(totals.margin).toBe(0);
+    });
+
+    it('treats non-finite or negative investment as 0', () => {
+      const { totals } = buildPlanFinancials(plans, phases, hrsPerPeriod, exchangeRate, NaN);
+      expect(totals.discountedCost).toBeCloseTo(totals.price, 6);
+      expect(totals.margin).toBeCloseTo(50, 6);
     });
 
     it('matches the pre-refactor per-phase totals on real project data', () => {

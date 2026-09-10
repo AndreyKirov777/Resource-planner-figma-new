@@ -106,6 +106,10 @@ export interface PlanFinancialsRow {
 export interface PlanFinancialsTotals {
   intCost: number;
   price: number;
+  /** max(0, price − investment) — revenue after deal investment */
+  discountedCost: number;
+  /** Investment as % of Total cost; null when Total cost is 0 */
+  investmentPct: number | null;
   effortHours: number;
   margin: number;
   blendedHourlyRate: number;
@@ -151,14 +155,20 @@ function effortHoursOverWindow(
  * (Excel, PNG, the plan grid, the client view). `margin` is `null` when the
  * underlying `marginPct` is undefined (e.g. a zero client rate); callers that
  * need a display fallback apply their own `?? 0` at render time.
+ *
+ * `investment` is a project-level deal discount in client currency. Project
+ * margin uses Discounted cost (price − investment) as revenue; blended rates
+ * and per-phase margins stay on undiscounted price.
  */
 export function buildPlanFinancials(
   plans: ResourcePlan[],
   phases: Phase[],
   hoursPerPeriodValue: number,
   exchangeRate: number,
+  investment: number = 0,
 ): PlanFinancials {
   const totalPeriods = phases.reduce((sum, p) => sum + phaseLength(p), 0);
+  const safeInvestment = Number.isFinite(investment) && investment > 0 ? investment : 0;
 
   const rows: PlanFinancialsRow[] = plans.map((plan) => {
     const effortHours = effortHoursOverWindow(plan, 1, totalPeriods, hoursPerPeriodValue);
@@ -174,7 +184,9 @@ export function buildPlanFinancials(
   const intCost = rows.reduce((sum, r) => sum + r.intCost, 0);
   const price = rows.reduce((sum, r) => sum + r.price, 0);
   const effortHours = rows.reduce((sum, r) => sum + r.effortHours, 0);
-  const margin = grossMarginPct(intCost, price, exchangeRate);
+  const discountedCost = Math.max(0, price - safeInvestment);
+  const investmentPct = price > 0 ? (safeInvestment / price) * 100 : null;
+  const margin = grossMarginPct(intCost, discountedCost, exchangeRate);
   const blendedHourlyRate = effortHours > 0 ? price / effortHours : 0;
   const blendedDailyRate = blendedHourlyRate * 8;
 
@@ -201,5 +213,18 @@ export function buildPlanFinancials(
     return result;
   });
 
-  return { rows, totals: { intCost, price, effortHours, margin, blendedHourlyRate, blendedDailyRate }, phaseTotals };
+  return {
+    rows,
+    totals: {
+      intCost,
+      price,
+      discountedCost,
+      investmentPct,
+      effortHours,
+      margin,
+      blendedHourlyRate,
+      blendedDailyRate,
+    },
+    phaseTotals,
+  };
 }
