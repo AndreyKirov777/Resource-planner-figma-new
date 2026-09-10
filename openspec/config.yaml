@@ -1,0 +1,29 @@
+schema: spec-driven
+
+context: |
+  Resource Planner: staffing plans with cost, effort and margin. React 18 + Vite + TypeScript
+  SPA over a single-file Express 5 + Prisma API on SQLite. Three layers: WBS (what), Roadmap
+  (when), Resource Plan (who).
+  Full binding conventions (50 rules): docs/bmad-archive/project-context.md.
+  Frozen pre-OpenSpec history: docs/bmad-archive/ (read-only).
+  Backlog: docs/bmad-archive/implementation-artifacts/deferred-work.md.
+  Every REST endpoint is in server.ts; its Zod schema in server-validation.ts, all .strict().
+  Reach the API only through src/services/api.ts. Never hand-edit src/generated/prisma.
+  npm run typecheck must pass before work is called done; npm run build does not type-check.
+  Integration tests: await isolateTestDb('<unique>') before importing ./server.
+
+rules:
+  proposal:
+    - State Never (out of scope) and Ask First (needs a human decision) boundaries explicitly
+  specs:
+    - One SHALL per requirement; GIVEN/WHEN/THEN scenarios; keep the (was … CAP-N) tag when editing a seeded requirement
+  design:
+    - List every file to touch, annotated with its role; name read-only files too
+  tasks:
+    - One task per file where possible; include a typecheck task and a focused-test task
+    - Docs task: update the affected openspec/specs delta, never the frozen archive
+
+operations:
+  apply:
+    guidance:
+      - Run the focused vitest files first, then npm run typecheck
