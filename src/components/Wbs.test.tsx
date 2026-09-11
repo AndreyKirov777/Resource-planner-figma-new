@@ -313,6 +313,7 @@ const mockProject: Project = {
   exchangeRate: 1,
   defaultMargin: 25,
   planningMode: 'weekly',
+  status: 'active',
   phases: JSON.stringify([
     { name: 'Phase 1', periodCount: 4, color: '#E3F2FD' },
     { name: 'Phase 2', periodCount: 4, color: '#E8F5E9' },

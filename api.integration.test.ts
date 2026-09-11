@@ -13,6 +13,11 @@ const TEST_PROJECT_NAMES = [
   'Strict Test',
   'Rate Card Test',
   'Role Constraint Test',
+  'Status Create Default',
+  'Status Put Source',
+  'Status Copy Source',
+  'Status Copy Source (Copy)',
+  'Status List Archived',
 ];
 
 // Resource plan created by "Resource plans and weekly allocations" test – used for cleanup so it doesn't persist in the DB
@@ -93,6 +98,21 @@ describe('API integration', () => {
         .send({ name: 'P', id: 999, createdAt: 'x' });
       expect(res.status).toBe(400);
     });
+
+    it('defaults status to active when omitted', async () => {
+      const res = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Status Create Default' });
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('active');
+    });
+
+    it('rejects invalid status with 400', async () => {
+      const res = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Status Create Default', status: 'paused' });
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('PUT /api/projects/:id', () => {
@@ -116,6 +136,47 @@ describe('API integration', () => {
         .put(`/api/projects/${id}`)
         .send({ name: 'OK', id: 999 });
       expect(res.status).toBe(400);
+    });
+
+    it('updates status and still returns archived rows from GET /api/projects', async () => {
+      const createRes = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Status Put Source' });
+      const id = createRes.body.id;
+      const paused = await request(app)
+        .put(`/api/projects/${id}`)
+        .send({ status: 'paused' });
+      expect(paused.status).toBe(400);
+
+      const archived = await request(app)
+        .put(`/api/projects/${id}`)
+        .send({ status: 'archived' });
+      expect(archived.status).toBe(200);
+      expect(archived.body.status).toBe('archived');
+
+      const list = await request(app).get('/api/projects');
+      expect(list.status).toBe(200);
+      expect(list.body.some((p: { id: number; status: string }) => p.id === id && p.status === 'archived')).toBe(true);
+    });
+  });
+
+  describe('POST /api/projects/:id/copy', () => {
+    it('copies an archived project as active', async () => {
+      const createRes = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Status Copy Source' });
+      const id = createRes.body.id;
+      await request(app).put(`/api/projects/${id}`).send({ status: 'archived' });
+
+      const copyRes = await request(app)
+        .post(`/api/projects/${id}/copy`)
+        .send({ name: 'Status Copy Source (Copy)' });
+      expect(copyRes.status).toBe(200);
+      expect(copyRes.body.status).toBe('active');
+      expect(copyRes.body.id).not.toBe(id);
+
+      const source = await request(app).get(`/api/projects/${id}`);
+      expect(source.body.status).toBe('archived');
     });
   });
 

@@ -77,6 +77,7 @@ export interface Project {
   phases?: string;
   /** Anchors period 1 for the roadmap's calendar labels; null = ordinals only. */
   startDate?: string | null;
+  status: 'active' | 'archived';
   createdAt: string;
   updatedAt: string;
 }

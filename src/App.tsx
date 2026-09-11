@@ -4,6 +4,7 @@ import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
+import { Badge } from './components/ui/badge';
 import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
@@ -108,12 +109,13 @@ export default function App() {
           clientCurrency: 'EUR',
           exchangeRate: 0.89
         });
-      } else if (preferredProjectId) {
-        // Load the preferred project if specified
-        const found = projects.find(p => p.id === preferredProjectId);
-        project = found ? found : projects[0];
       } else {
-        project = projects[0];
+        const preferred = preferredProjectId
+          ? projects.find(p => p.id === preferredProjectId)
+          : undefined;
+        project = preferred
+          ?? projects.find(p => p.status === 'active')
+          ?? projects[0];
       }
       
       setCurrentProject(project);
@@ -1373,6 +1375,11 @@ export default function App() {
               Dismiss
             </button>
           </div>
+        </div>
+      )}
+      {currentProject.status === 'archived' && (
+        <div className="mb-3">
+          <Badge variant="secondary">Archived</Badge>
         </div>
       )}
       <Tabs value={activeTab} onValueChange={setActiveTab}>

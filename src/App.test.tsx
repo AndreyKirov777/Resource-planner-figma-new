@@ -7,7 +7,12 @@ import * as ExcelJS from 'exceljs';
 import App from './App';
 
 // App uses react-router hooks (useSearchParams); provide a Router context in tests.
-const renderApp = () => render(<App />, { wrapper: MemoryRouter });
+const renderApp = (initialEntries: string[] = ['/']) =>
+  render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <App />
+    </MemoryRouter>
+  );
 
 // Mock heavy grid components so App renders without canvas/ResizeObserver issues
 vi.mock('./components/ResourcePlan', () => ({
@@ -96,6 +101,7 @@ const mockProject = {
   exchangeRate: 1,
   defaultMargin: 25,
   planningMode: 'weekly',
+  status: 'active' as const,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 };
@@ -350,6 +356,34 @@ describe('App', () => {
     expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
     expect(screen.getByTestId('resource-plan')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+  });
+
+  it('boots into an active project when the URL has no project id', async () => {
+    const api = await getApi();
+    const archived = { ...mockProject, id: 1, name: 'Old Archived', status: 'archived' as const };
+    const active = { ...mockProject, id: 2, name: 'Live Active', status: 'active' as const };
+    vi.mocked(api.getProjects).mockResolvedValue([archived, active]);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(api.getResourceLists).toHaveBeenCalledWith(2);
+    });
+    expect(screen.queryByText('Archived')).not.toBeInTheDocument();
+  });
+
+  it('opens an archived project from ?project= and shows the chrome Archived badge', async () => {
+    const api = await getApi();
+    const active = { ...mockProject, id: 1, name: 'Live Active', status: 'active' as const };
+    const archived = { ...mockProject, id: 2, name: 'Old Archived', status: 'archived' as const };
+    vi.mocked(api.getProjects).mockResolvedValue([active, archived]);
+
+    renderApp(['/?project=2']);
+
+    await waitFor(() => {
+      expect(api.getResourceLists).toHaveBeenCalledWith(2);
+    });
+    expect(screen.getByText('Archived')).toBeInTheDocument();
   });
 
   it('does not overwrite a stored project exchangeRate when live rates load', async () => {

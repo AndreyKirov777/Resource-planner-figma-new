@@ -147,6 +147,7 @@ app.post('/api/projects', async (req, res) => {
         defaultLocation: parsed.data.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: parsed.data.phases ?? undefined,
         startDate: normalizeStartDate(parsed.data.startDate),
+        ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
       }
     });
     res.json(project);
@@ -222,6 +223,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
         planningMode: project.planningMode,
         defaultLocation: project.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: project.phases ?? undefined,
+        status: 'active',
       }
     });
 
@@ -297,7 +299,8 @@ app.get('/api/projects/:id/export', async (req, res) => {
     // `Project.startDate` (already on `project`, a plain scalar column) and
     // `roadmapLanes` (lanes -> items -> wbsItemIds); a schemaVersion 3
     // payload is what this looked like before the roadmap existed and still
-    // imports cleanly — the roadmap is simply absent.
+    // imports cleanly — the roadmap is simply absent. v4 now also carries
+    // `Project.status` (omit on import → `active`).
     const payload = {
       schemaVersion: 4,
       exportedAt: new Date().toISOString(),
@@ -489,6 +492,7 @@ app.post('/api/projects/import', async (req, res) => {
         defaultLocation: projectData.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: projectData.phases ?? undefined,
         startDate: normalizeStartDate(projectData.startDate ?? null) ?? null,
+        status: projectData.status === 'archived' ? 'archived' : 'active',
       }
     });
 

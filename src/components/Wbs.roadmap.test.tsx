@@ -92,6 +92,7 @@ const mockProject: Project = {
   clientCurrency: 'USD',
   exchangeRate: 1,
   planningMode: 'weekly',
+  status: 'active',
   phases: JSON.stringify([{ name: 'Phase 1', periodCount: 8, color: '#E3F2FD' }]),
   createdAt: '',
   updatedAt: '',

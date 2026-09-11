@@ -721,6 +721,50 @@ describe('WBS API integration', () => {
       await deleteProject(res.body.projectId);
     });
 
+    it('imports omitted status as active and keeps schemaVersion 4', async () => {
+      const res = await request(app).post('/api/projects/import').send({
+        schemaVersion: 4,
+        data: {
+          name: 'WBS-4 missing status',
+          resourceLists: [],
+        },
+      });
+      expect(res.status).toBe(200);
+      const project = (await request(app).get(`/api/projects/${res.body.projectId}`)).body;
+      expect(project.status).toBe('active');
+      expect(res.body.schemaVersion ?? 4).toBe(4);
+
+      const exportRes = await request(app).get(`/api/projects/${res.body.projectId}/export`);
+      expect(exportRes.status).toBe(200);
+      expect(exportRes.body.schemaVersion).toBe(4);
+      expect(exportRes.body.data.status).toBe('active');
+
+      await deleteProject(res.body.projectId);
+    });
+
+    it('round-trips archived status without bumping schemaVersion', async () => {
+      const proj = await request(app).post('/api/projects').send({ name: 'WBS-4 archived source' });
+      const srcId = proj.body.id;
+      const archived = await request(app).put(`/api/projects/${srcId}`).send({ status: 'archived' });
+      expect(archived.status).toBe(200);
+
+      const exportRes = await request(app).get(`/api/projects/${srcId}/export`);
+      expect(exportRes.status).toBe(200);
+      expect(exportRes.body.schemaVersion).toBe(4);
+      expect(exportRes.body.data.status).toBe('archived');
+
+      const importRes = await request(app).post('/api/projects/import').send(exportRes.body);
+      expect(importRes.status).toBe(200);
+      const imported = (await request(app).get(`/api/projects/${importRes.body.projectId}`)).body;
+      expect(imported.status).toBe('archived');
+
+      const reexport = await request(app).get(`/api/projects/${importRes.body.projectId}/export`);
+      expect(reexport.body.schemaVersion).toBe(4);
+
+      await deleteProject(srcId);
+      await deleteProject(importRes.body.projectId);
+    });
+
     it('skips malformed estimate rows and coerces displayOrder/hours without 500', async () => {
       const res = await request(app).post('/api/projects/import').send({
         schemaVersion: 3,

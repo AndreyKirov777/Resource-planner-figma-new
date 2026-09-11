@@ -25,6 +25,7 @@ model Project {
   phases          String?         @default("[{\"name\":\"Phase 1\",\"periodCount\":8,\"color\":\"#E3F2FD\"}]")
   // Anchors period 1 for the roadmap's calendar labels; null = ordinals only.
   startDate       DateTime?
+  status          String          @default("active")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 

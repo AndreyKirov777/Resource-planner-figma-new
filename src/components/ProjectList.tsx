@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api, Project } from '../services/api';
 import { APP_DEFAULTS, SUPPORTED_CURRENCIES, LOCATIONS, exchangeRateForCurrency, setLiveExchangeRates } from '../config/defaults';
 import { PHASE_COLORS } from '../utils/phases';
 import { Button } from './ui/button';
+import { Badge } from './ui/badge';
 import {
   Table,
   TableBody,
@@ -36,6 +37,40 @@ function formatDate(iso: string): string {
   });
 }
 
+type StatusFilter = 'active' | 'archived' | 'all';
+type SortKey = 'name' | 'createdAt' | 'updatedAt';
+type SortDir = 'asc' | 'desc';
+
+function defaultSortDir(key: SortKey): SortDir {
+  return key === 'name' ? 'asc' : 'desc';
+}
+
+function deriveVisibleProjects(
+  projects: Project[],
+  statusFilter: StatusFilter,
+  query: string,
+  sortKey: SortKey,
+  sortDir: SortDir,
+): Project[] {
+  const needle = query.trim().toLowerCase();
+  const filtered = projects.filter((project) => {
+    if (statusFilter !== 'all' && project.status !== statusFilter) return false;
+    if (!needle) return true;
+    const name = project.name.toLowerCase();
+    const description = (project.description ?? '').toLowerCase();
+    return name.includes(needle) || description.includes(needle);
+  });
+  return filtered.slice().sort((a, b) => {
+    let cmp = 0;
+    if (sortKey === 'name') {
+      cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    } else {
+      cmp = new Date(a[sortKey]).getTime() - new Date(b[sortKey]).getTime();
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+}
+
 interface ProjectListProps {
   onOpenProject: (projectId: number) => void;
   currentProjectId?: number | null;
@@ -66,6 +101,24 @@ export function ProjectList({
   const [createMargin, setCreateMargin] = useState(APP_DEFAULTS.defaultMargin);
   const [createDefaultLocation, setCreateDefaultLocation] = useState(APP_DEFAULTS.defaultLocation);
   const [createDurationCount, setCreateDurationCount] = useState(APP_DEFAULTS.durationPeriods);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
+  const [query, setQuery] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  const visibleProjects = useMemo(
+    () => deriveVisibleProjects(projects, statusFilter, query, sortKey, sortDir),
+    [projects, statusFilter, query, sortKey, sortDir],
+  );
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDir(defaultSortDir(key));
+  };
 
   const fetchProjects = async () => {
     try {
@@ -188,6 +241,18 @@ export function ProjectList({
     }
   };
 
+  const handleSetStatus = async (project: Project, status: 'active' | 'archived') => {
+    try {
+      const updated = await api.updateProject(project.id, { status });
+      setProjects((prev) =>
+        prev.map((p) => (p.id === project.id ? { ...p, ...updated } : p))
+      );
+      onProjectUpdated?.(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update project');
+    }
+  };
+
   if (loading) {
     return <div className="text-muted-foreground py-4">Loading projects…</div>;
   }
@@ -210,29 +275,85 @@ export function ProjectList({
         <Button onClick={() => setShowCreateDialog(true)}>New project</Button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="w-64">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name or description"
+            aria-label="Search projects"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}>
+          <SelectTrigger className="w-40" aria-label="Status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="archived">Archived</SelectItem>
+            <SelectItem value="all">All</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       {projects.length === 0 ? (
         <div className="text-muted-foreground border rounded-md p-8 text-center">
           No projects yet. Create one to get started.
+        </div>
+      ) : visibleProjects.length === 0 ? (
+        <div className="text-muted-foreground border rounded-md p-8 text-center">
+          No projects match
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Project name</TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="font-medium hover:underline"
+                  onClick={() => handleSort('name')}
+                >
+                  Project name
+                </button>
+              </TableHead>
               <TableHead>Project description</TableHead>
               <TableHead>Mode</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Last updated</TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="font-medium hover:underline"
+                  onClick={() => handleSort('createdAt')}
+                >
+                  Created
+                </button>
+              </TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="font-medium hover:underline"
+                  onClick={() => handleSort('updatedAt')}
+                >
+                  Last updated
+                </button>
+              </TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {projects.map((project) => (
+            {visibleProjects.map((project) => (
               <TableRow
                 key={project.id}
                 className={currentProjectId === project.id ? 'bg-muted/50' : undefined}
               >
-                <TableCell className="font-medium">{project.name}</TableCell>
+                <TableCell className="font-medium">
+                  <span className="inline-flex items-center gap-2">
+                    {project.name}
+                    {statusFilter === 'all' && project.status === 'archived' && (
+                      <Badge variant="secondary">Archived</Badge>
+                    )}
+                  </span>
+                </TableCell>
                 <TableCell className="max-w-xs truncate">
                   {project.description ?? '—'}
                 </TableCell>
@@ -261,6 +382,23 @@ export function ProjectList({
                   >
                     Edit
                   </Button>
+                  {project.status === 'archived' ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSetStatus(project, 'active')}
+                    >
+                      Restore
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSetStatus(project, 'archived')}
+                    >
+                      Archive
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"

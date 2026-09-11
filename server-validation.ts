@@ -56,6 +56,7 @@ export const projectCreateSchema = z.object({
   defaultLocation: z.string().max(50).optional().nullable(),
   phases: phasesStringSchema,
   startDate: startDateSchema,
+  status: z.enum(['active', 'archived']).optional(),
 }).strict();
 
 export const projectUpdateSchema = z.object({
@@ -70,6 +71,7 @@ export const projectUpdateSchema = z.object({
   defaultLocation: z.string().max(50).optional().nullable(),
   phases: phasesStringSchema,
   startDate: startDateSchema,
+  status: z.enum(['active', 'archived']).optional(),
 }).strict();
 
 export const rateCardUpdateSchema = z.object({

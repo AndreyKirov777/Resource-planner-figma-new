@@ -44,6 +44,7 @@ const mockProject: Project = {
   exchangeRate: 1,
   defaultMargin: 25,
   planningMode: 'weekly',
+  status: 'active',
   createdAt: '',
   updatedAt: '',
 };

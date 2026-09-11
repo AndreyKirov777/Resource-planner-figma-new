@@ -84,6 +84,7 @@ const project: Project = {
   clientCurrency: 'EUR',
   exchangeRate: 0.89,
   planningMode: 'weekly',
+  status: 'active',
   phases: JSON.stringify([{ name: 'Phase 1', periodCount: NP, color: '#E3F2FD' }]),
   startDate: null,
   createdAt: '',
