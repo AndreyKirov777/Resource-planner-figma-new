@@ -20,6 +20,14 @@ build
 *.spec.ts
 *.spec.tsx
 
+# Local SQLite files — never bake a workstation DB into the image
+prisma/*.db
+prisma/*.db-*
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Temporary files
 *.tmp
 *.swp

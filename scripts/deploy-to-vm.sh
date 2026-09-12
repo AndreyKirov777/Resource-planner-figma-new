@@ -77,6 +77,15 @@ sync_to_remote() {
     --exclude '*.log' \
     --exclude '.app.pids' \
     --exclude 'logs' \
+    --exclude 'prisma/*.db' \
+    --exclude 'prisma/*.db-*' \
+    --exclude 'prisma/*.db-journal' \
+    --exclude 'prisma/*.db-wal' \
+    --exclude 'prisma/*.db-shm' \
+    --exclude '*.db' \
+    --exclude '*.db-journal' \
+    --exclude '*.db-wal' \
+    --exclude '*.db-shm' \
     "$PROJECT_ROOT/" "$SSH_TARGET:$REMOTE_APP_PATH/"
   echo "Sync done."
 }
