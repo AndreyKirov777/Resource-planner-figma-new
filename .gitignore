@@ -20,7 +20,7 @@ dist
 *.log
 npm-debug.log*
 logs/
-.app.pids
+.app*.pids
 
 # SQLite database (keep data local; do not commit)
 prisma/dev.db
