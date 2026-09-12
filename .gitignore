@@ -24,6 +24,7 @@ logs/
 
 # SQLite database (keep data local; do not commit)
 prisma/dev.db
+prisma/dev.db.*.bak
 
 # Disposable test databases (recreated fresh on every `npm test` run)
 prisma/test.db*
