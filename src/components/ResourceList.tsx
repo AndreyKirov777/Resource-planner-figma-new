@@ -119,12 +119,6 @@ export function ResourceList({
         valueFormatter: (params: any) => `$${params.value.toFixed(2)}`,
         transform: (newValue: any) => parseFloat(newValue) || 0,
       }),
-      {
-        headerName: 'Daily cost',
-        width: 140,
-        valueGetter: (params: any) => params.data.intRate * 8,
-        valueFormatter: (params: any) => `$${params.value.toFixed(2)}`
-      },
       makeFieldColumn('description', 'Description', { width: 360 }),
     ];
 
