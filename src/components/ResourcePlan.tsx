@@ -43,6 +43,22 @@ import {
   type LeadColumnId,
 } from './planningColumns';
 
+export function planFieldsFromList(
+  selected: ResourceListType,
+  project: Pick<Project, 'defaultMargin' | 'exchangeRate'>,
+) {
+  const clientHourlyRate = selected.hourlyRate > 0
+    ? selected.hourlyRate
+    : calcClientHourlyRate(selected.intRate, (project.defaultMargin || 25.0) / 100, project.exchangeRate);
+  return {
+    role: selected.role,
+    intHourlyRate: selected.intRate,
+    clientHourlyRate,
+    name: selected.name || '',
+    clientRole: selected.clientRole || '',
+  };
+}
+
 interface ResourcePlanProps {
   project: Project;
   resourceLists: ResourceListType[];
@@ -549,20 +565,9 @@ export function ResourcePlan({
           resourceLists.find((r) => r.role === newRole);
 
         if (selectedResource) {
-          const defaultMargin = project.defaultMargin || 25.0;
-          const marginDecimal = defaultMargin / 100;
-          const clientHourlyRate = calcClientHourlyRate(selectedResource.intRate, marginDecimal, project.exchangeRate);
-
           const updatedResourcePlans = resourcePlans.map(p =>
             p.id === plan.id
-              ? {
-                  ...p,
-                  role: selectedResource.role,
-                  intHourlyRate: selectedResource.intRate,
-                  clientHourlyRate: clientHourlyRate,
-                  name: selectedResource.name || '',
-                  clientRole: selectedResource.clientRole || ''
-                }
+              ? { ...p, ...planFieldsFromList(selectedResource, project) }
               : p
           );
           onResourcePlansChange(updatedResourcePlans);
@@ -1776,19 +1781,9 @@ export function ResourcePlan({
                   const selectedId = Number(roleSelection);
                   const selectedResource = resourceLists.find((r) => r.id === selectedId);
                   if (selectedResource) {
-                    const defaultMargin = project.defaultMargin || 25.0;
-                    const marginDecimal = defaultMargin / 100;
-                    const clientHourlyRate = calcClientHourlyRate(selectedResource.intRate, marginDecimal, project.exchangeRate);
                     const updatedResourcePlans = resourcePlans.map(p =>
                       p.id === plan.id
-                        ? {
-                            ...p,
-                            role: selectedResource.role,
-                            intHourlyRate: selectedResource.intRate,
-                            clientHourlyRate: clientHourlyRate,
-                            name: selectedResource.name || '',
-                            clientRole: selectedResource.clientRole || ''
-                          }
+                        ? { ...p, ...planFieldsFromList(selectedResource, project) }
                         : p
                     );
                     onResourcePlansChange(updatedResourcePlans);

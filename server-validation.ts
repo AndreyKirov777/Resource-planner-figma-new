@@ -95,6 +95,7 @@ export const resourceListCreateSchema = z.object({
   clientRole: z.string().max(500).optional().nullable(),
   name: z.string().max(500).optional().nullable(),
   intRate: z.number().optional(),
+  hourlyRate: z.number().optional(),
   location: z.string().max(200).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
 }).strict();
@@ -104,6 +105,7 @@ export const resourceListUpdateSchema = z.object({
   clientRole: z.string().max(500).optional().nullable(),
   name: z.string().max(500).optional().nullable(),
   intRate: z.number().optional(),
+  hourlyRate: z.number().optional(),
   location: z.string().max(200).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
 }).strict();

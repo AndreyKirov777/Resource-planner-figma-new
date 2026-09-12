@@ -4,7 +4,7 @@ import { findResourceForPlan } from './resourceMatching';
 
 describe('findResourceForPlan', () => {
   const list = (id: number, role: string, intRate: number, location: string): ResourceListType =>
-    ({ id, role, intRate, location, projectId: 1, createdAt: '', updatedAt: '' }) as ResourceListType;
+    ({ id, role, intRate, hourlyRate: 0, location, projectId: 1, createdAt: '', updatedAt: '' }) as ResourceListType;
 
   it('matches a role that appears once regardless of rate', () => {
     const lists = [list(1, 'BA', 30, 'Ukraine')];

@@ -79,6 +79,7 @@ function resourceList(id: number, role: string, clientRole = role): ResourceList
     role,
     clientRole,
     intRate: 0,
+    hourlyRate: 0,
     projectId: 1,
     createdAt: '',
     updatedAt: '',

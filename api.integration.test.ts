@@ -18,6 +18,7 @@ const TEST_PROJECT_NAMES = [
   'Status Copy Source',
   'Status Copy Source (Copy)',
   'Status List Archived',
+  'Hourly Rate List',
 ];
 
 // Resource plan created by "Resource plans and weekly allocations" test – used for cleanup so it doesn't persist in the DB
@@ -315,6 +316,32 @@ describe('API integration', () => {
         .send({ intHourlyRate: 55 });
       expect(otherFieldRes.status).toBe(200);
       expect(otherFieldRes.body.role).toBe('Backend Developer');
+    });
+  });
+
+  describe('Resource list hourlyRate', () => {
+    it('persists hourlyRate on create/update and defaults omitted to 0', async () => {
+      const projectRes = await request(app).post('/api/projects').send({ name: 'Hourly Rate List' });
+      expect(projectRes.status).toBe(200);
+      const projectId = projectRes.body.id;
+
+      const omitted = await request(app)
+        .post(`/api/projects/${projectId}/resource-lists`)
+        .send({ role: 'Developer', intRate: 40 });
+      expect(omitted.status).toBe(200);
+      expect(omitted.body.hourlyRate).toBe(0);
+
+      const created = await request(app)
+        .post(`/api/projects/${projectId}/resource-lists`)
+        .send({ role: 'Lead', intRate: 50, hourlyRate: 91 });
+      expect(created.status).toBe(200);
+      expect(created.body.hourlyRate).toBe(91);
+
+      const updated = await request(app)
+        .put(`/api/resource-lists/${created.body.id}`)
+        .send({ hourlyRate: 110 });
+      expect(updated.status).toBe(200);
+      expect(updated.body.hourlyRate).toBe(110);
     });
   });
 });

@@ -70,6 +70,7 @@ export interface DraftResourceList {
   clientRole: string | null;
   name: null;
   intRate: number;
+  hourlyRate: number;
   location: string | null;
   description?: string | null;
 }
@@ -220,6 +221,8 @@ export async function generateResourcePlan(
     }
 
     const resolvedIntRate = intRate ?? 0;
+    const marginDecimal = marginPct / 100;
+    const clientRate = clientHourlyRate(resolvedIntRate, marginDecimal, project.exchangeRate);
 
     // One Resource List entry per unique role (before count expansion).
     if (!seenListRoles.has(role)) {
@@ -230,6 +233,7 @@ export async function generateResourcePlan(
         clientRole: getClientRoleFromRole(role),
         name: null,
         intRate: resolvedIntRate,
+        hourlyRate: clientRate,
         location: locationLabel,
       };
       const descriptionText = rateCardRow?.description ?? rationale;
@@ -238,10 +242,6 @@ export async function generateResourcePlan(
       }
       resourceLists.push(listEntry);
     }
-
-    // Compute client rate (margin critical: divide by 100).
-    const marginDecimal = marginPct / 100;
-    const clientRate = clientHourlyRate(resolvedIntRate, marginDecimal, project.exchangeRate);
 
     // Expand phase allocations → period allocations (use proposed timeline when present).
     const { result: allocations, warnings: phaseWarnings } = expandPhaseAllocations(

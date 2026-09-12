@@ -98,9 +98,19 @@ The system SHALL constrain a resource plan row's role to an entry in the project
 - **THEN** the cell reverts to its previous value and no write is sent
 
 #### Scenario: Role picker remains the sanctioned path
-- **GIVEN** a project whose resource list is non-empty
-- **WHEN** the user opens the role picker dialog on a plan row and selects an entry
-- **THEN** the role, rates, name, and client role update from that resource list entry, exactly as before
+- **GIVEN** a project whose resource list is non-empty and a list entry with a non-zero Hourly rate
+- **WHEN** the user opens the role picker dialog on a plan row and selects that entry
+- **THEN** the role, Hourly cost, Hourly rate, name, and client role update from that resource list entry, and the plan's client hourly rate is the list entry's Hourly rate rather than a value recomputed from Default Margin
+
+#### Scenario: Typed role match copies Hourly rate
+- **GIVEN** a project whose resource list is non-empty and a list entry with a non-zero Hourly rate
+- **WHEN** the user types a role in the plan grid that matches that entry
+- **THEN** the plan row's client hourly rate is set to that entry's Hourly rate
+
+#### Scenario: Zero list Hourly rate falls back to Default Margin
+- **GIVEN** a resource-list entry whose Hourly rate is 0
+- **WHEN** that entry is applied to a plan row
+- **THEN** the plan's client hourly rate is computed from the entry's Hourly cost, the project's Default Margin, and exchange rate, as before this change
 
 #### Scenario: New row is seeded from the resource list
 - **GIVEN** a project whose resource list is non-empty

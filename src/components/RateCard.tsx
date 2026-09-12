@@ -26,6 +26,25 @@ const REGION_FIELDS = LOCATIONS.map(({ slug, label: locationLabel }, i) => ({
   locationLabel,
 }));
 
+/** Roster payload from a rate-card row. `hourlyRate` is the same Price the grid shows. */
+export function resourceFromRateCard(
+  rateCard: RateCardType,
+  regionSlug: string,
+  marginPct: number,
+  fxRate: number,
+) {
+  const region = REGION_FIELDS.find((r) => r.slug === regionSlug) ?? REGION_FIELDS[0];
+  const intRate = Number(rateCard[region.field]) || 0;
+  return {
+    role: rateCard.role,
+    clientRole: getClientRoleFromRole(rateCard.role),
+    description: rateCard.description ?? undefined,
+    intRate,
+    hourlyRate: clientHourlyRate(intRate, marginPct / 100, fxRate),
+    location: region.locationLabel || undefined,
+  };
+}
+
 /** Width that fits the header label plus sort icon and padding. */
 function widthForHeader(headerName: string): number {
   return Math.max(56, headerName.length * 8 + 36);
@@ -296,11 +315,10 @@ export function RateCard({
       suppressSizeToFit: true,
       editable: false,
       type: 'numericColumn',
-      valueGetter: (params) => {
-        const region = REGION_FIELDS.find((r) => r.slug === activeRegionTab) ?? REGION_FIELDS[0];
-        const intRate = Number(params.data?.[region.field]) || 0;
-        return clientHourlyRate(intRate, marginPct / 100, fxRate);
-      },
+      valueGetter: (params) =>
+        params.data
+          ? resourceFromRateCard(params.data, activeRegionTab, marginPct, fxRate).hourlyRate
+          : 0,
       valueFormatter: (params) => {
         if (params.value != null) {
           return `${currencySymbol}${Math.round(params.value)}`;
@@ -430,34 +448,8 @@ export function RateCard({
       return;
     }
 
-    // Get the daily rate based on active regional tab (default to Ukraine, same as the old switch's default case)
-    const regionField = REGION_FIELDS.find((r) => r.slug === activeRegionTab) ?? REGION_FIELDS[0];
-    const dailyRate = rateCardData[regionField.field] * 8; // Convert hourly to daily (8 hours)
-    const location = regionField.locationLabel;
-
-    // Get the client role from the role mapping
-    const clientRole = getClientRoleFromRole(rateCardData.role);
-
-    // Create new resource list entry with copied data (do not include projectId - it is sent via API URL)
-    const newResource: any = {
-      role: rateCardData.role,
-      clientRole: clientRole, // Automatically populate client role
-      description: rateCardData.description ?? undefined,
-      intRate: dailyRate / 8, // Convert daily rate back to hourly for internal rate
-      location: location || undefined,
-    };
-
-    // Add to resource list
+    const newResource = resourceFromRateCard(rateCardData, activeRegionTab, marginPct, fxRate);
     onAddResourceList(newResource);
-    
-    console.log('Added rate card to resource list:', {
-      original: rateCardData,
-      newResource,
-      activeTab: activeRegionTab,
-      dailyRate,
-      location,
-      clientRole
-    });
   };
 
   return (

@@ -260,7 +260,7 @@ describe('App', () => {
     const api = await getApi();
     vi.mocked(api.getResourceLists).mockResolvedValue([
       { id: 1, projectId: 1, role: 'BA', clientRole: 'Analyst', name: 'Ann', intRate: 30,
-        location: 'Asia (ARM, KZ)', description: '', createdAt: '', updatedAt: '' },
+        hourlyRate: 0, location: 'Asia (ARM, KZ)', description: '', createdAt: '', updatedAt: '' },
     ]);
     vi.mocked(api.getResourcePlans).mockResolvedValue([
       { id: 1, projectId: 1, role: 'BA', clientRole: 'Analyst', name: 'Ann', intHourlyRate: 30,

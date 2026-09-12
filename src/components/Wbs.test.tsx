@@ -297,6 +297,7 @@ function resourceList(overrides: Partial<ResourceList>): ResourceList {
     id: 1,
     role: 'Role',
     intRate: 0,
+    hourlyRate: 0,
     projectId: 1,
     createdAt: '',
     updatedAt: '',

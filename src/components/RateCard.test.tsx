@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { RateCard } from './RateCard';
+import { RateCard, resourceFromRateCard } from './RateCard';
+import { clientHourlyRate } from '../utils/calculations';
 
 vi.mock('ag-grid-react', () => ({
   AgGridReact: () => <div data-testid="ag-grid">Grid</div>,
@@ -60,5 +61,11 @@ describe('RateCard', () => {
   it('falls back to 45% when defaultMargin is omitted', () => {
     render(<RateCard {...defaultProps} />);
     expect(screen.getByText('Default Margin:').nextElementSibling).toHaveTextContent('45%');
+  });
+
+  it('seeds hourlyRate from Price for Ukraine / 45 / FX 1', () => {
+    const seeded = resourceFromRateCard(defaultProps.rateCards[0], 'ukraine', 45, 1);
+    expect(seeded.intRate).toBe(50);
+    expect(seeded.hourlyRate).toBe(clientHourlyRate(50, 0.45, 1));
   });
 });

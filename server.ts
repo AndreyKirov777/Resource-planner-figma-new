@@ -236,6 +236,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
           clientRole: rl.clientRole,
           name: rl.name,
           intRate: rl.intRate,
+          hourlyRate: rl.hourlyRate,
           location: rl.location,
           description: rl.description,
           projectId: copy.id,
@@ -509,6 +510,7 @@ app.post('/api/projects/import', async (req, res) => {
           clientRole: rl.clientRole || null,
           name: rl.name || null,
           intRate: parseFloat(rl.intRate) || 0,
+          hourlyRate: parseFloat(rl.hourlyRate) || 0,
           location: rl.location || null,
           description: rl.description || null,
           projectId: newProjectId,
@@ -719,6 +721,7 @@ app.post('/api/projects/:projectId/resource-lists', async (req, res) => {
         clientRole: parsed.data.clientRole ?? null,
         name: parsed.data.name ?? null,
         intRate: parsed.data.intRate ?? 0,
+        hourlyRate: parsed.data.hourlyRate ?? 0,
         location: parsed.data.location ?? null,
         description: parsed.data.description ?? null,
         projectId: parseInt(req.params.projectId)

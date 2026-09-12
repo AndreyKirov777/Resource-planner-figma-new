@@ -103,12 +103,27 @@ describe('server-validation Zod schemas', () => {
       const result = resourceListCreateSchema.safeParse({ role: 'Dev', projectId: 1 });
       expect(result.success).toBe(false);
     });
+
+    it('accepts hourlyRate', () => {
+      const result = resourceListCreateSchema.safeParse({ role: 'Dev', hourlyRate: 91 });
+      expect(result.success).toBe(true);
+    });
   });
 
   describe('resourceListUpdateSchema', () => {
     it('accepts valid partial payload', () => {
       const result = resourceListUpdateSchema.safeParse({ intRate: 60 });
       expect(result.success).toBe(true);
+    });
+
+    it('accepts hourlyRate', () => {
+      const result = resourceListUpdateSchema.safeParse({ hourlyRate: 91 });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects unknown keys', () => {
+      const result = resourceListUpdateSchema.safeParse({ hourlyRate: 91, extra: 1 });
+      expect(result.success).toBe(false);
     });
   });
 

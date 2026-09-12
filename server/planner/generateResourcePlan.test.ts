@@ -200,6 +200,8 @@ describe('generateResourcePlan', () => {
     expect(result.draft.resourceLists).toHaveLength(1);
     expect(result.draft.resourceLists[0].role).toBe('Software Engineer');
     expect(result.draft.resourceLists[0].intRate).toBe(35);
+    expect(result.draft.resourceLists[0].hourlyRate).toBeCloseTo(35 / (1 - 0.45), 4);
+    expect(result.draft.resourceLists[0].hourlyRate).toBeCloseTo(result.draft.resourcePlans[0].clientHourlyRate, 4);
     expect(result.draft.resourceLists[0].location).toBe('Ukraine');
     expect(result.draft.resourceLists[0].description).toBe('Two engineers for parallel build work.');
   });
@@ -217,6 +219,8 @@ describe('generateResourcePlan', () => {
 
     expect(result.draft.resourceLists).toHaveLength(1);
     expect(result.draft.resourceLists[0].intRate).toBe(40);
+    expect(result.draft.resourceLists[0].hourlyRate).toBeCloseTo(40 / (1 - 0.45), 4);
+    expect(result.draft.resourceLists[0].hourlyRate).toBeCloseTo(result.draft.resourcePlans[0].clientHourlyRate, 4);
     expect(result.draft.resourceLists[0].location).toBe('Eastern Europe');
   });
 

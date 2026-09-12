@@ -16,6 +16,7 @@ import {
 import { ResourceList as ResourceListType } from '../services/api';
 import { LOCATIONS } from '../config/defaults';
 import { LOCATION_LABELS, canonicalLocationLabel, locationAbbr } from '../utils/regions';
+import { marginPct } from '../utils/calculations';
 
 interface ResourceListProps {
   resourceLists: ResourceListType[];
@@ -24,6 +25,8 @@ interface ResourceListProps {
   onAddResourceList: (resource: Partial<ResourceListType>) => void;
   onDeleteResourceList: (id: number) => void;
   onClearAllResourceLists?: () => void;
+  exchangeRate?: number;
+  clientCurrency?: string;
 }
 
 // Custom cell renderer component for the Actions column
@@ -51,8 +54,12 @@ export function ResourceList({
   onResourceListUpdate,
   onAddResourceList,
   onDeleteResourceList,
-  onClearAllResourceLists
+  onClearAllResourceLists,
+  exchangeRate = 1,
+  clientCurrency,
 }: ResourceListProps) {
+  const currencySymbol =
+    clientCurrency === 'EUR' ? '€' : clientCurrency === 'GBP' ? '£' : '$';
   const [newRole, setNewRole] = useState('');
   const [newClientRole, setNewClientRole] = useState('');
   const [newName, setNewName] = useState('');
@@ -119,11 +126,27 @@ export function ResourceList({
         valueFormatter: (params: any) => `$${params.value.toFixed(2)}`,
         transform: (newValue: any) => parseFloat(newValue) || 0,
       }),
+      makeFieldColumn('hourlyRate', 'Hourly rate', {
+        width: 120,
+        valueFormatter: (params: any) =>
+          params.value != null ? `${currencySymbol}${Math.round(params.value)}` : '',
+        transform: (newValue: any) => parseFloat(newValue) || 0,
+      }),
+      {
+        headerName: 'Margin',
+        colId: 'margin',
+        width: 90,
+        editable: false,
+        valueGetter: (params) =>
+          marginPct(params.data?.hourlyRate ?? 0, params.data?.intRate ?? 0, exchangeRate),
+        valueFormatter: (params) =>
+          params.value == null ? '' : `${Number(params.value).toFixed(1)}%`,
+      },
       makeFieldColumn('description', 'Description', { width: 360 }),
     ];
 
     return [actionsColumn, ...otherColumns];
-  }, [resourceLists, onResourceListsChange, onResourceListUpdate, deleteResource]);
+  }, [resourceLists, onResourceListsChange, onResourceListUpdate, deleteResource, exchangeRate, currencySymbol]);
 
   const addResource = () => {
     if (!newRole.trim() || !newRate.trim()) return;

@@ -24,6 +24,7 @@ export interface GeneratePlanResourceList {
   clientRole: string | null;
   name: string | null;
   intRate: number;
+  hourlyRate: number;
   location: string | null;
   description?: string | null;
 }
@@ -113,6 +114,7 @@ export interface ResourceList {
   clientRole?: string;
   name?: string;
   intRate: number;
+  hourlyRate: number;
   location?: string;
   description?: string;
   projectId: number;
@@ -235,7 +237,7 @@ function pickDefined<T extends Record<string, unknown>>(obj: T, keys: (keyof T)[
 }
 
 function toResourceListUpdatePayload(data: Partial<ResourceList>) {
-  return pickDefined(data, ['role', 'clientRole', 'name', 'intRate', 'location', 'description']);
+  return pickDefined(data, ['role', 'clientRole', 'name', 'intRate', 'hourlyRate', 'location', 'description']);
 }
 
 function toRateCardUpdatePayload(data: Partial<RateCard>) {

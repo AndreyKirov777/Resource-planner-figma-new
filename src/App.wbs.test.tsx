@@ -178,6 +178,7 @@ beforeEach(async () => {
       role: 'BA',
       clientRole: 'BA',
       intRate: 0,
+      hourlyRate: 0,
       projectId: 1,
       createdAt: '',
       updatedAt: '',

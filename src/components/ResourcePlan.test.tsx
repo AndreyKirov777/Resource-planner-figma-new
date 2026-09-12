@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { GridCellKind } from '@glideapps/glide-data-grid';
-import { ResourcePlan } from './ResourcePlan';
+import { ResourcePlan, planFieldsFromList } from './ResourcePlan';
 import type { Project, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType } from '../services/api';
 import { columnStorageKey } from './planningColumns';
 import { __resetLiveExchangeRates, setLiveExchangeRates } from '../config/defaults';
@@ -386,7 +386,7 @@ describe('ResourcePlan', () => {
 
   describe('Plan-side role constraint (D6)', () => {
     const resourceList: ResourceListType[] = [
-      { id: 1, role: 'Backend Developer', intRate: 40, projectId: 1, createdAt: '', updatedAt: '' },
+      { id: 1, role: 'Backend Developer', intRate: 40, hourlyRate: 0, projectId: 1, createdAt: '', updatedAt: '' },
     ];
     const rolePlan: ResourcePlanType = {
       id: 7,
@@ -448,6 +448,29 @@ describe('ResourcePlan', () => {
       expect(onAddResourcePlan).toHaveBeenCalledWith(
         expect.objectContaining({ role: 'Backend Developer' })
       );
+    });
+
+    it('copies a non-zero list hourlyRate onto clientHourlyRate', () => {
+      const selected = { ...resourceList[0], hourlyRate: 91 };
+      expect(planFieldsFromList(selected, mockProject).clientHourlyRate).toBe(91);
+
+      const onResourcePlansChange = vi.fn();
+      render(
+        <ResourcePlan
+          {...defaultProps}
+          resourceLists={[selected]}
+          resourcePlans={[rolePlan]}
+          onResourcePlansChange={onResourcePlansChange}
+        />
+      );
+      capturedGridProps.onCellEdited?.([1, 0], { kind: GridCellKind.Text, data: 'Backend Developer' } as never);
+      expect(onResourcePlansChange).toHaveBeenCalledWith([
+        expect.objectContaining({ clientHourlyRate: 91 }),
+      ]);
+    });
+
+    it('falls back to Default Margin when list hourlyRate is 0', () => {
+      expect(planFieldsFromList(resourceList[0], mockProject).clientHourlyRate).toBeCloseTo(40 / 0.75);
     });
 
     it('falls back to the placeholder role when the resource list is empty', async () => {

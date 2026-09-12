@@ -44,5 +44,6 @@ describe('ResourceList', () => {
     expect(onAddResourceList).toHaveBeenCalledWith(
       expect.objectContaining({ role: 'Developer', intRate: 50 })
     );
+    expect(onAddResourceList.mock.calls[0][0].hourlyRate).toBeUndefined();
   });
 });

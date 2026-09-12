@@ -71,6 +71,7 @@ model ResourceList {
   clientRole      String?
   name            String?
   intRate         Float
+  hourlyRate      Float           @default(0)
   location        String?
   description     String?
   createdAt       DateTime        @default(now())

@@ -626,6 +626,7 @@ export default function App() {
                   clientRole: getClientRoleFromRole(plan.role),
                   name: plan.name,
                   intRate: plan.intHourlyRate,
+                  hourlyRate: plan.clientHourlyRate,
                   location: locationLabel,
                   description: plan.rationale ?? null,
                 });
@@ -642,6 +643,7 @@ export default function App() {
           clientRole: entry.clientRole ?? undefined,
           name: entry.name ?? undefined,
           intRate: entry.intRate,
+          hourlyRate: entry.hourlyRate,
           location: entry.location || locationLabel,
           description: entry.description ?? undefined,
         });
@@ -1451,6 +1453,8 @@ export default function App() {
             onAddResourceList={handleAddResourceList}
             onDeleteResourceList={handleDeleteResourceList}
             onClearAllResourceLists={handleClearAllResourceLists}
+            exchangeRate={currentProject?.exchangeRate}
+            clientCurrency={currentProject?.clientCurrency}
           />
         </TabsContent>
 
