@@ -1505,6 +1505,9 @@ export default function App() {
             onDeleteAllRateCards={handleDeleteAllRateCards}
             onAddResourceList={handleAddResourceList}
             defaultLocation={currentProject?.defaultLocation}
+            defaultMargin={currentProject.defaultMargin}
+            exchangeRate={currentProject.exchangeRate}
+            clientCurrency={currentProject.clientCurrency}
           />
         </TabsContent>
       </Tabs>

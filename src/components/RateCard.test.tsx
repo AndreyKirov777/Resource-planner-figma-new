@@ -43,4 +43,22 @@ describe('RateCard', () => {
     render(<RateCard {...defaultProps} rateCards={[]} />);
     expect(screen.getByRole('button', { name: /clear all/i })).toBeDisabled();
   });
+
+  it('shows Default Margin after Discipline from props', () => {
+    render(<RateCard {...defaultProps} defaultMargin={30} />);
+    const discipline = screen.getByText('Discipline:');
+    const margin = screen.getByText('Default Margin:');
+    expect(discipline.compareDocumentPosition(margin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(margin.nextElementSibling).toHaveTextContent('30%');
+  });
+
+  it('falls back to 45% when defaultMargin is null', () => {
+    render(<RateCard {...defaultProps} defaultMargin={null} />);
+    expect(screen.getByText('Default Margin:').nextElementSibling).toHaveTextContent('45%');
+  });
+
+  it('falls back to 45% when defaultMargin is omitted', () => {
+    render(<RateCard {...defaultProps} />);
+    expect(screen.getByText('Default Margin:').nextElementSibling).toHaveTextContent('45%');
+  });
 });

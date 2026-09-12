@@ -11,6 +11,7 @@ import { RateCard as RateCardType } from '../services/api';
 import { getClientRoleFromRole } from '../utils/clientRoleMapping';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
 import { GENERATE_PLAN_REGIONS } from '../utils/regions';
+import { clientHourlyRate } from '../utils/calculations';
 
 // The 9 rate-card regions: RateCard field, tab slug (activeRegionTab), the
 // grid column header, and the resource-list location string. `LOCATIONS` and
@@ -24,6 +25,11 @@ const REGION_FIELDS = LOCATIONS.map(({ slug, label: locationLabel }, i) => ({
   columnLabel: GENERATE_PLAN_REGIONS[i].label,
   locationLabel,
 }));
+
+/** Width that fits the header label plus sort icon and padding. */
+function widthForHeader(headerName: string): number {
+  return Math.max(56, headerName.length * 8 + 36);
+}
 
 // Import AG Grid styles
 import 'ag-grid-community/styles/ag-grid.css';
@@ -73,6 +79,9 @@ interface RateCardProps {
   onDeleteAllRateCards: () => void;
   onAddResourceList?: (resource: any) => void; // Add this prop for resource list integration
   defaultLocation?: string;
+  defaultMargin?: number | null;
+  exchangeRate?: number;
+  clientCurrency?: string;
 }
 
 export function RateCard({
@@ -86,6 +95,9 @@ export function RateCard({
   onDeleteAllRateCards,
   onAddResourceList,
   defaultLocation,
+  defaultMargin,
+  exchangeRate,
+  clientCurrency,
 }: RateCardProps) {
   // State for external filters
   const [namingInPMFilter, setNamingInPMFilter] = useState<string>('all');
@@ -144,6 +156,11 @@ export function RateCard({
     return filtered;
   }, [rateCards, namingInPMFilter, disciplineFilter]);
   
+  const marginPct = defaultMargin ?? APP_DEFAULTS.defaultMargin;
+  const fxRate = exchangeRate ?? APP_DEFAULTS.exchangeRate;
+  const currencySymbol =
+    clientCurrency === 'EUR' ? '€' : clientCurrency === 'GBP' ? '£' : '$';
+
   // Currency formatter for rate columns
   const currencyFormatter = (params: any) => {
     if (params.value != null) {
@@ -249,6 +266,9 @@ export function RateCard({
       sortable: true,
       filter: false,
       resizable: true,
+      width: widthForHeader(columnLabel),
+      minWidth: widthForHeader(columnLabel),
+      suppressSizeToFit: true,
       valueFormatter: currencyFormatter,
       type: 'numericColumn',
       editable: true,
@@ -265,8 +285,32 @@ export function RateCard({
       }
     }));
 
-    return [...baseColumns, ...regionalColumns];
-  }, [rateCards, onRateCardsChange, onRateCardUpdate, activeRegionTab]);
+    const priceColumn: ColDef<RateCardType> = {
+      headerName: 'Price',
+      colId: 'price',
+      sortable: true,
+      filter: false,
+      resizable: true,
+      width: widthForHeader('Price'),
+      minWidth: widthForHeader('Price'),
+      suppressSizeToFit: true,
+      editable: false,
+      type: 'numericColumn',
+      valueGetter: (params) => {
+        const region = REGION_FIELDS.find((r) => r.slug === activeRegionTab) ?? REGION_FIELDS[0];
+        const intRate = Number(params.data?.[region.field]) || 0;
+        return clientHourlyRate(intRate, marginPct / 100, fxRate);
+      },
+      valueFormatter: (params) => {
+        if (params.value != null) {
+          return `${currencySymbol}${Math.round(params.value)}`;
+        }
+        return '';
+      },
+    };
+
+    return [...baseColumns, ...regionalColumns, priceColumn];
+  }, [rateCards, onRateCardsChange, onRateCardUpdate, activeRegionTab, marginPct, fxRate, currencySymbol]);
 
   const handleImportRateCard = async () => {
     try {
@@ -485,6 +529,11 @@ export function RateCard({
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">Default Margin:</span>
+          <span className="text-sm">{marginPct.toFixed(0)}%</span>
         </div>
       </div>
 
