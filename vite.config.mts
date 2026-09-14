@@ -92,8 +92,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['src/test/setup.ts'],
-    // Creates the disposable prisma/test.db once per run, before any test file
-    // imports ./server — see globalSetup.ts.
+    // Creates disposable prisma/test.db (and per-file test-*.db) once per run;
+    // teardown in globalSetup.ts deletes them after the suite — see globalSetup.ts.
     globalSetup: ['./globalSetup.ts'],
     // Never scan git worktrees under .claude/ — they are local copies, absent in CI.
     exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.claude/**'],
