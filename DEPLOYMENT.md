@@ -77,12 +77,22 @@ Prune old `backup-*.db` files on a schedule that matches your retention needs.
 
 Use the deploy script from the project root. One-time setup is required.
 
+### Environments
+
+| Env | Host | Address | Deploy |
+| --- | --- | --- | --- |
+| **prod** (default) | `res-pln-dev-vm.ipa.dataart.net` | `172.23.224.164` | `npm run deploy` or `./scripts/deploy-to-vm.sh --env prod` |
+| **test** | `marenas-aiagent-vm.ipa.dataart.net` | `172.23.224.99` | `npm run deploy:test` or `./scripts/deploy-to-vm.sh --env test` |
+
+Both VMs use the same Docker layout: app at `~/resource-planner`, ports **3001** and **8080**, named volume `db-data`. TEST gets its own empty database — it does not copy PROD data.
+
 ### One-time setup
 
 1. **SSH access**  
-   Ensure you can log in to the VM:
+   Ensure you can log in to the target VM:
    ```bash
-   ssh your-username@res-pln-dev-vm.ipa.dataart.net
+   ssh your-username@res-pln-dev-vm.ipa.dataart.net   # prod
+   ssh your-username@172.23.224.99                    # test
    ```
    Use SSH keys for passwordless deploy (recommended). Fix key permissions if needed: `chmod 600 ~/.ssh/id_rsa`.
 
@@ -93,7 +103,8 @@ Use the deploy script from the project root. One-time setup is required.
    From the project root:
    ```bash
    chmod +x scripts/deploy-to-vm.sh
-   ./scripts/deploy-to-vm.sh --setup-only
+   ./scripts/deploy-to-vm.sh --setup-only            # prod
+   ./scripts/deploy-to-vm.sh --env test --setup-only # test
    ```
    This creates the app directory on the VM. To use a different VM user or path, copy `scripts/deploy.config.sh` to `scripts/deploy.config.local.sh` and set `REMOTE_USER` and/or `REMOTE_APP_PATH`.
 
@@ -101,13 +112,15 @@ Use the deploy script from the project root. One-time setup is required.
 
 From the project root:
 ```bash
-./scripts/deploy-to-vm.sh
+./scripts/deploy-to-vm.sh            # prod
+./scripts/deploy-to-vm.sh --env test # test
 ```
-Or: `npm run deploy`
+Or: `npm run deploy` / `npm run deploy:test`
 
 To only restart containers without rebuilding:
 ```bash
 ./scripts/deploy-to-vm.sh --skip-build
+./scripts/deploy-to-vm.sh --env test --skip-build
 ```
 
 The script waits for `http://127.0.0.1:3001/api/health` on the VM and fails (with logs) if the container crash-loops.
@@ -123,8 +136,10 @@ Requires `rsync` and `ssh` (both are standard on macOS).
 
 Use Git Bash / WSL and the same shell script:
 ```bash
-./scripts/deploy-to-vm.sh --setup-only   # one-time
-./scripts/deploy-to-vm.sh                # deploy
+./scripts/deploy-to-vm.sh --setup-only   # one-time (prod)
+./scripts/deploy-to-vm.sh --env test --setup-only
+./scripts/deploy-to-vm.sh                # deploy prod
+./scripts/deploy-to-vm.sh --env test     # deploy test
 ./scripts/deploy-to-vm.sh --baseline-db --skip-build   # P3005 recovery
 ```
 Optional override: copy `scripts/deploy.config.sh` to `scripts/deploy.config.local.sh` and set `REMOTE_USER`.

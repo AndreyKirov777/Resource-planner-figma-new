@@ -41,6 +41,17 @@ describe('Auth integration', () => {
     expect(res.status).toBe(400);
   });
 
+  it('accepts the HTML form-urlencoded POST the chooser actually submits', async () => {
+    const res = await request(app)
+      .post('/auth/dev-login')
+      .type('form')
+      .send({ user: 'admin', returnTo: '/' })
+      .redirects(0);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
+    expect(res.headers['set-cookie']).toBeDefined();
+  });
+
   it('invalidates the session on logout: /api/me 401s afterwards', async () => {
     const agent = await loginAs(app, 'manager');
     expect((await agent.get('/api/me')).status).toBe(200);

@@ -1,47 +1,59 @@
 #!/usr/bin/env bash
 # Deploy Resource Planning Application to the remote VM via rsync + SSH.
-# Usage: ./deploy-to-vm.sh [--setup-only] [--skip-build] [--baseline-db]
+# Usage: ./deploy-to-vm.sh [--env prod|test] [--setup-only] [--skip-build] [--baseline-db]
 # Requires: rsync, ssh. On Windows use Git Bash or WSL.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Load config
-# shellcheck source=scripts/deploy.config.sh
-. "$SCRIPT_DIR/deploy.config.sh"
-[ -f "$SCRIPT_DIR/deploy.config.local.sh" ] && . "$SCRIPT_DIR/deploy.config.local.sh"
-
-SSH_TARGET="${REMOTE_USER}@${REMOTE_HOST}"
-HEALTH_URL="http://127.0.0.1:3001/api/health"
-HEALTH_RETRIES="${HEALTH_RETRIES:-36}"   # ~3 minutes at 5s interval
-HEALTH_INTERVAL_SEC="${HEALTH_INTERVAL_SEC:-5}"
-
 usage() {
-  echo "Usage: $0 [--setup-only] [--skip-build] [--baseline-db]"
-  echo "  --setup-only    Create remote directory and ensure Docker only (one-time)."
-  echo "  --skip-build    Sync and restart only, do not rebuild image."
-  echo "  --baseline-db   Recover from Prisma P3005 on an existing non-empty DB volume,"
-  echo "                  then start/redeploy. Safe for data; does not wipe the volume."
+  echo "Usage: $0 [--env prod|test] [--setup-only] [--skip-build] [--baseline-db]"
+  echo "  --env prod|test  Target environment (default: prod)."
+  echo "  --setup-only     Create remote directory and ensure Docker only (one-time)."
+  echo "  --skip-build     Sync and restart only, do not rebuild image."
+  echo "  --baseline-db    Recover from Prisma P3005 on an existing non-empty DB volume,"
+  echo "                   then start/redeploy. Safe for data; does not wipe the volume."
   exit 0
 }
 
 setup_only=false
 skip_build=false
 baseline_db=false
-for arg in "$@"; do
-  case "$arg" in
-    --setup-only)   setup_only=true ;;
-    --skip-build)   skip_build=true ;;
-    --baseline-db)  baseline_db=true ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --env)
+      [ -n "${2:-}" ] || { echo "--env requires prod or test" >&2; exit 1; }
+      DEPLOY_ENV="$2"
+      shift 2
+      ;;
+    --env=*)
+      DEPLOY_ENV="${1#--env=}"
+      shift
+      ;;
+    --setup-only)   setup_only=true; shift ;;
+    --skip-build)   skip_build=true; shift ;;
+    --baseline-db)  baseline_db=true; shift ;;
     -h|--help)      usage ;;
     *)
-      echo "Unknown option: $arg" >&2
-      echo "Usage: $0 [--setup-only] [--skip-build] [--baseline-db]" >&2
+      echo "Unknown option: $1" >&2
+      echo "Usage: $0 [--env prod|test] [--setup-only] [--skip-build] [--baseline-db]" >&2
       exit 1
       ;;
   esac
 done
+
+# Load config after --env so DEPLOY_ENV selects the host.
+export DEPLOY_ENV="${DEPLOY_ENV:-prod}"
+# shellcheck source=scripts/deploy.config.sh
+. "$SCRIPT_DIR/deploy.config.sh"
+[ -f "$SCRIPT_DIR/deploy.config.local.sh" ] && . "$SCRIPT_DIR/deploy.config.local.sh"
+
+SSH_TARGET="${REMOTE_USER}@${REMOTE_HOST}"
+echo "Deploy target: $DEPLOY_ENV ($SSH_TARGET)"
+HEALTH_URL="http://127.0.0.1:3001/api/health"
+HEALTH_RETRIES="${HEALTH_RETRIES:-36}"   # ~3 minutes at 5s interval
+HEALTH_INTERVAL_SEC="${HEALTH_INTERVAL_SEC:-5}"
 
 ssh_check() {
   echo "Checking SSH connection to $SSH_TARGET..."
@@ -175,7 +187,7 @@ deploy_on_remote() {
 
 print_success() {
   echo ""
-  echo "Deployment complete."
+  echo "Deployment complete ($DEPLOY_ENV)."
   echo "  App (UI + API):  http://${REMOTE_HOST}:3001"
   echo "  Alternate port:  http://${REMOTE_HOST}:8080"
   echo ""

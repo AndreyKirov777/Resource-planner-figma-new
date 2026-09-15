@@ -68,6 +68,8 @@
             "test": "vitest",
             "run": "./run.sh",
             "stop": "./stop.sh",
-            "deploy": "./scripts/deploy-to-vm.sh"
+            "deploy": "./scripts/deploy-to-vm.sh",
+            "deploy:prod": "./scripts/deploy-to-vm.sh --env prod",
+            "deploy:test": "./scripts/deploy-to-vm.sh --env test"
       }
 }

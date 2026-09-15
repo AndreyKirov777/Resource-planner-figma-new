@@ -38,14 +38,16 @@ Access: **http://<host>:8080** (or `:3001`).
 
 ## Option B — Deploy to VM ([scripts/deploy-to-vm.sh](../scripts/deploy-to-vm.sh))
 
-Target VM: `res-pln-dev-vm.ipa.dataart.net` (rsync + SSH, builds image on the VM via Docker).
+Targets: **prod** `res-pln-dev-vm.ipa.dataart.net` (`172.23.224.164`, default) and **test** `172.23.224.99` (rsync + SSH, builds image on the VM via Docker).
 
 ```bash
 # one-time: create the remote app directory
 ./scripts/deploy-to-vm.sh --setup-only
+./scripts/deploy-to-vm.sh --env test --setup-only
 
 # deploy (build + restart; waits for health check)
-./scripts/deploy-to-vm.sh        # or: npm run deploy
+./scripts/deploy-to-vm.sh                 # prod, or: npm run deploy
+./scripts/deploy-to-vm.sh --env test      # test, or: npm run deploy:test
 
 # restart containers without rebuilding
 ./scripts/deploy-to-vm.sh --skip-build

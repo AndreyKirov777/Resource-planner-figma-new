@@ -112,6 +112,7 @@ async function configureSqlite() {
 void configureSqlite();
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 // Serve static files from the React app build directory
 app.use(express.static(path.join(__dirname, 'build')));
