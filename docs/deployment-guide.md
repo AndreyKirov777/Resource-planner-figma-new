@@ -81,7 +81,7 @@ Add production env vars under the `environment:` section of `docker-compose.yml`
 
 ## Operational Notes & Hardening (from runbook)
 
-- **HTTPS:** put a reverse proxy (nginx) with TLS in front for production.
+- **HTTPS:** TEST uses Caddy (`COMPOSE_PROFILES=tls`) at `https://marenas-aiagent-vm.ipa.dataart.net`. Internal IPA hosts use `tls internal` (see `Caddyfile`).
 - **Firewall:** open `8080` and/or `3001` on the VM.
 - **No auth** in the app itself — restrict network access accordingly.
 - Consider automated backups, monitoring/logging, and CI/CD (none configured in-repo today).

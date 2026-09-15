@@ -52,6 +52,12 @@ export DEPLOY_ENV="${DEPLOY_ENV:-prod}"
 SSH_TARGET="${REMOTE_USER}@${REMOTE_HOST}"
 echo "Deploy target: $DEPLOY_ENV ($SSH_TARGET)"
 HEALTH_URL="http://127.0.0.1:3001/api/health"
+# Compose profile `tls` starts Caddy. Set in deploy.config.sh for test; overridable.
+COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
+remote_compose() {
+  # shellcheck disable=SC2029
+  ssh "$SSH_TARGET" "cd $REMOTE_APP_PATH && COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose $*"
+}
 HEALTH_RETRIES="${HEALTH_RETRIES:-36}"   # ~3 minutes at 5s interval
 HEALTH_INTERVAL_SEC="${HEALTH_INTERVAL_SEC:-5}"
 
@@ -100,6 +106,46 @@ sync_to_remote() {
     --exclude '*.db-shm' \
     "$PROJECT_ROOT/" "$SSH_TARGET:$REMOTE_APP_PATH/"
   echo "Sync done."
+}
+
+# Upsert TLS / cookie keys on the remote .env without touching secrets.
+ensure_remote_tls_env() {
+  [ "$DEPLOY_ENV" = test ] || return 0
+  echo "Ensuring TLS env on remote (.env)..."
+  # Values are hostnames/flags only — no secrets.
+  # shellcheck disable=SC2029
+  ssh "$SSH_TARGET" "python3 - \"$REMOTE_APP_PATH/.env\" \"$SITE_ADDRESS\"" <<'PY'
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+site = sys.argv[2]
+updates = {
+    "COOKIE_SECURE": "true",
+    "TRUST_PROXY": "1",
+    "SITE_ADDRESS": site,
+    "COMPOSE_PROFILES": "tls",
+    "ENTRA_REDIRECT_URI": f"https://{site}/auth/callback",
+}
+text = path.read_text() if path.exists() else ""
+lines = text.splitlines()
+seen = set()
+out = []
+for line in lines:
+    if not line or line.lstrip().startswith("#") or "=" not in line:
+        out.append(line)
+        continue
+    key, _, _ = line.partition("=")
+    if key in updates:
+        out.append(f"{key}={updates[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f"{key}={value}")
+path.write_text("\n".join(out) + "\n")
+print("TLS env upserted.")
+PY
 }
 
 # Recover when prisma migrate deploy hits P3005 (existing schema, no migration history).
@@ -153,7 +199,7 @@ wait_for_healthy() {
     fi
 
     restarting=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_TARGET" \
-      "cd $REMOTE_APP_PATH && docker compose ps --format '{{.Status}}' 2>/dev/null | head -1" || true)
+      "cd $REMOTE_APP_PATH && COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose ps --format '{{.Status}}' 2>/dev/null | head -1" || true)
     echo "  attempt $i/$HEALTH_RETRIES: HTTP $status (container: ${restarting:-unknown})"
 
     if echo "$restarting" | grep -qi 'Restarting'; then
@@ -166,9 +212,9 @@ wait_for_healthy() {
   echo ""
   echo "Deployment failed: app did not become healthy."
   echo "Recent remote logs:"
-  ssh -o BatchMode=yes "$SSH_TARGET" "cd $REMOTE_APP_PATH && docker compose logs --tail=80" || true
+  ssh -o BatchMode=yes "$SSH_TARGET" "cd $REMOTE_APP_PATH && COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose logs --tail=80" || true
   echo ""
-  if ssh -o BatchMode=yes "$SSH_TARGET" "cd $REMOTE_APP_PATH && docker compose logs --tail=120 2>/dev/null | grep -q 'P3005'"; then
+  if ssh -o BatchMode=yes "$SSH_TARGET" "cd $REMOTE_APP_PATH && COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose logs --tail=120 2>/dev/null | grep -q 'P3005'"; then
     echo "Detected Prisma P3005 (existing DB without migration history)."
     echo "Recover with:"
     echo "  ./scripts/deploy-to-vm.sh --baseline-db --skip-build"
@@ -179,17 +225,22 @@ wait_for_healthy() {
 deploy_on_remote() {
   echo "Building and starting on remote..."
   if $skip_build; then
-    ssh "$SSH_TARGET" "cd $REMOTE_APP_PATH && docker compose up -d"
+    remote_compose up -d
   else
-    ssh "$SSH_TARGET" "cd $REMOTE_APP_PATH && docker compose up -d --build"
+    remote_compose up -d --build
   fi
 }
 
 print_success() {
   echo ""
   echo "Deployment complete ($DEPLOY_ENV)."
-  echo "  App (UI + API):  http://${REMOTE_HOST}:3001"
-  echo "  Alternate port:  http://${REMOTE_HOST}:8080"
+  if [ -n "$COMPOSE_PROFILES" ] && echo "$COMPOSE_PROFILES" | grep -q 'tls'; then
+    echo "  App (HTTPS):     https://${SITE_ADDRESS}"
+    echo "  Health (local):  ${HEALTH_URL}"
+  else
+    echo "  App (UI + API):  http://${REMOTE_HOST}:3001"
+    echo "  Alternate port:  http://${REMOTE_HOST}:8080"
+  fi
   echo ""
   echo "Logs: ssh $SSH_TARGET 'cd $REMOTE_APP_PATH && docker compose logs -f'"
 }
@@ -203,6 +254,7 @@ fi
 
 ssh_check
 sync_to_remote
+ensure_remote_tls_env
 
 if $baseline_db; then
   baseline_remote_db

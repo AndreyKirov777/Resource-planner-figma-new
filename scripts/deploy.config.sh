@@ -10,9 +10,12 @@ DEPLOY_ENV="${DEPLOY_ENV:-prod}"
 case "$DEPLOY_ENV" in
   prod)
     REMOTE_HOST="${REMOTE_HOST:-res-pln-dev-vm.ipa.dataart.net}"
+    SITE_ADDRESS="${SITE_ADDRESS:-res-pln-dev-vm.ipa.dataart.net}"
     ;;
   test)
     REMOTE_HOST="${REMOTE_HOST:-172.23.224.99}"
+    SITE_ADDRESS="${SITE_ADDRESS:-marenas-aiagent-vm.ipa.dataart.net}"
+    COMPOSE_PROFILES="${COMPOSE_PROFILES:-tls}"
     ;;
   *)
     echo "Unknown DEPLOY_ENV='$DEPLOY_ENV' (use prod or test)." >&2

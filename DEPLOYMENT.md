@@ -8,22 +8,19 @@ The app now requires sign-in via Microsoft Entra ID in production (`AUTH_MODE=en
 
 ### 1. HTTPS reverse proxy (required)
 
-Session cookies are marked `Secure` in production (`COOKIE_SECURE` defaults to `true` whenever `NODE_ENV=production`), so the app must sit behind TLS. Put a reverse proxy in front of the container and forward only port 3001 internally. A minimal [Caddy](https://caddyserver.com/) example (`Caddyfile`):
+Session cookies are marked `Secure` in production (`COOKIE_SECURE` defaults to `true` whenever `NODE_ENV=production`), so the app must sit behind TLS. TEST already runs [Caddy](https://caddyserver.com/) as a compose profile (`tls`): `npm run deploy:test` starts it and points the app at `https://marenas-aiagent-vm.ipa.dataart.net`.
 
-```
-res-pln-dev-vm.ipa.dataart.net {
-  reverse_proxy localhost:3001
-}
-```
+`*.ipa.dataart.net` is not reachable by Let's Encrypt, so the bundled `Caddyfile` uses `tls internal` (Caddy's local CA). Browsers on domain-joined machines will warn until an IPA-issued certificate is mounted. Set `TRUST_PROXY=1` so Express trusts the proxy's `X-Forwarded-*` headers.
 
-Caddy provisions and renews the certificate automatically. Set `TRUST_PROXY=1` on the app container so Express trusts the proxy's `X-Forwarded-*` headers.
+To enable the same proxy on another host, set `SITE_ADDRESS` and `COMPOSE_PROFILES=tls` in that VM's `.env`.
 
 ### 2. Entra ID app registration
 
 In the Azure portal (Entra ID → App registrations → New registration):
 
-1. **Redirect URIs** (platform: Web) — add both:
+1. **Redirect URIs** (platform: Web) — add:
    - `https://res-pln-dev-vm.ipa.dataart.net/auth/callback` (production)
+   - `https://marenas-aiagent-vm.ipa.dataart.net/auth/callback` (test)
    - `http://localhost:3001/auth/callback` (local dev against a real tenant)
 2. **Client secret** — Certificates & secrets → New client secret. Copy the value into `ENTRA_CLIENT_SECRET` (it is shown once).
 3. **`groups` claim** — Token configuration → Add groups claim → Security groups, for both ID and access tokens. Entra only emits the `groups` claim for groups the app registration is explicitly configured to receive; keep this to a small set (the three groups below), not "all groups the user is in" — see the overage risk note below.
@@ -84,7 +81,7 @@ Use the deploy script from the project root. One-time setup is required.
 | **prod** (default) | `res-pln-dev-vm.ipa.dataart.net` | `172.23.224.164` | `npm run deploy` or `./scripts/deploy-to-vm.sh --env prod` |
 | **test** | `marenas-aiagent-vm.ipa.dataart.net` | `172.23.224.99` | `npm run deploy:test` or `./scripts/deploy-to-vm.sh --env test` |
 
-Both VMs use the same Docker layout: app at `~/resource-planner`, ports **3001** and **8080**, named volume `db-data`. TEST gets its own empty database — it does not copy PROD data.
+Both VMs use the same Docker layout: app at `~/resource-planner`, named volume `db-data`. TEST sits behind Caddy on **443** (`https://marenas-aiagent-vm.ipa.dataart.net`); the app still listens on **3001** on the host for the deploy health check. TEST gets its own empty database — it does not copy PROD data.
 
 ### One-time setup
 

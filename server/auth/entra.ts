@@ -3,7 +3,7 @@ import { Router } from 'express';
 import * as client from 'openid-client';
 import type { PrismaClient } from '../../src/generated/prisma';
 import { ownershipMigration, resolveGroup } from './groups';
-import { SESSION_COOKIE_NAME, clearSessionCookie, createSession, parseCookies, setSessionCookie } from './session';
+import { SESSION_COOKIE_NAME, clearSessionCookie, createSession, isSecureCookie, parseCookies, setSessionCookie } from './session';
 
 const FLOW_COOKIE_NAME = 'rp_auth_flow';
 const FLOW_COOKIE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
@@ -105,7 +105,7 @@ export function createEntraAuthRouter(prisma: PrismaClient): Router {
       res.cookie(FLOW_COOKIE_NAME, encodeFlowCookie(flow), {
         httpOnly: true,
         sameSite: 'lax',
-        secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
+        secure: isSecureCookie(),
         path: '/',
         maxAge: FLOW_COOKIE_MAX_AGE_MS,
       });

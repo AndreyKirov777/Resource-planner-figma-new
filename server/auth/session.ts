@@ -44,7 +44,7 @@ export function parseCookies(header: string | undefined | null): Record<string, 
   );
 }
 
-function isSecureCookie(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isSecureCookie(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.COOKIE_SECURE === 'true') return true;
   if (env.COOKIE_SECURE === 'false') return false;
   return env.NODE_ENV === 'production';

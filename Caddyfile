@@ -1,0 +1,8 @@
+# Internal IPA hosts are not reachable by Let's Encrypt. Caddy's local CA
+# signs the certificate (`tls internal`). Domain-joined machines trust the
+# IPA CA, not this one — browsers will warn until an IPA-issued cert is used.
+{$SITE_ADDRESS:marenas-aiagent-vm.ipa.dataart.net} {
+	tls internal
+	encode gzip
+	reverse_proxy app:3001
+}

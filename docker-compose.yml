@@ -33,7 +33,28 @@ services:
       retries: 3
       start_period: 40s
 
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SITE_ADDRESS=${SITE_ADDRESS:-marenas-aiagent-vm.ipa.dataart.net}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
 volumes:
   db-data:
+    driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
     driver: local
 
