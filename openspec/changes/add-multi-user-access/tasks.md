@@ -57,6 +57,6 @@
 
 ## 5. Docs and final verification
 
-- [ ] 5.1 If implementation forces a contract change, edit only the deltas under `openspec/changes/add-multi-user-access/specs/` (never `openspec/specs/` directly, never `docs/bmad-archive/`). Verify `openspec validate add-multi-user-access --strict` passes.
-- [ ] 5.2 Focused tests: `npx vitest run server/auth/groups.test.ts server/auth/visibility.test.ts server-validation.test.ts auth.integration.test.ts access.integration.test.ts api.integration.test.ts wbs.integration.test.ts roadmap.integration.test.ts src/components/RateCard.test.tsx src/components/ResourceList.test.tsx src/components/ResourcePlan.test.tsx src/components/ProjectList.test.tsx src/components/ShareDialog.test.tsx src/components/ClientView.test.tsx src/components/planningColumns.test.ts src/App.test.tsx readme.test.ts` passes.
-- [ ] 5.3 `npm run typecheck` exits 0 and `npx vitest run` (full suite) passes.
+- [x] 5.1 If implementation forces a contract change, edit only the deltas under `openspec/changes/add-multi-user-access/specs/` (never `openspec/specs/` directly, never `docs/bmad-archive/`). Verify `openspec validate add-multi-user-access --strict` passes.
+- [x] 5.2 Focused tests: `npx vitest run server/auth/groups.test.ts server/auth/visibility.test.ts server-validation.test.ts auth.integration.test.ts access.integration.test.ts api.integration.test.ts wbs.integration.test.ts roadmap.integration.test.ts src/components/RateCard.test.tsx src/components/ResourceList.test.tsx src/components/ResourcePlan.test.tsx src/components/ProjectList.test.tsx src/components/ShareDialog.test.tsx src/components/ClientView.test.tsx src/components/planningColumns.test.ts src/App.test.tsx readme.test.ts` passes.
+- [x] 5.3 `npm run typecheck` exits 0 and `npx vitest run` (full suite) passes.
