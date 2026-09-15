@@ -45,15 +45,15 @@
 
 ## 4. Phase 4 — Share links and conflicts (deployable: public client links, 409 handling)
 
-- [ ] 4.1 `server.ts` (phase 4 slice): `POST /api/projects/:id/share-links {days}`, `GET /api/projects/:id/share-links`, `DELETE /api/share-links/:id` (revoke), public `GET /api/share/:token` with an explicit client-safe allow-list and 404 for missing/expired/revoked; version-conditional `updateMany` + 409 `{updatedBy, updatedAt, version}` on `PUT /api/projects/:id`, `PUT /api/resource-lists/:id`, `PUT /api/resource-plans/:id` (inside its allocation transaction). Verify via 4.7.
-- [ ] 4.2 `server-validation.ts` + `server-validation.test.ts`: `shareLinkCreateSchema` (`days` 7|30|90), `version` optional int on the three update schemas. Verify tests.
-- [ ] 4.3 `src/services/api.ts` + `src/utils/apiErrors.ts`: `ConflictError`; share-link wrappers; `getShare(token)`; `version` on `Project`/`ResourceList`/`ResourcePlan` and in update payload whitelists. Verify `npm run typecheck`.
-- [ ] 4.4 `src/main.tsx` + `src/components/ClientView.tsx` + `ClientView.test.tsx`: route `/client/:token`; load via `getShare`; "This link is no longer valid" on 404. Verify test for valid token and for 404.
-- [ ] 4.5 `src/components/ShareDialog.tsx` + `ShareDialog.test.tsx` + `src/components/ResourcePlan.tsx`: Client links section (create 7/30/90, copy URL, list, revoke) for write access; remove the old "Copy client link" button. Verify test covers create/revoke and VIEWER sees no links section.
-- [ ] 4.6 `src/App.tsx` + `App.test.tsx`: send `version` on the three update paths; catch `ConflictError` → "This row was changed by <name> at <time>. Reload?" → `loadProjectData`. Verify test simulates a 409 and asserts the reload call.
-- [ ] 4.7 `access.integration.test.ts`: share-link lifecycle (create by EDITOR, 403 for VIEWER, public GET without cookie has no internal keys, expired/revoked → 404); 409 on stale version for project, list row, plan row with correct `updatedBy`; matching version increments. Verify `npx vitest run access.integration.test.ts`.
-- [ ] 4.8 `README.md` + `DEPLOYMENT.md`: share-link endpoints; note that `/client/:projectId` links are retired. Verify `npx vitest run readme.test.ts`.
-- [ ] 4.9 Phase 4 gate: `npm run typecheck`, `npx vitest run`; deploy; open a 7-day link in a private window.
+- [x] 4.1 `server.ts` (phase 4 slice): `POST /api/projects/:id/share-links {days}`, `GET /api/projects/:id/share-links`, `DELETE /api/share-links/:id` (revoke), public `GET /api/share/:token` with an explicit client-safe allow-list and 404 for missing/expired/revoked; version-conditional `updateMany` + 409 `{updatedBy, updatedAt, version}` on `PUT /api/projects/:id`, `PUT /api/resource-lists/:id`, `PUT /api/resource-plans/:id` (inside its allocation transaction). Verify via 4.7.
+- [x] 4.2 `server-validation.ts` + `server-validation.test.ts`: `shareLinkCreateSchema` (`days` 7|30|90), `version` optional int on the three update schemas. Verify tests.
+- [x] 4.3 `src/services/api.ts` + `src/utils/apiErrors.ts`: `ConflictError`; share-link wrappers; `getShare(token)`; `version` on `Project`/`ResourceList`/`ResourcePlan` and in update payload whitelists. Verify `npm run typecheck`.
+- [x] 4.4 `src/main.tsx` + `src/components/ClientView.tsx` + `ClientView.test.tsx`: route `/client/:token`; load via `getShare`; "This link is no longer valid" on 404. Verify test for valid token and for 404.
+- [x] 4.5 `src/components/ShareDialog.tsx` + `ShareDialog.test.tsx` + `src/components/ResourcePlan.tsx`: Client links section (create 7/30/90, copy URL, list, revoke) for write access; remove the old "Copy client link" button. Verify test covers create/revoke and VIEWER sees no links section.
+- [x] 4.6 `src/App.tsx` + `App.test.tsx`: send `version` on the three update paths; catch `ConflictError` → "This row was changed by <name> at <time>. Reload?" → `loadProjectData`. Verify test simulates a 409 and asserts the reload call.
+- [x] 4.7 `access.integration.test.ts`: share-link lifecycle (create by EDITOR, 403 for VIEWER, public GET without cookie has no internal keys, expired/revoked → 404); 409 on stale version for project, list row, plan row with correct `updatedBy`; matching version increments. Verify `npx vitest run access.integration.test.ts`.
+- [x] 4.8 `README.md` + `DEPLOYMENT.md`: share-link endpoints; note that `/client/:projectId` links are retired. Verify `npx vitest run readme.test.ts`.
+- [x] 4.9 Phase 4 gate: `npm run typecheck`, `npx vitest run`; deploy; open a 7-day link in a private window.
 
 ## 5. Docs and final verification
 

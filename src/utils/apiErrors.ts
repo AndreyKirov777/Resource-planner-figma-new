@@ -27,3 +27,23 @@ export function redirectToLogin(): void {
   const returnTo = encodeURIComponent(pathname + search);
   window.location.href = `/auth/login?returnTo=${returnTo}`;
 }
+
+/**
+ * Thrown when a versioned write (`PUT` with `version`) gets back a 409: someone
+ * else wrote the row first. Carries who and when, from the server's response body.
+ */
+export class ConflictError extends Error {
+  updatedBy: string | null;
+  updatedAt: string;
+
+  constructor(updatedBy: string | null, updatedAt: string) {
+    super('Conflict: this row was changed by someone else');
+    this.name = 'ConflictError';
+    this.updatedBy = updatedBy;
+    this.updatedAt = updatedAt;
+  }
+}
+
+export function isConflict(err: unknown): err is ConflictError {
+  return err instanceof ConflictError;
+}

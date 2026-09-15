@@ -52,7 +52,11 @@ Membership in these groups is managed entirely in Entra — the app never assign
 
 After deploying, sign in once with an `ADMIN_EMAILS` account. This assigns every pre-existing (legacy, ownerless) project to that admin and creates its `ProjectMember` (OWNER) row — the one-time ownership migration described in the design.
 
-### 5. Database backups
+### 5. Client links
+
+The old public `/client/:projectId` view is retired. Clients are shared via an expiring, unguessable link created from the "Share…" dialog (`POST /api/projects/:id/share-links`), served at `/client/:token` and backed by the public `GET /api/share/:token` route — no session required, and the response is an explicit client-safe allow-list (never internal cost/margin figures). A link stops working once it's revoked or past its `days` (7/30/90).
+
+### 6. Database backups
 
 The container's `sqlite3` CLI (installed in the production image) takes a consistent online backup even while the app is running (SQLite's WAL mode makes this safe):
 

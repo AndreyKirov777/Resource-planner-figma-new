@@ -46,7 +46,7 @@ import { findResourceForPlan } from './utils/resourceMatching';
 import { descendantIds } from './utils/wbsTree';
 import { applyRoadmapReorder } from './utils/roadmapOrder';
 import { APP_DEFAULTS, setLiveExchangeRates } from './config/defaults';
-import { describeError } from './utils/apiErrors';
+import { describeError, isConflict } from './utils/apiErrors';
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -185,6 +185,17 @@ export default function App({ me }: AppProps) {
     }
   };
 
+  // A versioned write (project/resource-list/resource-plan) lost a race with
+  // another writer. Ask, then reload from the server rather than silently
+  // overwriting or silently dropping the caller's edit.
+  const handleConflict = (err: { updatedBy: string | null; updatedAt: string }) => {
+    const when = new Date(err.updatedAt).toLocaleString();
+    const who = err.updatedBy ?? 'someone else';
+    if (window.confirm(`This row was changed by ${who} at ${when}. Reload?`)) {
+      loadProjectData(currentProject?.id);
+    }
+  };
+
   const handleResourceListsChange = (updatedResourceLists: ResourceListType[]) => {
     setResourceLists(updatedResourceLists);
   };
@@ -193,6 +204,7 @@ export default function App({ me }: AppProps) {
     try {
       await api.updateResourceList(id, data);
     } catch (err) {
+      if (isConflict(err)) return handleConflict(err);
       setError(err instanceof Error ? err.message : 'Failed to update resource list');
       console.error('Error updating resource list:', err);
     }
@@ -335,8 +347,13 @@ export default function App({ me }: AppProps) {
                 periodNumber: wa.periodNumber,
                 allocation: wa.allocation
               })),
+              version: resourcePlan.version,
             });
           } catch (updateErr) {
+            if (isConflict(updateErr)) {
+              handleConflict(updateErr);
+              return;
+            }
             console.error(`Failed to update resource plan ${resourcePlan.id}:`, updateErr);
             // Continue with other updates even if one fails
           }
@@ -757,9 +774,12 @@ export default function App({ me }: AppProps) {
 
   const handleProjectSettingsChange = async (settings: Partial<Project>) => {
     if (!currentProject) return;
-    
+
     try {
-      const updatedProject = await api.updateProject(currentProject.id, settings);
+      const updatedProject = await api.updateProject(currentProject.id, {
+        ...settings,
+        version: currentProject.version,
+      });
       setCurrentProject(updatedProject);
       if (typeof settings.name !== 'undefined') {
         setEditableProjectName(updatedProject.name || '');
@@ -768,6 +788,7 @@ export default function App({ me }: AppProps) {
         setEditableProjectDescription(updatedProject.description || '');
       }
     } catch (err) {
+      if (isConflict(err)) return handleConflict(err);
       setError(err instanceof Error ? err.message : 'Failed to update project settings');
       console.error('Error updating project settings:', err);
     }

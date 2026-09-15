@@ -72,6 +72,9 @@ export const projectUpdateSchema = z.object({
   phases: phasesStringSchema,
   startDate: startDateSchema,
   status: z.enum(['active', 'archived']).optional(),
+  // When present, the update is version-conditional (optimistic concurrency):
+  // a mismatch means someone else wrote first, and the caller gets a 409.
+  version: z.number().int().optional(),
 }).strict();
 
 export const rateCardUpdateSchema = z.object({
@@ -108,6 +111,7 @@ export const resourceListUpdateSchema = z.object({
   hourlyRate: z.number().optional(),
   location: z.string().max(200).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
+  version: z.number().int().optional(),
 }).strict();
 
 export const allocationSchema = z.object({
@@ -137,6 +141,7 @@ export const resourcePlanUpdateSchema = z.object({
   // (clientHourlyRate() derivation) instead of trusting the client's numbers —
   // the path a USER caller (who never sees intRate) uses to apply a picked role.
   resourceListId: z.number().int().positive().optional(),
+  version: z.number().int().optional(),
 }).strict();
 
 export const reorderSchema = z.object({
@@ -168,6 +173,10 @@ export const rateCardsQuerySchema = z.object({
   projectId: z.coerce.number().int().positive().optional(),
 }).strict();
 
+export const shareLinkCreateSchema = z.object({
+  days: z.union([z.literal(7), z.literal(30), z.literal(90)]),
+}).strict();
+
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;
 export type ProjectUpdateInput = z.infer<typeof projectUpdateSchema>;
 export type RateCardUpdateInput = z.infer<typeof rateCardUpdateSchema>;
@@ -176,6 +185,7 @@ export type ResourceListUpdateInput = z.infer<typeof resourceListUpdateSchema>;
 export type ResourcePlanCreateInput = z.infer<typeof resourcePlanCreateSchema>;
 export type ResourcePlanUpdateInput = z.infer<typeof resourcePlanUpdateSchema>;
 export type AllocationUpdateInput = z.infer<typeof allocationUpdateSchema>;
+export type ShareLinkCreateInput = z.infer<typeof shareLinkCreateSchema>;
 
 // ---------------------------------------------------------------------------
 // Goal 1b — generate-plan endpoint request schema

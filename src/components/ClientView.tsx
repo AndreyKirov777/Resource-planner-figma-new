@@ -8,39 +8,51 @@ import { Card, CardContent } from './ui/card';
 import { Label } from './ui/label';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ChevronDown } from 'lucide-react';
-import { api, Project, Phase, ResourcePlan as ResourcePlanType } from '../services/api';
+import { api, SharedProject, ResourcePlan as ResourcePlanType } from '../services/api';
 import { hoursPerPeriod, buildPlanFinancials } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases } from '../utils/phases';
 import { buildClientPngExport, downloadClientViewPng } from '../utils/clientViewPng';
 import * as ExcelJS from 'exceljs';
 
 export default function ClientView() {
-  const { projectId } = useParams<{ projectId: string }>();
-  const [project, setProject] = useState<Project | null>(null);
+  const { token } = useParams<{ token: string }>();
+  const [project, setProject] = useState<SharedProject | null>(null);
+  // buildPlanFinancials (shared with the internal views) expects the full
+  // ResourcePlan shape; the public share payload omits internal-only fields
+  // it needs a value for but this view never reads (intHourlyRate and co.) —
+  // padded once here so every downstream computation shares one object
+  // identity per plan (required for the financials-by-plan lookup below).
   const [resourcePlans, setResourcePlans] = useState<ResourcePlanType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [phaseBreakdownOpen, setPhaseBreakdownOpen] = useState(true);
 
   useEffect(() => {
-    if (!projectId) return;
-    const id = parseInt(projectId, 10);
-    if (isNaN(id)) {
-      setError('Invalid project ID');
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
     setLoading(true);
-    api.getProject(id)
+    api.getShare(token)
       .then((data) => {
         setProject(data);
-        setResourcePlans(data.resourcePlans || []);
+        setResourcePlans((data.resourcePlans || []).map((p) => ({
+          ...p,
+          intHourlyRate: 0,
+          projectId: 0,
+          createdAt: '',
+          updatedAt: '',
+          allocations: p.allocations.map((a) => ({
+            ...a,
+            id: 0,
+            resourcePlanId: p.id,
+            createdAt: '',
+            updatedAt: '',
+          })),
+        })));
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load project');
+        setError(err instanceof Error ? err.message : 'This link is no longer valid');
       })
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }, [token]);
 
   const phases = useMemo(
     () => (project ? parsePhases(project.phases, resourcePlans) : []),
@@ -63,10 +75,11 @@ export default function ClientView() {
 
   // exchangeRate doesn't affect price/efforts (client-safe fields), so a fixed
   // value is fine here — buildPlanFinancials also computes intCost/margin,
-  // which this client-facing view never reads.
+  // which this client-facing view never reads. The share payload never
+  // carries exchangeRate at all (an internal-only figure).
   const financials = useMemo(
-    () => buildPlanFinancials(resourcePlans, phases, hrsPerPeriod, project?.exchangeRate ?? 1),
-    [resourcePlans, phases, hrsPerPeriod, project?.exchangeRate]
+    () => buildPlanFinancials(resourcePlans, phases, hrsPerPeriod, 1),
+    [resourcePlans, phases, hrsPerPeriod]
   );
   const financialsByPlan = useMemo(
     () => new Map(financials.rows.map((r) => [r.plan, r])),

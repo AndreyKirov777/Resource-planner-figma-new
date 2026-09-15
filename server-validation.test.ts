@@ -26,6 +26,7 @@ import {
   fromRateCardSchema,
   fromResourceListSchema,
   rateCardsQuerySchema,
+  shareLinkCreateSchema,
 } from './server-validation';
 
 describe('server-validation Zod schemas', () => {
@@ -710,6 +711,39 @@ describe('server-validation Zod schemas', () => {
     it('rejects a non-numeric projectId', () => {
       const result = rateCardsQuerySchema.safeParse({ projectId: 'abc' });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('optimistic concurrency: version on project/resource-list/resource-plan update', () => {
+    it('accepts an optional integer version on all three update schemas', () => {
+      expect(projectUpdateSchema.safeParse({ name: 'X', version: 3 }).success).toBe(true);
+      expect(resourceListUpdateSchema.safeParse({ role: 'Dev', version: 0 }).success).toBe(true);
+      expect(resourcePlanUpdateSchema.safeParse({ role: 'Dev', version: 7 }).success).toBe(true);
+    });
+
+    it('is still valid when version is omitted (back-compat, unconditional update)', () => {
+      expect(projectUpdateSchema.safeParse({ name: 'X' }).success).toBe(true);
+      expect(resourceListUpdateSchema.safeParse({}).success).toBe(true);
+      expect(resourcePlanUpdateSchema.safeParse({}).success).toBe(true);
+    });
+
+    it('rejects a non-integer version', () => {
+      expect(projectUpdateSchema.safeParse({ version: 1.5 }).success).toBe(false);
+      expect(resourceListUpdateSchema.safeParse({ version: 'zero' }).success).toBe(false);
+    });
+  });
+
+  describe('shareLinkCreateSchema', () => {
+    it('accepts 7, 30, or 90 days', () => {
+      expect(shareLinkCreateSchema.safeParse({ days: 7 }).success).toBe(true);
+      expect(shareLinkCreateSchema.safeParse({ days: 30 }).success).toBe(true);
+      expect(shareLinkCreateSchema.safeParse({ days: 90 }).success).toBe(true);
+    });
+
+    it('rejects any other value', () => {
+      expect(shareLinkCreateSchema.safeParse({ days: 14 }).success).toBe(false);
+      expect(shareLinkCreateSchema.safeParse({}).success).toBe(false);
+      expect(shareLinkCreateSchema.safeParse({ days: '7' }).success).toBe(false);
     });
   });
 });

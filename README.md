@@ -144,7 +144,7 @@
   - `GET /projects` - List projects visible to the caller, filtered by an optional `?scope=mine|shared|all` query param (`mine` is the default; `all` is ADMIN-only); each row carries `ownerName` and the caller's `myRole`
   - `GET /projects/:id` - Get project with all related data, plus the caller's `access` role
   - `POST /projects` - Create new project (the caller becomes its OWNER)
-  - `PUT /projects/:id` - Update project (changing `status` requires OWNER/ADMIN)
+  - `PUT /projects/:id` - Update project (changing `status` requires OWNER/ADMIN). Accepts an optional `version` in the body for optimistic concurrency: a mismatch returns 409 `{updatedBy, updatedAt, version}` instead of applying the write; omitting `version` updates unconditionally.
   - `DELETE /projects/:id` - Delete project (cascades to resource lists, resource plans, and their allocations) — OWNER/ADMIN only
   - `POST /projects/:id/copy` - Duplicate a project with all of its data (the caller becomes the copy's OWNER)
   - `GET /projects/:id/export` - Export a project (lists, plans, allocations, and WBS) as JSON
@@ -155,6 +155,10 @@
   - `GET /projects/:id/members` - List a project's members and their roles
   - `PUT /projects/:id/members/:userId` - Add or change a member's role (EDITOR or VIEWER) — OWNER/ADMIN only
   - `DELETE /projects/:id/members/:userId` - Remove a member — OWNER/ADMIN only
+  - `POST /projects/:id/share-links` - Create an expiring, unguessable client link (`days`: 7, 30, or 90) — requires write access
+  - `GET /projects/:id/share-links` - List a project's client links, active or not — requires read access
+  - `DELETE /share-links/:id` - Revoke a client link — requires write access on the link's project
+  - `GET /share/:token` - Public, no session required. The client-safe view behind a link: an explicit allow-list of fields (never `intRate`/`intHourlyRate`/`defaultMargin`/`exchangeRate`), 404 once the link is missing, expired, or revoked. Served by the `/client/:token` page, which replaces the retired `/client/:projectId` link.
 
   #### Rate Card (global — shared across all projects)
   - `GET /rate-cards` - Get the global rate card. Accepts an optional `projectId` query param; when given and the caller isn't in the USER group, each row also carries a `price` map (client rate per region, computed server-side from that project's margin and exchange rate). Write endpoints below are ADMIN-only.
@@ -168,14 +172,14 @@
   #### Resource Lists
   - `GET /projects/:projectId/resource-lists` - Get resource list for project
   - `POST /projects/:projectId/resource-lists` - Create resource
-  - `PUT /resource-lists/:id` - Update resource
+  - `PUT /resource-lists/:id` - Update resource. Accepts an optional `version` for optimistic concurrency (see `PUT /projects/:id` above); a mismatch returns 409.
   - `DELETE /resource-lists/:id` - Delete resource
   - `POST /projects/:projectId/resource-lists/from-rate-card` - Seed a resource-list entry from a global rate-card row for a given region; the client rate is computed server-side, so a USER caller (who never holds internal rates) can still use this to add resources
 
   #### Resource Plans
   - `GET /projects/:projectId/resource-plans` - Get resource plans for project
   - `POST /projects/:projectId/resource-plans` - Create resource plan
-  - `PUT /resource-plans/:id` - Update resource plan
+  - `PUT /resource-plans/:id` - Update resource plan. Accepts an optional `version` for optimistic concurrency (see `PUT /projects/:id` above); a mismatch returns 409. Also accepts a `resourceListId`, which copies role/rates from that resource-list entry server-side, overriding any rate fields in the same body — the path a USER caller uses to apply a picked role to an existing row.
   - `DELETE /resource-plans/:id` - Delete resource plan
   - `PUT /projects/:projectId/resource-plans/reorder` - Reorder a project's resource plans
   - `POST /projects/:id/convert-planning-mode` - Convert a project between weekly and monthly planning

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { API_UNREACHABLE_MESSAGE, describeError, isNetworkFetchError, redirectToLogin } from './apiErrors';
+import { API_UNREACHABLE_MESSAGE, ConflictError, describeError, isConflict, isNetworkFetchError, redirectToLogin } from './apiErrors';
 
 describe('describeError', () => {
   it('rewrites the browser\'s native fetch TypeError into an actionable API-down message', () => {
@@ -49,5 +49,21 @@ describe('redirectToLogin', () => {
     redirectToLogin();
 
     expect(location.href).toBe('https://example.test/client/abc123');
+  });
+});
+
+describe('ConflictError / isConflict', () => {
+  it('carries who last wrote the row and when', () => {
+    const err = new ConflictError('Dev Manager', '2026-09-15T10:00:00Z');
+    expect(err.updatedBy).toBe('Dev Manager');
+    expect(err.updatedAt).toBe('2026-09-15T10:00:00Z');
+    expect(err.name).toBe('ConflictError');
+    expect(err).toBeInstanceOf(Error);
+  });
+
+  it('isConflict narrows only ConflictError instances', () => {
+    expect(isConflict(new ConflictError(null, '2026-09-15T10:00:00Z'))).toBe(true);
+    expect(isConflict(new Error('plain error'))).toBe(false);
+    expect(isConflict('not-an-error')).toBe(false);
   });
 });

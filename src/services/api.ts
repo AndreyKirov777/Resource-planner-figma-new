@@ -1,4 +1,4 @@
-import { API_UNREACHABLE_MESSAGE, isNetworkFetchError, redirectToLogin } from '../utils/apiErrors';
+import { API_UNREACHABLE_MESSAGE, ConflictError, isNetworkFetchError, redirectToLogin } from '../utils/apiErrors';
 
 // Use relative URL so Vite proxies /api to backend in dev, same server in production
 const API_BASE_URL = '/api';
@@ -96,6 +96,8 @@ export interface Project {
   ownerName?: string | null;
   /** Present on GET /api/projects/:id — the current user's role on this project. */
   access?: ProjectRole;
+  /** Optimistic-concurrency counter; sending it back on update makes the write version-conditional. */
+  version?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -115,6 +117,49 @@ export interface UserInfo {
   group: 'ADMIN' | 'MANAGER' | 'USER';
   isActive: boolean;
   lastLoginAt: string | null;
+}
+
+export type ShareLinkDays = 7 | 30 | 90;
+
+export interface ShareLink {
+  id: number;
+  token: string;
+  projectId: number;
+  expiresAt: string;
+  createdById: number | null;
+  createdAt: string;
+  revokedAt: string | null;
+  createdBy?: { displayName: string } | null;
+}
+
+/** The client-safe, allow-listed shape returned by the public GET /api/share/:token. */
+export interface SharedProject {
+  name: string;
+  description?: string;
+  daysInFTE: number;
+  clientCurrency: string;
+  investment?: number;
+  planningMode: string;
+  phases?: string;
+  startDate?: string | null;
+  resourceLists: Array<{
+    id: number;
+    role: string;
+    clientRole?: string;
+    name?: string;
+    hourlyRate: number;
+    location?: string;
+    description?: string;
+  }>;
+  resourcePlans: Array<{
+    id: number;
+    role: string;
+    clientRole?: string;
+    name?: string;
+    clientHourlyRate: number;
+    displayOrder: number;
+    allocations: Array<{ periodNumber: number; allocation: number }>;
+  }>;
 }
 
 export interface RateCard {
@@ -155,6 +200,8 @@ export interface ResourceList {
   location?: string;
   description?: string;
   projectId: number;
+  /** Optimistic-concurrency counter; sending it back on update makes the write version-conditional. */
+  version?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -177,6 +224,8 @@ export interface ResourcePlan {
   clientHourlyRate: number;
   displayOrder: number;
   projectId: number;
+  /** Optimistic-concurrency counter; sending it back on update makes the write version-conditional. */
+  version?: number;
   createdAt: string;
   updatedAt: string;
   allocations: Allocation[];
@@ -274,7 +323,7 @@ function pickDefined<T extends Record<string, unknown>>(obj: T, keys: (keyof T)[
 }
 
 function toResourceListUpdatePayload(data: Partial<ResourceList>) {
-  return pickDefined(data, ['role', 'clientRole', 'name', 'intRate', 'hourlyRate', 'location', 'description']);
+  return pickDefined(data, ['role', 'clientRole', 'name', 'intRate', 'hourlyRate', 'location', 'description', 'version']);
 }
 
 function toRateCardUpdatePayload(data: Partial<RateCard>) {
@@ -303,7 +352,17 @@ async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
 
 async function throwIfNotOk(response: Response, fallback: string): Promise<void> {
   if (response.ok) return;
-  const body = (await response.json().catch(() => ({}))) as { error?: string; details?: unknown };
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    details?: unknown;
+    updatedBy?: string | null;
+    updatedAt?: string;
+  };
+  // A versioned PUT (project/resource-list/resource-plan) marks a stale-version
+  // 409 this way; other 409s (e.g. an empty rate card) are ordinary errors.
+  if (response.status === 409 && body.error === 'Conflict') {
+    throw new ConflictError(body.updatedBy ?? null, body.updatedAt ?? new Date().toISOString());
+  }
   const details =
     body.details == null
       ? ''
@@ -356,6 +415,36 @@ export const api = {
     await throwIfNotOk(response, 'Failed to remove member');
   },
 
+  async createShareLink(projectId: number, days: ShareLinkDays): Promise<ShareLink> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/share-links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days }),
+    });
+    await throwIfNotOk(response, 'Failed to create share link');
+    return response.json();
+  },
+
+  async getShareLinks(projectId: number): Promise<ShareLink[]> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/share-links`);
+    await throwIfNotOk(response, 'Failed to fetch share links');
+    return response.json();
+  },
+
+  async revokeShareLink(id: number): Promise<void> {
+    const response = await apiFetch(`${API_BASE_URL}/share-links/${id}`, {
+      method: 'DELETE',
+    });
+    await throwIfNotOk(response, 'Failed to revoke share link');
+  },
+
+  /** Public: no session required — used by the /client/:token page. */
+  async getShare(token: string): Promise<SharedProject> {
+    const response = await fetch(`${API_BASE_URL}/share/${token}`);
+    await throwIfNotOk(response, 'Failed to fetch shared project');
+    return response.json();
+  },
+
   async getProject(id: number): Promise<Project & {
     resourceLists: ResourceList[];
     resourcePlans: ResourcePlan[];
@@ -381,7 +470,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Failed to update project');
+    await throwIfNotOk(response, 'Failed to update project');
     return response.json();
   },
 
@@ -558,7 +647,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(toResourceListUpdatePayload(data)),
     });
-    if (!response.ok) throw new Error('Failed to update resource list');
+    await throwIfNotOk(response, 'Failed to update resource list');
     return response.json();
   },
 
@@ -592,11 +681,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const errorMessage = errorData.details || errorData.error || 'Failed to update resource plan';
-      throw new Error(errorMessage);
-    }
+    await throwIfNotOk(response, 'Failed to update resource plan');
     return response.json();
   },
 

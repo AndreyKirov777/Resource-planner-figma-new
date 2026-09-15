@@ -1,4 +1,5 @@
 import path from 'path';
+import { randomBytes } from 'node:crypto';
 
 // Use a stable database path so data persists across all runs (same file every time)
 if (!process.env.DATABASE_URL) {
@@ -37,6 +38,7 @@ import {
   fromRateCardSchema,
   fromResourceListSchema,
   rateCardsQuerySchema,
+  shareLinkCreateSchema,
 } from './server-validation';
 import { generateResourcePlan } from './server/planner/generateResourcePlan';
 import { loadAIConfig } from './server/llm/config';
@@ -73,6 +75,24 @@ function isAccessError(error: unknown): error is AccessError {
   return error instanceof AccessError;
 }
 
+/**
+ * Builds the response for a failed version-conditional update: 404 if the row
+ * is gone, otherwise 409 naming who last wrote it. `current` is the row as it
+ * exists now (after the conditional updateMany found no match).
+ */
+async function conflictResponse(
+  current: { updatedById: number | null; updatedAt: Date; version: number } | null
+): Promise<{ status: 404 | 409; body: Record<string, unknown> }> {
+  if (!current) return { status: 404, body: { error: 'Not found' } };
+  const updatedBy = current.updatedById != null
+    ? (await prisma.user.findUnique({ where: { id: current.updatedById } }))?.displayName ?? null
+    : null;
+  return {
+    status: 409,
+    body: { error: 'Conflict', updatedBy, updatedAt: current.updatedAt, version: current.version },
+  };
+}
+
 // In-memory per-IP sliding-window rate limit store for POST /api/projects/generate-plan.
 // Key: IP address, Value: array of request timestamps (ms).
 const rateLimitStore = new Map<string, number[]>();
@@ -99,6 +119,59 @@ app.use(express.static(path.join(__dirname, 'build')));
 // Public: used by the Docker healthcheck, must not require a session.
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+// Public: no session required. The response is an explicit allow-list (not
+// omitDeep) so any field added to Project/ResourceList/ResourcePlan in the
+// future is private by default until someone opts it in here. Must be
+// registered before requireAuth below, or the session gate would apply to it.
+app.get('/api/share/:token', async (req, res) => {
+  try {
+    const shareLink = await prisma.shareLink.findUnique({ where: { token: req.params.token } });
+    if (!shareLink || shareLink.revokedAt || shareLink.expiresAt.getTime() <= Date.now()) {
+      return res.status(404).json({ error: 'This link is no longer valid' });
+    }
+    const project = await prisma.project.findUnique({
+      where: { id: shareLink.projectId },
+      include: {
+        resourceLists: true,
+        resourcePlans: { include: { allocations: true }, orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }] },
+      },
+    });
+    if (!project) return res.status(404).json({ error: 'This link is no longer valid' });
+
+    res.json({
+      name: project.name,
+      description: project.description,
+      daysInFTE: project.daysInFTE,
+      clientCurrency: project.clientCurrency,
+      investment: project.investment,
+      planningMode: project.planningMode,
+      phases: project.phases,
+      startDate: project.startDate,
+      resourceLists: project.resourceLists.map((rl) => ({
+        id: rl.id,
+        role: rl.role,
+        clientRole: rl.clientRole,
+        name: rl.name,
+        hourlyRate: rl.hourlyRate,
+        location: rl.location,
+        description: rl.description,
+      })),
+      resourcePlans: project.resourcePlans.map((rp) => ({
+        id: rp.id,
+        role: rp.role,
+        clientRole: rp.clientRole,
+        name: rp.name,
+        clientHourlyRate: rp.clientHourlyRate,
+        displayOrder: rp.displayOrder,
+        allocations: rp.allocations.map((a) => ({ periodNumber: a.periodNumber, allocation: a.allocation })),
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching share link:', error);
+    res.status(500).json({ error: 'Failed to fetch shared project' });
+  }
 });
 
 const authMode = process.env.AUTH_MODE === 'dev' ? 'dev' : 'entra';
@@ -258,10 +331,23 @@ app.put('/api/projects/:id', async (req, res) => {
     // field is ordinary project-settings content any EDITOR may change.
     const need = parsed.data.status !== undefined ? 'own' : 'write';
     await requireProjectAccess(req.user!, id, need);
-    const project = await prisma.project.update({
-      where: { id },
-      data: { ...parsed.data, startDate: normalizeStartDate(parsed.data.startDate), updatedById: req.user!.id },
-    });
+    const { version, ...fields } = parsed.data;
+    const data = { ...fields, startDate: normalizeStartDate(fields.startDate), updatedById: req.user!.id };
+
+    if (version !== undefined) {
+      const result = await prisma.project.updateMany({
+        where: { id, version },
+        data: { ...data, version: { increment: 1 } },
+      });
+      if (result.count === 0) {
+        const current = await prisma.project.findUnique({ where: { id } });
+        const conflict = await conflictResponse(current);
+        return res.status(conflict.status).json(conflict.body);
+      }
+    } else {
+      await prisma.project.update({ where: { id }, data });
+    }
+    const project = await prisma.project.findUnique({ where: { id } });
     res.json(project);
   } catch (error) {
     if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
@@ -420,6 +506,61 @@ app.get('/api/projects/:id/export', async (req, res) => {
     if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error exporting project:', error);
     res.status(500).json({ error: 'Failed to export project' });
+  }
+});
+
+// Expiring client share links. `token` is unguessable (32 random bytes) and
+// carries no session — the public GET /api/share/:token route below is the
+// only thing it grants, and only a hand-picked, client-safe set of fields.
+app.post('/api/projects/:id/share-links', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    const parsed = shareLinkCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    await requireProjectAccess(req.user!, projectId, 'write');
+
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + parsed.data.days * 24 * 60 * 60 * 1000);
+    const shareLink = await prisma.shareLink.create({
+      data: { token, projectId, expiresAt, createdById: req.user!.id },
+    });
+    res.status(201).json(shareLink);
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    console.error('Error creating share link:', error);
+    res.status(500).json({ error: 'Failed to create share link' });
+  }
+});
+
+app.get('/api/projects/:id/share-links', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'read');
+    const shareLinks = await prisma.shareLink.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' },
+      include: { createdBy: { select: { displayName: true } } },
+    });
+    res.json(shareLinks);
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch share links' });
+  }
+});
+
+app.delete('/api/share-links/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const shareLink = await prisma.shareLink.findUnique({ where: { id } });
+    if (!shareLink) return res.status(404).json({ error: 'Share link not found' });
+    await requireProjectAccess(req.user!, shareLink.projectId, 'write');
+    await prisma.shareLink.update({ where: { id }, data: { revokedAt: new Date() } });
+    res.status(204).send();
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to revoke share link' });
   }
 });
 
@@ -997,10 +1138,23 @@ app.put('/api/resource-lists/:id', async (req, res) => {
     const projectId = await projectIdOf('resourceList', id);
     if (projectId == null) return res.status(404).json({ error: 'Resource list not found' });
     await requireProjectAccess(req.user!, projectId, 'write');
-    const resourceList = await prisma.resourceList.update({
-      where: { id },
-      data: { ...parsed.data, updatedById: req.user!.id }
-    });
+    const { version, ...fields } = parsed.data;
+    const data = { ...fields, updatedById: req.user!.id };
+
+    if (version !== undefined) {
+      const result = await prisma.resourceList.updateMany({
+        where: { id, version },
+        data: { ...data, version: { increment: 1 } },
+      });
+      if (result.count === 0) {
+        const current = await prisma.resourceList.findUnique({ where: { id } });
+        const conflict = await conflictResponse(current);
+        return res.status(conflict.status).json(conflict.body);
+      }
+    } else {
+      await prisma.resourceList.update({ where: { id }, data });
+    }
+    const resourceList = await prisma.resourceList.findUnique({ where: { id } });
     res.json(resourceList);
   } catch (error) {
     if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
@@ -1216,7 +1370,8 @@ app.put('/api/resource-plans/:id', async (req, res) => {
       return res.status(404).json({ error: 'Resource plan not found', details: 'The resource plan you are trying to update does not exist' });
     }
     await requireProjectAccess(req.user!, existing.projectId, 'write');
-    const { allocations: incomingAllocations, resourceListId, ...updateData } = parsed.data;
+    const { allocations: incomingAllocations, resourceListId, version, ...updateData } = parsed.data;
+    const id = parseInt(req.params.id);
 
     // When resourceListId is given, the role and its internal/client rates
     // come from that resource-list row, computed server-side (the path a USER
@@ -1239,13 +1394,20 @@ app.put('/api/resource-plans/:id', async (req, res) => {
     }
 
     // Update resource plan (whitelisted fields only)
-    const resourcePlan = await prisma.resourcePlan.update({
-      where: { id: parseInt(req.params.id) },
-      data: { ...updateData, ...derivedFields, updatedById: req.user!.id },
-      include: {
-        allocations: true
+    const data = { ...updateData, ...derivedFields, updatedById: req.user!.id };
+    if (version !== undefined) {
+      const result = await prisma.resourcePlan.updateMany({
+        where: { id, version },
+        data: { ...data, version: { increment: 1 } },
+      });
+      if (result.count === 0) {
+        const current = await prisma.resourcePlan.findUnique({ where: { id } });
+        const conflict = await conflictResponse(current);
+        return res.status(conflict.status).json(conflict.body);
       }
-    });
+    } else {
+      await prisma.resourcePlan.update({ where: { id }, data });
+    }
 
     // Update allocations if provided
     if (incomingAllocations && incomingAllocations.length > 0) {
@@ -1254,11 +1416,11 @@ app.put('/api/resource-plans/:id', async (req, res) => {
         .map(a => ({
           periodNumber: a.periodNumber,
           allocation: a.allocation,
-          resourcePlanId: parseInt(req.params.id)
+          resourcePlanId: id
         }));
 
       await prisma.allocation.deleteMany({
-        where: { resourcePlanId: parseInt(req.params.id) }
+        where: { resourcePlanId: id }
       });
 
       if (validAllocations.length > 0) {
@@ -1266,19 +1428,16 @@ app.put('/api/resource-plans/:id', async (req, res) => {
           data: validAllocations
         });
       }
-
-      const updatedResourcePlan = await prisma.resourcePlan.findUnique({
-        where: { id: parseInt(req.params.id) },
-        include: {
-          allocations: {
-            orderBy: { periodNumber: 'asc' }
-          }
-        }
-      });
-
-      return res.json(updatedResourcePlan);
     }
-    
+
+    const resourcePlan = await prisma.resourcePlan.findUnique({
+      where: { id },
+      include: {
+        allocations: {
+          orderBy: { periodNumber: 'asc' }
+        }
+      }
+    });
     res.json(resourcePlan);
   } catch (error) {
     if (isAccessError(error)) return res.status(error.status).json({ error: error.message });

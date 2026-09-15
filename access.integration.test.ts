@@ -1,5 +1,5 @@
 import type { Express } from 'express';
-import type request from 'supertest';
+import request from 'supertest';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { isolateTestDb, loginAs } from './testDb';
 import { clientHourlyRate } from './src/utils/calculations';
@@ -378,6 +378,108 @@ describe('Access control integration', () => {
         region: 'ukraine',
       });
       expect(userRes.status).toBe(403);
+    });
+  });
+
+  describe('share-link lifecycle', () => {
+    it('EDITOR can create a link; VIEWER gets 403', async () => {
+      const editorRes = await manager.post(`/api/projects/${p1}/share-links`).send({ days: 30 });
+      expect(editorRes.status).toBe(201);
+      expect(editorRes.body.token).toEqual(expect.any(String));
+
+      const viewerRes = await user.post(`/api/projects/${p1}/share-links`).send({ days: 30 });
+      expect(viewerRes.status).toBe(403);
+    });
+
+    it('the public GET returns a client-safe payload with no internal keys, no cookie required', async () => {
+      const created = await admin.post(`/api/projects/${p1}/share-links`).send({ days: 7 });
+      const token = created.body.token;
+
+      const res = await request(app).get(`/api/share/${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.defaultMargin).toBeUndefined();
+      expect(res.body.exchangeRate).toBeUndefined();
+      for (const row of res.body.resourceLists) expect(row.intRate).toBeUndefined();
+      for (const row of res.body.resourcePlans) expect(row.intHourlyRate).toBeUndefined();
+      expect(res.body.name).toBe('P1 Access Test');
+    });
+
+    it('a revoked link 404s; an unknown token 404s', async () => {
+      const created = await admin.post(`/api/projects/${p1}/share-links`).send({ days: 7 });
+      const token = created.body.token;
+
+      const revokeRes = await admin.delete(`/api/share-links/${created.body.id}`);
+      expect(revokeRes.status).toBe(204);
+
+      const afterRevoke = await request(app).get(`/api/share/${token}`);
+      expect(afterRevoke.status).toBe(404);
+
+      const unknown = await request(app).get('/api/share/not-a-real-token');
+      expect(unknown.status).toBe(404);
+    });
+
+    it('VIEWER gets 403 revoking a link; EDITOR (write access) can', async () => {
+      const created = await admin.post(`/api/projects/${p1}/share-links`).send({ days: 7 });
+
+      const viewerRevoke = await user.delete(`/api/share-links/${created.body.id}`);
+      expect(viewerRevoke.status).toBe(403);
+
+      const editorRevoke = await manager.delete(`/api/share-links/${created.body.id}`);
+      expect(editorRevoke.status).toBe(204);
+    });
+  });
+
+  describe('optimistic concurrency: stale version returns 409', () => {
+    it('project: a stale version 409s with the current updatedBy/updatedAt/version; a matching version increments', async () => {
+      const before = await admin.get(`/api/projects/${p1}`);
+      const staleVersion = before.body.version;
+
+      // Someone else (manager, an EDITOR) writes first, advancing the version.
+      const firstWrite = await manager.put(`/api/projects/${p1}`).send({ description: 'first writer', version: staleVersion });
+      expect(firstWrite.status).toBe(200);
+
+      const conflict = await admin.put(`/api/projects/${p1}`).send({ description: 'stale writer', version: staleVersion });
+      expect(conflict.status).toBe(409);
+      expect(conflict.body.error).toBe('Conflict');
+      expect(conflict.body.updatedBy).toBe('Dev Manager');
+      expect(conflict.body.version).toBe(staleVersion + 1);
+
+      const retry = await admin.put(`/api/projects/${p1}`).send({ description: 'retry writer', version: conflict.body.version });
+      expect(retry.status).toBe(200);
+      expect(retry.body.version).toBe(staleVersion + 2);
+    });
+
+    it('resource list: a stale version 409s; a matching version succeeds', async () => {
+      const before = await admin.get(`/api/projects/${p1}/resource-lists`);
+      const row = before.body.find((r: { id: number }) => r.id === p1ResourceListId);
+      const staleVersion = row.version;
+
+      const firstWrite = await admin.put(`/api/resource-lists/${p1ResourceListId}`).send({ intRate: 55, version: staleVersion });
+      expect(firstWrite.status).toBe(200);
+
+      const conflict = await admin.put(`/api/resource-lists/${p1ResourceListId}`).send({ intRate: 66, version: staleVersion });
+      expect(conflict.status).toBe(409);
+      expect(conflict.body.error).toBe('Conflict');
+      expect(conflict.body.version).toBe(staleVersion + 1);
+    });
+
+    it('resource plan: a stale version 409s; a matching version succeeds', async () => {
+      const before = await admin.get(`/api/projects/${p1}/resource-plans`);
+      const row = before.body.find((r: { id: number }) => r.id === p1ResourcePlanId);
+      const staleVersion = row.version;
+
+      const firstWrite = await admin.put(`/api/resource-plans/${p1ResourcePlanId}`).send({ intHourlyRate: 35, version: staleVersion });
+      expect(firstWrite.status).toBe(200);
+
+      const conflict = await admin.put(`/api/resource-plans/${p1ResourcePlanId}`).send({ intHourlyRate: 45, version: staleVersion });
+      expect(conflict.status).toBe(409);
+      expect(conflict.body.error).toBe('Conflict');
+      expect(conflict.body.version).toBe(staleVersion + 1);
+    });
+
+    it('omitting version updates unconditionally (back-compat)', async () => {
+      const res = await admin.put(`/api/projects/${p1}`).send({ description: 'no version sent' });
+      expect(res.status).toBe(200);
     });
   });
 });

@@ -33,7 +33,7 @@ function AuthGate() {
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
     <Routes>
-      <Route path="/client/:projectId" element={<ClientView />} />
+      <Route path="/client/:token" element={<ClientView />} />
       <Route path="*" element={<AuthGate />} />
     </Routes>
   </BrowserRouter>

@@ -1,4 +1,4 @@
-import { Phase, ResourcePlan as ResourcePlanType } from '../services/api';
+import { Phase } from '../services/api';
 
 export const PHASE_COLORS = [
   '#E3F2FD', '#FCE4EC', '#E8F5E9', '#FFF3E0',
@@ -6,11 +6,18 @@ export const PHASE_COLORS = [
   '#FFEBEE', '#E8EAF6',
 ];
 
+// Only the allocations' period numbers matter here — a minimal shape (rather
+// than the full ResourcePlan) so the client-safe share payload, which omits
+// several ResourcePlan fields, can be passed in too.
+interface PlanWithAllocations {
+  allocations: { periodNumber: number }[];
+}
+
 // Parse phases from project JSON; fallback to single phase covering existing weeks.
 // Assigns default colors from palette for phases missing a color (backward compatibility).
 export function parsePhases(
   phasesJson: string | undefined,
-  resourcePlans: ResourcePlanType[]
+  resourcePlans: PlanWithAllocations[]
 ): Phase[] {
   if (phasesJson) {
     try {

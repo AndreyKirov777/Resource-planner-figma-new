@@ -122,6 +122,7 @@ vi.mock('./services/api', () => ({
     getExchangeRates: vi.fn(),
     getResourcePlans: vi.fn(),
     getWbsItems: vi.fn(),
+    getProject: vi.fn(),
     updateProject: vi.fn(),
     deleteProject: vi.fn(),
     exportProject: vi.fn(),
@@ -384,6 +385,37 @@ describe('App', () => {
       const names = calls.map(c => c[1]?.name).filter(Boolean);
       expect(names.some(n => typeof n === 'string' && n.length > 0)).toBe(true);
     });
+  });
+
+  it('a 409 conflict on project settings confirms, then reloads via api.getProject', async () => {
+    const user = userEvent.setup();
+    const api = await getApi();
+    const { ConflictError } = await import('./utils/apiErrors');
+    vi.mocked(api.updateProject).mockRejectedValueOnce(new ConflictError('Dev Manager', '2026-09-15T10:00:00Z'));
+    vi.mocked(api.getProject).mockResolvedValueOnce({ ...mockProject, name: 'Reloaded' } as never);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /resource plan/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('tab', { name: /resource plan/i }));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/project name/i)).toBeInTheDocument();
+    });
+    const nameInput = screen.getByPlaceholderText(/project name/i);
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Changed');
+    await user.tab();
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Dev Manager'));
+    });
+    await waitFor(() => {
+      expect(api.getProject).toHaveBeenCalledWith(1);
+    });
+
+    confirmSpy.mockRestore();
   });
 
   it('shows a full-page error with Retry when the API is unreachable on load', async () => {
