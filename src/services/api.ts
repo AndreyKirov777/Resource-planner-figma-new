@@ -70,6 +70,9 @@ export interface ExchangeRates {
   source: 'frankfurter' | 'cache' | 'fallback';
 }
 
+export type ProjectRole = 'ADMIN' | 'OWNER' | 'EDITOR' | 'VIEWER';
+export type ProjectsScope = 'mine' | 'shared' | 'all';
+
 export interface Project {
   id: number;
   name: string;
@@ -86,8 +89,32 @@ export interface Project {
   /** Anchors period 1 for the roadmap's calendar labels; null = ordinals only. */
   startDate?: string | null;
   status: 'active' | 'archived';
+  ownerId?: number | null;
+  /** Present on GET /api/projects (list) — the current user's role on this project. */
+  myRole?: ProjectRole;
+  /** Present on GET /api/projects (list) — the owner's display name. */
+  ownerName?: string | null;
+  /** Present on GET /api/projects/:id — the current user's role on this project. */
+  access?: ProjectRole;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProjectMemberInfo {
+  userId: number;
+  role: 'OWNER' | 'EDITOR' | 'VIEWER';
+  email: string;
+  displayName: string;
+  group: 'ADMIN' | 'MANAGER' | 'USER';
+}
+
+export interface UserInfo {
+  id: number;
+  email: string;
+  displayName: string;
+  group: 'ADMIN' | 'MANAGER' | 'USER';
+  isActive: boolean;
+  lastLoginAt: string | null;
 }
 
 export interface RateCard {
@@ -290,10 +317,40 @@ export const api = {
   },
 
   // Project endpoints
-  async getProjects(): Promise<Project[]> {
-    const response = await apiFetch(`${API_BASE_URL}/projects`);
+  async getProjects(scope?: ProjectsScope): Promise<Project[]> {
+    const query = scope ? `?scope=${scope}` : '';
+    const response = await apiFetch(`${API_BASE_URL}/projects${query}`);
     if (!response.ok) throw new Error('Failed to fetch projects');
     return response.json();
+  },
+
+  async getUsers(): Promise<UserInfo[]> {
+    const response = await apiFetch(`${API_BASE_URL}/users`);
+    if (!response.ok) throw new Error('Failed to fetch users');
+    return response.json();
+  },
+
+  async getMembers(projectId: number): Promise<ProjectMemberInfo[]> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/members`);
+    if (!response.ok) throw new Error('Failed to fetch members');
+    return response.json();
+  },
+
+  async upsertMember(projectId: number, userId: number, role: 'EDITOR' | 'VIEWER'): Promise<ProjectMemberInfo> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/members/${userId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    });
+    await throwIfNotOk(response, 'Failed to update member');
+    return response.json();
+  },
+
+  async removeMember(projectId: number, userId: number): Promise<void> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+    await throwIfNotOk(response, 'Failed to remove member');
   },
 
   async getProject(id: number): Promise<Project & {

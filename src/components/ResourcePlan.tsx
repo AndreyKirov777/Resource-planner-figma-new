@@ -24,7 +24,8 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2, GripVertical, SplitSquareHorizontal, Columns3 } from 'lucide-react';
-import { Project, Phase, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft, RoadmapItem } from '../services/api';
+import { Project, Phase, ProjectRole, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft, RoadmapItem } from '../services/api';
+import { ShareDialog } from './ShareDialog';
 import { clientHourlyRate as calcClientHourlyRate, hoursPerPeriod, buildPlanFinancials } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod, phaseStartOffset, reorderPhases, remapPeriodNumber, splitPhase, uniquePhaseName } from '../utils/phases';
 import { remapRoadmapItemsForPhaseChange } from '../utils/roadmap';
@@ -88,6 +89,10 @@ interface ResourcePlanProps {
    */
   roadmapItems?: RoadmapItem[];
   onUpdateRoadmapItem?: (id: number, data: { startPeriod: number }) => Promise<void>;
+  /** The current user's role on this project — drives the Share dialog's People section. */
+  myRole: ProjectRole;
+  /** False for a VIEWER, or an EDITOR on an archived project: disables every write affordance. */
+  canEdit: boolean;
 }
 
 
@@ -151,6 +156,8 @@ export function ResourcePlan({
   onProjectDescriptionChange,
   roadmapItems,
   onUpdateRoadmapItem,
+  myRole,
+  canEdit,
 }: ResourcePlanProps) {
   const planningMode = (project.planningMode || 'weekly') as 'weekly' | 'monthly';
   const isMonthly = planningMode === 'monthly';
@@ -160,6 +167,7 @@ export function ResourcePlan({
 
   const [phases, setPhases] = useState<Phase[]>(() => parsePhases(project.phases, resourcePlans));
   const [showGeneratePlan, setShowGeneratePlan] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
   const [rolePicker, setRolePicker] = useState<{ open: boolean; row: number | null }>({ open: false, row: null });
   const [roleSelection, setRoleSelection] = useState<string>('');
   const [contextMenu, setContextMenu] = useState<{ 
@@ -1101,7 +1109,16 @@ export function ResourcePlan({
           <Link2 className="h-4 w-4 mr-1" />
           Client link
         </Button>
+        <Button size="sm" variant="outline" onClick={() => setShowShareDialog(true)}>
+          Share…
+        </Button>
       </div>
+      <ShareDialog
+        open={showShareDialog}
+        onOpenChange={setShowShareDialog}
+        projectId={project.id}
+        myRole={myRole}
+      />
 
       {/* Project Header - Two columns layout */}
       <Card>
@@ -1116,6 +1133,7 @@ export function ResourcePlan({
                   value={projectName}
                   onChange={(e) => onProjectNameChange(e.target.value)}
                   placeholder="Enter project name"
+                  disabled={!canEdit}
                 />
               </div>
 
@@ -1124,6 +1142,7 @@ export function ResourcePlan({
                 <ToggleGroup
                   type="single"
                   value={planningMode}
+                  disabled={!canEdit}
                   onValueChange={(value: string) => {
                     if (!value) return;
                     const targetMode = value as 'weekly' | 'monthly';
@@ -1152,6 +1171,7 @@ export function ResourcePlan({
                 onChange={(e) => onProjectDescriptionChange(e.target.value)}
                 placeholder="Enter project description"
                 className="flex-1 resize-none"
+                disabled={!canEdit}
               />
             </div>
 
@@ -1162,6 +1182,7 @@ export function ResourcePlan({
                 <Select
                   value={project.defaultLocation ?? APP_DEFAULTS.defaultLocation}
                   onValueChange={(value: string) => onProjectSettingsChange({ defaultLocation: value })}
+                  disabled={!canEdit}
                 >
                   <SelectTrigger id="defaultLocation">
                     <SelectValue />
@@ -1193,6 +1214,7 @@ export function ResourcePlan({
                   type="number"
                   value={project.daysInFTE}
                   onChange={(e) => onProjectSettingsChange({ daysInFTE: parseInt(e.target.value) || 20 })}
+                  disabled={!canEdit}
                 />
               </div>
 
@@ -1204,6 +1226,7 @@ export function ResourcePlan({
                     clientCurrency: value,
                     exchangeRate: exchangeRateForCurrency(value),
                   })}
+                  disabled={!canEdit}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1227,6 +1250,7 @@ export function ResourcePlan({
                   step="0.01"
                   value={Number.isFinite(project.exchangeRate) ? project.exchangeRate.toFixed(2) : ''}
                   onChange={(e) => onProjectSettingsChange({ exchangeRate: parseFloat(e.target.value) || 0.89 })}
+                  disabled={!canEdit}
                 />
               </div>
 
@@ -1242,6 +1266,7 @@ export function ResourcePlan({
                     const clamped = isNaN(parsed) ? 0 : Math.max(0, Math.min(100, parsed));
                     onProjectSettingsChange({ defaultMargin: clamped });
                   }}
+                  disabled={!canEdit}
                 />
               </div>
             </div>
@@ -1312,6 +1337,7 @@ export function ResourcePlan({
                       investment: Number.isFinite(raw) && raw >= 0 ? raw : 0,
                     });
                   }}
+                  disabled={!canEdit}
                 />
               </div>
             </div>
@@ -1554,26 +1580,30 @@ export function ResourcePlan({
         <div className="flex items-center gap-4">
           <h2>Planning Table</h2>
           <div className="flex items-center gap-2">
-            <Button onClick={addRole} size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              Add Role
-            </Button>
-            <Button onClick={addPeriod} size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              Add {periodLabel} at End
-            </Button>
-            {onClearAllResourcePlans && resourcePlans.length > 0 && (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                className="bg-red-500 hover:bg-red-600 text-white"
-                onClick={onClearAllResourcePlans}
-              >
-                Clear all
-              </Button>
+            {canEdit && (
+              <>
+                <Button onClick={addRole} size="sm">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Role
+                </Button>
+                <Button onClick={addPeriod} size="sm">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add {periodLabel} at End
+                </Button>
+                {onClearAllResourcePlans && resourcePlans.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="bg-red-500 hover:bg-red-600 text-white"
+                    onClick={onClearAllResourcePlans}
+                  >
+                    Clear all
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() => setShowGeneratePlan(true)}>✦ Generate AI Plan</Button>
+              </>
             )}
-            <Button size="sm" variant="outline" onClick={() => setShowGeneratePlan(true)}>✦ Generate AI Plan</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="outline">
@@ -1645,12 +1675,12 @@ export function ResourcePlan({
             columns={columns}
             rows={resourcePlans.length}
             customRenderers={customRenderers}
-            onCellEdited={onCellEdited}
-            onCellsEdited={onCellsEdited}
+            onCellEdited={canEdit ? onCellEdited : undefined}
+            onCellsEdited={canEdit ? onCellsEdited : undefined}
             onHeaderContextMenu={handleHeaderContextMenu}
             getGroupDetails={getGroupDetails}
-            fillHandle={true}
-            onRowMoved={handleRowMoved}
+            fillHandle={canEdit}
+            onRowMoved={canEdit ? handleRowMoved : undefined}
             gridSelection={gridSelection}
             onGridSelectionChange={onGridSelectionChange}
             getCellsForSelection={getCellsForSelection}
@@ -1675,6 +1705,7 @@ export function ResourcePlan({
               const [col, row] = cell;
               const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length);
               if (resolved.kind !== 'lead') return;
+              if (!canEdit) return;
 
               if (resolved.id === 'actions') {
                 const plan = resourcePlans[row];

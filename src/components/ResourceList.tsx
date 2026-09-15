@@ -27,6 +27,8 @@ interface ResourceListProps {
   onClearAllResourceLists?: () => void;
   exchangeRate?: number;
   clientCurrency?: string;
+  /** False for a VIEWER, or an EDITOR on an archived project: disables every write affordance. */
+  canEdit?: boolean;
 }
 
 // Custom cell renderer component for the Actions column
@@ -57,6 +59,7 @@ export function ResourceList({
   onClearAllResourceLists,
   exchangeRate = 1,
   clientCurrency,
+  canEdit = true,
 }: ResourceListProps) {
   const currencySymbol =
     clientCurrency === 'EUR' ? '€' : clientCurrency === 'GBP' ? '£' : '$';
@@ -94,7 +97,7 @@ export function ResourceList({
         headerName,
         field,
         width: 150,
-        editable: true,
+        editable: canEdit,
         onCellValueChanged: (params: any) => {
           const updatedResources = resourceLists.map(resource =>
             resource.id === params.data.id
@@ -145,8 +148,8 @@ export function ResourceList({
       makeFieldColumn('description', 'Description', { width: 360 }),
     ];
 
-    return [actionsColumn, ...otherColumns];
-  }, [resourceLists, onResourceListsChange, onResourceListUpdate, deleteResource, exchangeRate, currencySymbol]);
+    return canEdit ? [actionsColumn, ...otherColumns] : otherColumns;
+  }, [resourceLists, onResourceListsChange, onResourceListUpdate, deleteResource, exchangeRate, currencySymbol, canEdit]);
 
   const addResource = () => {
     if (!newRole.trim() || !newRate.trim()) return;
@@ -176,6 +179,7 @@ export function ResourceList({
 
   return (
     <div className="space-y-6">
+      {canEdit && (
       <Card>
         <CardHeader>
           <CardTitle>Add custom resource</CardTitle>
@@ -259,11 +263,12 @@ export function ResourceList({
           </div>
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Resource List</CardTitle>
-          {onClearAllResourceLists && resourceLists.length > 0 && (
+          {canEdit && onClearAllResourceLists && resourceLists.length > 0 && (
             <Button
               type="button"
               variant="destructive"

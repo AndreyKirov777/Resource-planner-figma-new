@@ -68,6 +68,8 @@ const defaultProps = {
   projectDescription: '',
   onProjectNameChange: vi.fn(),
   onProjectDescriptionChange: vi.fn(),
+  myRole: 'OWNER' as const,
+  canEdit: true,
 };
 
 function installMemoryLocalStorage() {

@@ -444,3 +444,18 @@ export const devLoginSchema = z.object({
 }).strict();
 
 export type DevLoginInput = z.infer<typeof devLoginSchema>;
+
+// --- Project access ---
+
+// Ownership transfer is out of scope: a member can only ever be made EDITOR or VIEWER.
+export const memberUpsertSchema = z.object({
+  role: z.enum(['EDITOR', 'VIEWER']),
+}).strict();
+
+export type MemberUpsertInput = z.infer<typeof memberUpsertSchema>;
+
+export const projectsScopeSchema = z.object({
+  scope: z.enum(['mine', 'shared', 'all']).optional(),
+}).strict();
+
+export type ProjectsScopeInput = z.infer<typeof projectsScopeSchema>;

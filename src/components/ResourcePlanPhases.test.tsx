@@ -81,6 +81,8 @@ function renderPlan(
       onProjectDescriptionChange={vi.fn()}
       roadmapItems={roadmapItems}
       onUpdateRoadmapItem={onUpdateRoadmapItem}
+      myRole="OWNER"
+      canEdit={true}
     />
   );
 }
@@ -275,6 +277,8 @@ describe('phase split', () => {
         projectDescription=""
         onProjectNameChange={vi.fn()}
         onProjectDescriptionChange={vi.fn()}
+        myRole="OWNER"
+        canEdit={true}
       />
     );
 

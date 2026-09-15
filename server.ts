@@ -32,6 +32,8 @@ import {
   wbsRoadmapLinkSchema,
   bootstrapRoadmapSchema,
   roadmapReorderSchema,
+  memberUpsertSchema,
+  projectsScopeSchema,
 } from './server-validation';
 import { generateResourcePlan } from './server/planner/generateResourcePlan';
 import { loadAIConfig } from './server/llm/config';
@@ -52,10 +54,17 @@ import { convertRoadmapItemsToMonthly, convertRoadmapItemsToWeekly } from './src
 import { createDevAuthRouter } from './server/auth/dev';
 import { createEntraAuthRouter } from './server/auth/entra';
 import { requireAuth } from './server/auth/session';
+import { AccessError, createAccessHelpers } from './server/auth/access';
 
 const app = express();
 const prisma = new PrismaClient();
 const PORT = 3001;
+const { requireProjectAccess, projectIdOf } = createAccessHelpers(prisma);
+
+/** Sends the right status for an AccessError, or re-throws for the route's own catch to handle. */
+function isAccessError(error: unknown): error is AccessError {
+  return error instanceof AccessError;
+}
 
 // In-memory per-IP sliding-window rate limit store for POST /api/projects/generate-plan.
 // Key: IP address, Value: array of request timestamps (ms).
@@ -113,11 +122,61 @@ function normalizeStartDate(value: string | null | undefined): string | null | u
   return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
+/** Creates the OWNER ProjectMember row alongside Project.ownerId (kept in sync, see design #5). */
+async function makeOwner(projectId: number, userId: number) {
+  await prisma.projectMember.create({ data: { projectId, userId, role: 'OWNER' } });
+}
+
 // Project endpoints
 app.get('/api/projects', async (req, res) => {
   try {
-    const projects = await prisma.project.findMany();
-    res.json(projects);
+    const parsedScope = projectsScopeSchema.safeParse(req.query);
+    if (!parsedScope.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsedScope.error.flatten() });
+    }
+    const scope = parsedScope.data.scope ?? 'mine';
+    const userId = req.user!.id;
+
+    if (scope === 'all') {
+      if (req.user!.group !== 'ADMIN') {
+        return res.status(403).json({ error: 'Only admins may list all projects' });
+      }
+      const projects = await prisma.project.findMany({
+        include: { owner: true, members: { where: { userId } } },
+      });
+      return res.json(
+        projects.map(({ owner, members, ...project }) => ({
+          ...project,
+          ownerName: owner?.displayName ?? null,
+          myRole: members[0]?.role ?? 'ADMIN',
+        }))
+      );
+    }
+
+    if (scope === 'shared') {
+      const memberships = await prisma.projectMember.findMany({
+        where: { userId, role: { in: ['EDITOR', 'VIEWER'] } },
+        include: { project: { include: { owner: true } } },
+      });
+      return res.json(
+        memberships.map(({ project, role }) => {
+          const { owner, ...rest } = project;
+          return { ...rest, ownerName: owner?.displayName ?? null, myRole: role };
+        })
+      );
+    }
+
+    const projects = await prisma.project.findMany({
+      where: { ownerId: userId },
+      include: { owner: true },
+    });
+    res.json(
+      projects.map(({ owner, ...project }) => ({
+        ...project,
+        ownerName: owner?.displayName ?? null,
+        myRole: 'OWNER' as const,
+      }))
+    );
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch projects' });
   }
@@ -125,8 +184,10 @@ app.get('/api/projects', async (req, res) => {
 
 app.get('/api/projects/:id', async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
+    const access = await requireProjectAccess(req.user!, id, 'read');
     const project = await prisma.project.findUnique({
-      where: { id: parseInt(req.params.id) },
+      where: { id },
       include: {
         resourceLists: true,
         resourcePlans: {
@@ -139,8 +200,9 @@ app.get('/api/projects/:id', async (req, res) => {
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    res.json(project);
+    res.json({ ...project, access: access.role });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to fetch project' });
   }
 });
@@ -151,6 +213,7 @@ app.post('/api/projects', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    const userId = req.user!.id;
     const project = await prisma.project.create({
       data: {
         name: parsed.data.name,
@@ -165,8 +228,11 @@ app.post('/api/projects', async (req, res) => {
         phases: parsed.data.phases ?? undefined,
         startDate: normalizeStartDate(parsed.data.startDate),
         ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+        ownerId: userId,
+        createdById: userId,
       }
     });
+    await makeOwner(project.id, userId);
     res.json(project);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create project' });
@@ -175,16 +241,22 @@ app.post('/api/projects', async (req, res) => {
 
 app.put('/api/projects/:id', async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
     const parsed = projectUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    // Changing status (archive/restore) is an ownership-level action; every other
+    // field is ordinary project-settings content any EDITOR may change.
+    const need = parsed.data.status !== undefined ? 'own' : 'write';
+    await requireProjectAccess(req.user!, id, need);
     const project = await prisma.project.update({
-      where: { id: parseInt(req.params.id) },
-      data: { ...parsed.data, startDate: normalizeStartDate(parsed.data.startDate) },
+      where: { id },
+      data: { ...parsed.data, startDate: normalizeStartDate(parsed.data.startDate), updatedById: req.user!.id },
     });
     res.json(project);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to update project' });
   }
 });
@@ -195,11 +267,13 @@ app.delete('/api/projects/:id', async (req, res) => {
     if (isNaN(id)) {
       return res.status(400).json({ error: 'Invalid project id' });
     }
+    await requireProjectAccess(req.user!, id, 'own');
     await prisma.project.delete({
       where: { id },
     });
     res.status(204).send();
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to delete project' });
   }
 });
@@ -211,6 +285,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
     if (isNaN(id)) {
       return res.status(400).json({ error: 'Invalid project id' });
     }
+    await requireProjectAccess(req.user!, id, 'read');
 
     const project = await prisma.project.findUnique({
       where: { id },
@@ -227,6 +302,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
     }
 
     const newName = req.body?.name || `${project.name} (Copy)`;
+    const userId = req.user!.id;
 
     const copy = await prisma.project.create({
       data: {
@@ -241,8 +317,11 @@ app.post('/api/projects/:id/copy', async (req, res) => {
         defaultLocation: project.defaultLocation ?? APP_DEFAULTS.defaultLocation,
         phases: project.phases ?? undefined,
         status: 'active',
+        ownerId: userId,
+        createdById: userId,
       }
     });
+    await makeOwner(copy.id, userId);
 
     // Rate cards are global (shared across all projects) and are not copied.
 
@@ -283,6 +362,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
 
     res.json(copy);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error copying project:', error);
     res.status(500).json({ error: 'Failed to copy project' });
   }
@@ -292,6 +372,7 @@ app.post('/api/projects/:id/copy', async (req, res) => {
 app.get('/api/projects/:id/export', async (req, res) => {
   try {
     const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'read');
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
@@ -328,6 +409,7 @@ app.get('/api/projects/:id/export', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.json(payload);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error exporting project:', error);
     res.status(500).json({ error: 'Failed to export project' });
   }
@@ -497,6 +579,7 @@ app.post('/api/projects/import', async (req, res) => {
     }
 
     // Create the project first
+    const importerId = req.user!.id;
     const createdProject = await prisma.project.create({
       data: {
         name: projectData.name + ' (Imported)',
@@ -511,8 +594,11 @@ app.post('/api/projects/import', async (req, res) => {
         phases: projectData.phases ?? undefined,
         startDate: normalizeStartDate(projectData.startDate ?? null) ?? null,
         status: projectData.status === 'archived' ? 'archived' : 'active',
+        ownerId: importerId,
+        createdById: importerId,
       }
     });
+    await makeOwner(createdProject.id, importerId);
 
     const newProjectId = createdProject.id;
 
@@ -574,6 +660,100 @@ app.post('/api/projects/import', async (req, res) => {
   } catch (error) {
     console.error('Error importing project:', error);
     res.status(500).json({ error: 'Failed to import project' });
+  }
+});
+
+// Users directory: readable by any signed-in user (the Share dialog needs it to
+// search collaborators); only the Users *page* itself is gated to ADMIN, client-side.
+app.get('/api/users', async (_req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { id: true, email: true, displayName: true, group: true, isActive: true, lastLoginAt: true },
+      orderBy: { displayName: 'asc' },
+    });
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Project members (sharing)
+app.get('/api/projects/:id/members', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'read');
+    const members = await prisma.projectMember.findMany({
+      where: { projectId },
+      include: { user: { select: { id: true, email: true, displayName: true, group: true } } },
+    });
+    res.json(
+      members.map((m) => ({
+        userId: m.userId,
+        role: m.role,
+        email: m.user.email,
+        displayName: m.user.displayName,
+        group: m.user.group,
+      }))
+    );
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch members' });
+  }
+});
+
+app.put('/api/projects/:id/members/:userId', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    const memberUserId = parseInt(req.params.userId);
+    const parsed = memberUpsertSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    await requireProjectAccess(req.user!, projectId, 'own');
+
+    const targetUser = await prisma.user.findUnique({ where: { id: memberUserId } });
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
+    if (project?.ownerId === memberUserId) {
+      return res.status(400).json({ error: 'The owner’s role cannot be changed here' });
+    }
+
+    const member = await prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId, userId: memberUserId } },
+      update: { role: parsed.data.role },
+      create: { projectId, userId: memberUserId, role: parsed.data.role },
+    });
+    res.json({
+      userId: member.userId,
+      role: member.role,
+      email: targetUser.email,
+      displayName: targetUser.displayName,
+      group: targetUser.group,
+    });
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to update member' });
+  }
+});
+
+app.delete('/api/projects/:id/members/:userId', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    const memberUserId = parseInt(req.params.userId);
+    await requireProjectAccess(req.user!, projectId, 'own');
+
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
+    if (project?.ownerId === memberUserId) {
+      return res.status(400).json({ error: 'The owner cannot be removed' });
+    }
+
+    await prisma.projectMember.deleteMany({ where: { projectId, userId: memberUserId } });
+    res.status(204).send();
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to remove member' });
   }
 });
 
@@ -717,21 +897,26 @@ app.delete('/api/rate-cards', async (req, res) => {
 // Resource List endpoints
 app.get('/api/projects/:projectId/resource-lists', async (req, res) => {
   try {
+    const projectId = parseInt(req.params.projectId);
+    await requireProjectAccess(req.user!, projectId, 'read');
     const resourceLists = await prisma.resourceList.findMany({
-      where: { projectId: parseInt(req.params.projectId) }
+      where: { projectId }
     });
     res.json(resourceLists);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to fetch resource lists' });
   }
 });
 
 app.post('/api/projects/:projectId/resource-lists', async (req, res) => {
   try {
+    const projectId = parseInt(req.params.projectId);
     const parsed = resourceListCreateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    await requireProjectAccess(req.user!, projectId, 'write');
     const resourceList = await prisma.resourceList.create({
       data: {
         role: parsed.data.role,
@@ -741,38 +926,49 @@ app.post('/api/projects/:projectId/resource-lists', async (req, res) => {
         hourlyRate: parsed.data.hourlyRate ?? 0,
         location: parsed.data.location ?? null,
         description: parsed.data.description ?? null,
-        projectId: parseInt(req.params.projectId)
+        projectId
       }
     });
     res.json(resourceList);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to create resource list' });
   }
 });
 
 app.put('/api/resource-lists/:id', async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
     const parsed = resourceListUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    const projectId = await projectIdOf('resourceList', id);
+    if (projectId == null) return res.status(404).json({ error: 'Resource list not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
     const resourceList = await prisma.resourceList.update({
-      where: { id: parseInt(req.params.id) },
-      data: parsed.data
+      where: { id },
+      data: { ...parsed.data, updatedById: req.user!.id }
     });
     res.json(resourceList);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to update resource list' });
   }
 });
 
 app.delete('/api/resource-lists/:id', async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
+    const projectId = await projectIdOf('resourceList', id);
+    if (projectId == null) return res.status(404).json({ error: 'Resource list not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
     await prisma.resourceList.delete({
-      where: { id: parseInt(req.params.id) }
+      where: { id }
     });
     res.json({ message: 'Resource list deleted' });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to delete resource list' });
   }
 });
@@ -786,8 +982,10 @@ function isRoleAllowed(role: string, resourceList: { role: string }[]): boolean 
 
 app.get('/api/projects/:projectId/resource-plans', async (req, res) => {
   try {
+    const projectId = parseInt(req.params.projectId);
+    await requireProjectAccess(req.user!, projectId, 'read');
     const resourcePlans = await prisma.resourcePlan.findMany({
-      where: { projectId: parseInt(req.params.projectId) },
+      where: { projectId },
       orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: {
         allocations: {
@@ -797,6 +995,7 @@ app.get('/api/projects/:projectId/resource-plans', async (req, res) => {
     });
     res.json(resourcePlans);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to fetch resource plans' });
   }
 });
@@ -807,6 +1006,7 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    await requireProjectAccess(req.user!, parseInt(req.params.projectId), 'write');
     const resourceList = await prisma.resourceList.findMany({
       where: { projectId: parseInt(req.params.projectId) }
     });
@@ -840,8 +1040,9 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
     });
     res.json(resourcePlan);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error creating resource plan:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to create resource plan',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -854,14 +1055,15 @@ app.put('/api/resource-plans/:id', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    const existing = await prisma.resourcePlan.findUnique({
+      where: { id: parseInt(req.params.id) },
+      select: { projectId: true }
+    });
+    if (!existing) {
+      return res.status(404).json({ error: 'Resource plan not found', details: 'The resource plan you are trying to update does not exist' });
+    }
+    await requireProjectAccess(req.user!, existing.projectId, 'write');
     if (parsed.data.role !== undefined) {
-      const existing = await prisma.resourcePlan.findUnique({
-        where: { id: parseInt(req.params.id) },
-        select: { projectId: true }
-      });
-      if (!existing) {
-        return res.status(404).json({ error: 'Resource plan not found', details: 'The resource plan you are trying to update does not exist' });
-      }
       const resourceList = await prisma.resourceList.findMany({ where: { projectId: existing.projectId } });
       if (!isRoleAllowed(parsed.data.role, resourceList)) {
         return res.status(400).json({ error: 'Validation failed', details: 'role must match an entry in the project resource list' });
@@ -872,7 +1074,7 @@ app.put('/api/resource-plans/:id', async (req, res) => {
     // Update resource plan (whitelisted fields only)
     const resourcePlan = await prisma.resourcePlan.update({
       where: { id: parseInt(req.params.id) },
-      data: updateData,
+      data: { ...updateData, updatedById: req.user!.id },
       include: {
         allocations: true
       }
@@ -912,6 +1114,7 @@ app.put('/api/resource-plans/:id', async (req, res) => {
     
     res.json(resourcePlan);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error updating resource plan:', error);
 
     // Provide more specific error messages
@@ -939,22 +1142,36 @@ app.put('/api/resource-plans/:id', async (req, res) => {
 
 app.delete('/api/resource-plans/:id', async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
+    const projectId = await projectIdOf('resourcePlan', id);
+    if (projectId == null) return res.status(404).json({ error: 'Resource plan not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
     await prisma.resourcePlan.delete({
-      where: { id: parseInt(req.params.id) }
+      where: { id }
     });
     res.json({ message: 'Resource plan deleted' });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to delete resource plan' });
   }
 });
 
 app.put('/api/projects/:projectId/resource-plans/reorder', async (req, res) => {
   try {
+    const projectId = parseInt(req.params.projectId);
     const parsed = reorderSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    await requireProjectAccess(req.user!, projectId, 'write');
     const { orderedIds } = parsed.data;
+    const rows = await prisma.resourcePlan.findMany({
+      where: { id: { in: orderedIds } },
+      select: { id: true, projectId: true },
+    });
+    if (rows.length !== orderedIds.length || rows.some((r) => r.projectId !== projectId)) {
+      return res.status(400).json({ error: 'orderedIds must all belong to this project' });
+    }
     await prisma.$transaction(
       orderedIds.map((id, index) =>
         prisma.resourcePlan.update({
@@ -965,6 +1182,7 @@ app.put('/api/projects/:projectId/resource-plans/reorder', async (req, res) => {
     );
     res.json({ message: 'Resource plans reordered' });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error reordering resource plans:', error);
     res.status(500).json({ error: 'Failed to reorder resource plans' });
   }
@@ -973,58 +1191,78 @@ app.put('/api/projects/:projectId/resource-plans/reorder', async (req, res) => {
 // Allocation endpoints
 app.get('/api/resource-plans/:resourcePlanId/allocations', async (req, res) => {
   try {
+    const resourcePlanId = parseInt(req.params.resourcePlanId);
+    const projectId = await projectIdOf('resourcePlan', resourcePlanId);
+    if (projectId == null) return res.status(404).json({ error: 'Resource plan not found' });
+    await requireProjectAccess(req.user!, projectId, 'read');
     const allocations = await prisma.allocation.findMany({
-      where: { resourcePlanId: parseInt(req.params.resourcePlanId) },
+      where: { resourcePlanId },
       orderBy: { periodNumber: 'asc' }
     });
     res.json(allocations);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to fetch allocations' });
   }
 });
 
 app.post('/api/resource-plans/:resourcePlanId/allocations', async (req, res) => {
   try {
+    const resourcePlanId = parseInt(req.params.resourcePlanId);
     const parsed = allocationSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    const projectId = await projectIdOf('resourcePlan', resourcePlanId);
+    if (projectId == null) return res.status(404).json({ error: 'Resource plan not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
     const alloc = await prisma.allocation.create({
       data: {
         periodNumber: parsed.data.periodNumber,
         allocation: parsed.data.allocation,
-        resourcePlanId: parseInt(req.params.resourcePlanId)
+        resourcePlanId
       }
     });
     res.json(alloc);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to create allocation' });
   }
 });
 
 app.put('/api/allocations/:id', async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
     const parsed = allocationUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
+    const projectId = await projectIdOf('allocation', id);
+    if (projectId == null) return res.status(404).json({ error: 'Allocation not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
     const alloc = await prisma.allocation.update({
-      where: { id: parseInt(req.params.id) },
+      where: { id },
       data: parsed.data
     });
     res.json(alloc);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to update allocation' });
   }
 });
 
 app.delete('/api/allocations/:id', async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
+    const projectId = await projectIdOf('allocation', id);
+    if (projectId == null) return res.status(404).json({ error: 'Allocation not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
     await prisma.allocation.delete({
-      where: { id: parseInt(req.params.id) }
+      where: { id }
     });
     res.json({ message: 'Allocation deleted' });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to delete allocation' });
   }
 });
@@ -1038,6 +1276,7 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
     }
     const { targetMode } = parsed.data;
     const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'write');
 
     const project = await prisma.project.findUnique({
       where: { id: projectId },
@@ -1152,6 +1391,7 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
 
     res.json(updatedProject);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error converting planning mode:', error);
     res.status(500).json({ error: 'Failed to convert planning mode' });
   }
@@ -1175,18 +1415,20 @@ app.post('/api/projects/generate-plan', async (req, res) => {
       return res.status(409).json({ error: 'Rate card is empty. Import a rate card before generating a plan.' });
     }
 
-    // Sliding-window rate limit (per-IP).
+    // Sliding-window rate limit, per signed-in user (not per-IP — several users
+    // can share an office NAT, and a single user script-hammering from many IPs
+    // should still be throttled).
     const cfg = await loadAIConfig();
-    const ip = req.ip ?? 'unknown';
+    const rateLimitKey = String(req.user!.id);
     const now = Date.now();
     const windowMs = cfg.rateLimit.windowSeconds * 1000;
-    const hits = (rateLimitStore.get(ip) ?? []).filter((t) => now - t < windowMs);
+    const hits = (rateLimitStore.get(rateLimitKey) ?? []).filter((t) => now - t < windowMs);
     if (hits.length >= cfg.rateLimit.maxPerUser) {
       const oldest = Math.min(...hits);
       const retryAfter = Math.ceil((oldest + windowMs - now) / 1000);
       return res.status(429).json({ error: 'Rate limit exceeded', retryAfter });
     }
-    rateLimitStore.set(ip, [...hits, now]);
+    rateLimitStore.set(rateLimitKey, [...hits, now]);
 
     // Load project for mode:current; use defaults for mode:new.
     let project: {
@@ -1197,6 +1439,7 @@ app.post('/api/projects/generate-plan', async (req, res) => {
     };
 
     if (mode === 'current') {
+      await requireProjectAccess(req.user!, projectId!, 'read');
       const dbProject = await prisma.project.findUnique({ where: { id: projectId! } });
       if (!dbProject) {
         return res.status(404).json({ error: 'Project not found' });
@@ -1233,6 +1476,7 @@ app.post('/api/projects/generate-plan', async (req, res) => {
 
     res.json(result);
   } catch (err) {
+    if (isAccessError(err)) return res.status(err.status).json({ error: err.message });
     if (
       err instanceof StructuredValidationError ||
       (err as { name?: string })?.name === 'StructuredValidationError'
@@ -1270,13 +1514,16 @@ async function validWbsDisciplines(disciplines: string[]): Promise<boolean> {
 // GET /api/projects/:projectId/wbs — flat list (tree assembled client-side), with estimates.
 app.get('/api/projects/:projectId/wbs', async (req, res) => {
   try {
+    const projectId = parseInt(req.params.projectId);
+    await requireProjectAccess(req.user!, projectId, 'read');
     const items = await prisma.wbsItem.findMany({
-      where: { projectId: parseInt(req.params.projectId) },
+      where: { projectId },
       orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: { estimates: true },
     });
     res.json(items);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error fetching WBS items:', error);
     res.status(500).json({ error: 'Failed to fetch WBS items' });
   }
@@ -1290,6 +1537,7 @@ app.post('/api/projects/:projectId/wbs-items', async (req, res) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
     const projectId = parseInt(req.params.projectId);
+    await requireProjectAccess(req.user!, projectId, 'write');
     const { parentId, estimates, ...rest } = parsed.data;
 
     // Cross-project parent guard: parentId, if provided, must belong to the same project.
@@ -1322,6 +1570,7 @@ app.post('/api/projects/:projectId/wbs-items', async (req, res) => {
     });
     res.status(201).json(item);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error creating WBS item:', error);
     res.status(500).json({ error: 'Failed to create WBS item' });
   }
@@ -1340,6 +1589,7 @@ app.put('/api/wbs-items/:id', async (req, res) => {
     if (!existing) {
       return res.status(404).json({ error: 'WBS item not found' });
     }
+    await requireProjectAccess(req.user!, existing.projectId, 'write');
 
     const { parentId } = parsed.data;
     if (parentId !== undefined && parentId !== null) {
@@ -1366,6 +1616,7 @@ app.put('/api/wbs-items/:id', async (req, res) => {
     });
     res.json(item);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error updating WBS item:', error);
     res.status(500).json({ error: 'Failed to update WBS item' });
   }
@@ -1375,11 +1626,16 @@ app.put('/api/wbs-items/:id', async (req, res) => {
 // subtree and all estimates under the whole subtree.
 app.delete('/api/wbs-items/:id', async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
+    const projectId = await projectIdOf('wbsItem', id);
+    if (projectId == null) return res.status(404).json({ error: 'WBS item not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
     await prisma.wbsItem.delete({
-      where: { id: parseInt(req.params.id) },
+      where: { id },
     });
     res.json({ message: 'WBS item deleted' });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to delete WBS item' });
   }
 });
@@ -1401,6 +1657,7 @@ app.put('/api/wbs-items/:id/estimates', async (req, res) => {
     if (!existing) {
       return res.status(404).json({ error: 'WBS item not found' });
     }
+    await requireProjectAccess(req.user!, existing.projectId, 'write');
 
     const valid = await validWbsDisciplines(parsed.data.map((e) => e.discipline));
     if (!valid) {
@@ -1417,6 +1674,7 @@ app.put('/api/wbs-items/:id/estimates', async (req, res) => {
     const estimates = await prisma.wbsEstimate.findMany({ where: { wbsItemId } });
     res.json(estimates);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error replacing WBS estimates:', error);
     res.status(500).json({ error: 'Failed to replace WBS estimates' });
   }
@@ -1433,12 +1691,14 @@ app.put('/api/wbs-items/:id/estimates', async (req, res) => {
 app.get('/api/projects/:id/roadmap', async (req, res) => {
   try {
     const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'read');
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
     res.json(await fetchRoadmapPayload(projectId));
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error fetching roadmap:', error);
     res.status(500).json({ error: 'Failed to fetch roadmap' });
   }
@@ -1452,6 +1712,7 @@ app.post('/api/projects/:id/roadmap/lanes', async (req, res) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
     const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'write');
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -1462,6 +1723,7 @@ app.post('/api/projects/:id/roadmap/lanes', async (req, res) => {
     });
     res.status(201).json({ ...lane, items: [] });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error creating roadmap lane:', error);
     res.status(500).json({ error: 'Failed to create roadmap lane' });
   }
@@ -1479,9 +1741,11 @@ app.patch('/api/roadmap-lanes/:id', async (req, res) => {
     if (!existing) {
       return res.status(404).json({ error: 'Roadmap lane not found' });
     }
+    await requireProjectAccess(req.user!, existing.projectId, 'write');
     const lane = await prisma.roadmapLane.update({ where: { id }, data: parsed.data });
     res.json(lane);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error updating roadmap lane:', error);
     res.status(500).json({ error: 'Failed to update roadmap lane' });
   }
@@ -1490,9 +1754,14 @@ app.patch('/api/roadmap-lanes/:id', async (req, res) => {
 // DELETE /api/roadmap-lanes/:id — cascades (DB-level onDelete: Cascade) to its items and their links.
 app.delete('/api/roadmap-lanes/:id', async (req, res) => {
   try {
-    await prisma.roadmapLane.delete({ where: { id: parseInt(req.params.id) } });
+    const id = parseInt(req.params.id);
+    const projectId = await projectIdOf('roadmapLane', id);
+    if (projectId == null) return res.status(404).json({ error: 'Roadmap lane not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
+    await prisma.roadmapLane.delete({ where: { id } });
     res.json({ message: 'Roadmap lane deleted' });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error deleting roadmap lane:', error);
     res.status(500).json({ error: 'Failed to delete roadmap lane' });
   }
@@ -1506,6 +1775,7 @@ app.post('/api/projects/:id/roadmap/items', async (req, res) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
     const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'write');
     const { laneId, name, kind, startPeriod, periodCount, color } = parsed.data;
     const lane = await prisma.roadmapLane.findUnique({ where: { id: laneId } });
     if (!lane || lane.projectId !== projectId) {
@@ -1526,6 +1796,7 @@ app.post('/api/projects/:id/roadmap/items', async (req, res) => {
     });
     res.status(201).json({ ...item, wbsItemIds: [] });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error creating roadmap item:', error);
     res.status(500).json({ error: 'Failed to create roadmap item' });
   }
@@ -1544,6 +1815,7 @@ app.patch('/api/roadmap-items/:id', async (req, res) => {
     if (!existing) {
       return res.status(404).json({ error: 'Roadmap item not found' });
     }
+    await requireProjectAccess(req.user!, existing.projectId, 'write');
 
     const { laneId, kind, periodCount, startPeriod } = parsed.data;
     if (laneId !== undefined) {
@@ -1584,6 +1856,7 @@ app.patch('/api/roadmap-items/:id', async (req, res) => {
     });
     res.json({ ...item, wbsItemIds: item.links.map((l) => l.wbsItemId) });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error updating roadmap item:', error);
     res.status(500).json({ error: 'Failed to update roadmap item' });
   }
@@ -1593,9 +1866,14 @@ app.patch('/api/roadmap-items/:id', async (req, res) => {
 // the affected WBS scope simply becomes unplaced (or falls back to an ancestor link).
 app.delete('/api/roadmap-items/:id', async (req, res) => {
   try {
-    await prisma.roadmapItem.delete({ where: { id: parseInt(req.params.id) } });
+    const id = parseInt(req.params.id);
+    const projectId = await projectIdOf('roadmapItem', id);
+    if (projectId == null) return res.status(404).json({ error: 'Roadmap item not found' });
+    await requireProjectAccess(req.user!, projectId, 'write');
+    await prisma.roadmapItem.delete({ where: { id } });
     res.json({ message: 'Roadmap item deleted' });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error deleting roadmap item:', error);
     res.status(500).json({ error: 'Failed to delete roadmap item' });
   }
@@ -1615,6 +1893,7 @@ app.put('/api/roadmap-items/:id/links', async (req, res) => {
     if (!item) {
       return res.status(404).json({ error: 'Roadmap item not found' });
     }
+    await requireProjectAccess(req.user!, item.projectId, 'write');
     const { wbsItemIds } = parsed.data;
     if (item.kind === 'milestone' && wbsItemIds.length > 0) {
       return res.status(400).json({ error: 'A milestone cannot carry scope' });
@@ -1641,6 +1920,7 @@ app.put('/api/roadmap-items/:id/links', async (req, res) => {
     const links = await prisma.roadmapLink.findMany({ where: { roadmapItemId } });
     res.json({ wbsItemIds: links.map((l) => l.wbsItemId) });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error replacing roadmap item links:', error);
     res.status(500).json({ error: 'Failed to replace roadmap item links' });
   }
@@ -1658,6 +1938,7 @@ app.put('/api/wbs-items/:id/roadmap-link', async (req, res) => {
     if (!wbsItemRow) {
       return res.status(404).json({ error: 'WBS item not found' });
     }
+    await requireProjectAccess(req.user!, wbsItemRow.projectId, 'write');
     const { roadmapItemId } = parsed.data;
 
     if (roadmapItemId === null) {
@@ -1677,6 +1958,7 @@ app.put('/api/wbs-items/:id/roadmap-link', async (req, res) => {
     await prisma.roadmapLink.create({ data: { wbsItemId, roadmapItemId } });
     res.json({ wbsItemId, roadmapItemId });
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error updating WBS roadmap link:', error);
     res.status(500).json({ error: 'Failed to update WBS roadmap link' });
   }
@@ -1691,6 +1973,7 @@ app.post('/api/projects/:id/roadmap/bulk', async (req, res) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
     const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'write');
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -1742,6 +2025,7 @@ app.post('/api/projects/:id/roadmap/bulk', async (req, res) => {
 
     res.status(201).json(await fetchRoadmapPayload(projectId));
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error bootstrapping roadmap:', error);
     res.status(500).json({ error: 'Failed to bootstrap roadmap' });
   }
@@ -1759,6 +2043,7 @@ app.patch('/api/projects/:id/roadmap/reorder', async (req, res) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     }
     const projectId = parseInt(req.params.id);
+    await requireProjectAccess(req.user!, projectId, 'write');
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -1831,6 +2116,7 @@ app.patch('/api/projects/:id/roadmap/reorder', async (req, res) => {
 
     res.json(await fetchRoadmapPayload(projectId));
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error reordering roadmap:', error);
     res.status(500).json({ error: 'Failed to reorder roadmap' });
   }

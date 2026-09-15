@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { api, Project } from '../services/api';
+import { api, Me, Project, ProjectsScope } from '../services/api';
 import { APP_DEFAULTS, SUPPORTED_CURRENCIES, LOCATIONS, exchangeRateForCurrency, setLiveExchangeRates } from '../config/defaults';
 import { PHASE_COLORS } from '../utils/phases';
 import { Button } from './ui/button';
@@ -72,19 +72,30 @@ function deriveVisibleProjects(
 }
 
 interface ProjectListProps {
+  me: Me;
   onOpenProject: (projectId: number) => void;
   currentProjectId?: number | null;
   onProjectDeleted?: (deletedId: number) => void;
   onProjectUpdated?: (project: Project) => void;
 }
 
+function canWrite(project: Project): boolean {
+  return project.myRole !== 'VIEWER';
+}
+
+function canOwn(project: Project): boolean {
+  return project.myRole === 'OWNER' || project.myRole === 'ADMIN';
+}
+
 export function ProjectList({
+  me,
   onOpenProject,
   currentProjectId,
   onProjectDeleted,
   onProjectUpdated,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [scope, setScope] = useState<ProjectsScope>('mine');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editProject, setEditProject] = useState<Project | null>(null);
@@ -120,11 +131,11 @@ export function ProjectList({
     setSortDir(defaultSortDir(key));
   };
 
-  const fetchProjects = async () => {
+  const fetchProjects = async (nextScope: ProjectsScope = scope) => {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.getProjects();
+      const data = await api.getProjects(nextScope);
       setProjects(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load projects');
@@ -134,8 +145,8 @@ export function ProjectList({
   };
 
   useEffect(() => {
-    fetchProjects();
-  }, []);
+    fetchProjects(scope);
+  }, [scope]);
 
   useEffect(() => {
     if (!showCreateDialog) return;
@@ -261,7 +272,7 @@ export function ProjectList({
     return (
       <div className="bg-red-50 border border-red-200 rounded-md p-4">
         <div className="text-red-800 font-medium">{error}</div>
-        <Button variant="outline" size="sm" className="mt-2" onClick={fetchProjects}>
+        <Button variant="outline" size="sm" className="mt-2" onClick={() => fetchProjects()}>
           Retry
         </Button>
       </div>
@@ -276,6 +287,16 @@ export function ProjectList({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        <Select value={scope} onValueChange={(value: ProjectsScope) => setScope(value)}>
+          <SelectTrigger className="w-48" aria-label="Scope">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="mine">My projects</SelectItem>
+            <SelectItem value="shared">Shared with me</SelectItem>
+            {me.group === 'ADMIN' && <SelectItem value="all">All projects</SelectItem>}
+          </SelectContent>
+        </Select>
         <div className="w-64">
           <Input
             value={query}
@@ -318,6 +339,7 @@ export function ProjectList({
                 </button>
               </TableHead>
               <TableHead>Project description</TableHead>
+              {scope !== 'mine' && <TableHead>Owner</TableHead>}
               <TableHead>Mode</TableHead>
               <TableHead>
                 <button
@@ -357,6 +379,9 @@ export function ProjectList({
                 <TableCell className="max-w-xs truncate">
                   {project.description ?? '—'}
                 </TableCell>
+                {scope !== 'mine' && (
+                  <TableCell>{project.ownerName ?? '—'}</TableCell>
+                )}
                 <TableCell className="capitalize">{project.planningMode || 'weekly'}</TableCell>
                 <TableCell>{formatDate(project.createdAt)}</TableCell>
                 <TableCell>{formatDate(project.updatedAt)}</TableCell>
@@ -375,38 +400,44 @@ export function ProjectList({
                   >
                     Copy
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEdit(project)}
-                  >
-                    Edit
-                  </Button>
-                  {project.status === 'archived' ? (
+                  {canWrite(project) && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleSetStatus(project, 'active')}
+                      onClick={() => openEdit(project)}
                     >
-                      Restore
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleSetStatus(project, 'archived')}
-                    >
-                      Archive
+                      Edit
                     </Button>
                   )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDeleteProject(project)}
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    Delete
-                  </Button>
+                  {canOwn(project) && (
+                    project.status === 'archived' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSetStatus(project, 'active')}
+                      >
+                        Restore
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSetStatus(project, 'archived')}
+                      >
+                        Archive
+                      </Button>
+                    )
+                  )}
+                  {canOwn(project) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDeleteProject(project)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      Delete
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

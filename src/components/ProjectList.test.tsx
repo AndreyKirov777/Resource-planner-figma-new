@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProjectList } from './ProjectList';
-import { api, Project } from '../services/api';
+import { api, Me, Project } from '../services/api';
 import { __resetLiveExchangeRates, exchangeRateForCurrency } from '../config/defaults';
+
+const ADMIN: Me = { id: 1, email: 'admin@example.test', displayName: 'Dev Admin', group: 'ADMIN' };
+const MANAGER: Me = { id: 2, email: 'manager@example.test', displayName: 'Dev Manager', group: 'MANAGER' };
 
 if (!Element.prototype.hasPointerCapture) {
   Element.prototype.hasPointerCapture = () => false;
@@ -65,7 +68,7 @@ afterEach(() => {
 
 async function openCreateDialog() {
   const user = userEvent.setup();
-  render(<ProjectList onOpenProject={vi.fn()} />);
+  render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
   await user.click(await screen.findByRole('button', { name: /new project/i }));
   await screen.findByRole('button', { name: /^create$/i });
   return user;
@@ -147,6 +150,8 @@ function listProject(overrides: Partial<Project> & Pick<Project, 'id' | 'name'>)
     status: 'active',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
+    myRole: 'OWNER',
+    ownerName: 'Dev Admin',
     ...overrides,
   };
 }
@@ -199,7 +204,7 @@ describe('ProjectList sort, search, and status', () => {
   });
 
   it('defaults to last-updated newest first and hides archived rows', async () => {
-    render(<ProjectList onOpenProject={vi.fn()} />);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
     await screen.findByText('Bravo');
     expect(rowNames()).toEqual(['Bravo', 'Alpha']);
     expect(screen.queryByText('Omega')).not.toBeInTheDocument();
@@ -207,7 +212,7 @@ describe('ProjectList sort, search, and status', () => {
 
   it('toggles sort on Project name, then Created, then Last updated', async () => {
     const user = userEvent.setup();
-    render(<ProjectList onOpenProject={vi.fn()} />);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
     await screen.findByText('Bravo');
 
     await user.click(screen.getByRole('button', { name: /project name/i }));
@@ -226,7 +231,7 @@ describe('ProjectList sort, search, and status', () => {
 
   it('searches name or description within the current status filter', async () => {
     const user = userEvent.setup();
-    render(<ProjectList onOpenProject={vi.fn()} />);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
     await screen.findByText('Bravo');
 
     await user.type(screen.getByRole('textbox', { name: /search projects/i }), 'alpha');
@@ -240,7 +245,7 @@ describe('ProjectList sort, search, and status', () => {
 
   it('shows only archived rows without a name badge in the Archived filter', async () => {
     const user = userEvent.setup();
-    render(<ProjectList onOpenProject={vi.fn()} />);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
     await screen.findByText('Bravo');
 
     await chooseStatus(user, 'Archived');
@@ -252,7 +257,7 @@ describe('ProjectList sort, search, and status', () => {
 
   it('marks archived rows with a badge only in the All view', async () => {
     const user = userEvent.setup();
-    render(<ProjectList onOpenProject={vi.fn()} />);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
     await screen.findByText('Bravo');
 
     await chooseStatus(user, 'All');
@@ -265,7 +270,7 @@ describe('ProjectList sort, search, and status', () => {
 
   it('archives and restores via updateProject', async () => {
     const user = userEvent.setup();
-    render(<ProjectList onOpenProject={vi.fn()} />);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
     await screen.findByText('Bravo');
 
     await user.click(screen.getAllByRole('button', { name: /^archive$/i })[0]);
@@ -285,7 +290,7 @@ describe('ProjectList sort, search, and status', () => {
 
   it('keeps a copy of an archived project out of the default Active view until it is the new active row', async () => {
     const user = userEvent.setup();
-    render(<ProjectList onOpenProject={vi.fn()} />);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
     await screen.findByText('Bravo');
 
     await chooseStatus(user, 'Archived');
@@ -301,5 +306,79 @@ describe('ProjectList sort, search, and status', () => {
     await chooseStatus(user, 'Active');
     expect(rowNames()).toEqual(['Omega (Copy)', 'Bravo', 'Alpha']);
     expect(screen.queryByText('Omega')).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectList scope selector', () => {
+  beforeEach(() => {
+    vi.mocked(api.getProjects).mockResolvedValue([alpha]);
+  });
+
+  it('defaults to "mine" and offers "All projects" for an admin', async () => {
+    const user = userEvent.setup();
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
+    await screen.findByText('Alpha');
+    expect(api.getProjects).toHaveBeenCalledWith('mine');
+
+    await user.click(screen.getByRole('combobox', { name: /scope/i }));
+    expect(screen.getByRole('option', { name: 'My projects' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Shared with me' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'All projects' })).toBeInTheDocument();
+  });
+
+  it('does not offer "All projects" to a non-admin', async () => {
+    const user = userEvent.setup();
+    render(<ProjectList me={MANAGER} onOpenProject={vi.fn()} />);
+    await screen.findByText('Alpha');
+
+    await user.click(screen.getByRole('combobox', { name: /scope/i }));
+    expect(screen.queryByRole('option', { name: 'All projects' })).not.toBeInTheDocument();
+  });
+
+  it('re-fetches with the chosen scope and shows an Owner column outside "mine"', async () => {
+    const user = userEvent.setup();
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
+    await screen.findByText('Alpha');
+    expect(screen.queryByText('Owner')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: /scope/i }));
+    await user.click(await screen.findByRole('option', { name: 'Shared with me' }));
+
+    await waitFor(() => expect(api.getProjects).toHaveBeenLastCalledWith('shared'));
+    expect(screen.getByText('Owner')).toBeInTheDocument();
+  });
+});
+
+describe('ProjectList role-gated actions', () => {
+  it('offers Open and Copy but not Edit, Archive, or Delete to a VIEWER', async () => {
+    vi.mocked(api.getProjects).mockResolvedValue([listProject({ id: 5, name: 'Viewed', myRole: 'VIEWER' })]);
+    render(<ProjectList me={MANAGER} onOpenProject={vi.fn()} />);
+    await screen.findByText('Viewed');
+
+    expect(screen.getByRole('button', { name: /^open$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^archive$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
+  });
+
+  it('offers Edit but not Archive or Delete to an EDITOR', async () => {
+    vi.mocked(api.getProjects).mockResolvedValue([listProject({ id: 6, name: 'Edited', myRole: 'EDITOR' })]);
+    render(<ProjectList me={MANAGER} onOpenProject={vi.fn()} />);
+    await screen.findByText('Edited');
+
+    expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^archive$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
+  });
+
+  it('offers Edit, Archive, and Delete to an OWNER', async () => {
+    vi.mocked(api.getProjects).mockResolvedValue([listProject({ id: 7, name: 'Owned', myRole: 'OWNER' })]);
+    render(<ProjectList me={MANAGER} onOpenProject={vi.fn()} />);
+    await screen.findByText('Owned');
+
+    expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^archive$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
   });
 });

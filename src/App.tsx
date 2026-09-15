@@ -9,6 +9,7 @@ import { ResourcePlan } from './components/ResourcePlan';
 import { ResourceList } from './components/ResourceList';
 import { RateCard } from './components/RateCard';
 import { ProjectList } from './components/ProjectList';
+import { UsersPage } from './components/UsersPage';
 import { Wbs } from './components/Wbs';
 import { Roadmap } from './components/roadmap/Roadmap';
 import {
@@ -114,21 +115,37 @@ export default function App({ me }: AppProps) {
     try {
       setLoading(true);
       setError(null);
-      
-      const projects = await api.getProjects();
 
-      if (projects.length === 0) {
-        setCurrentProject(null);
-        setLoading(false);
-        return;
+      // A deep-linked project (from ?project=) may be owned, shared, or (for
+      // ADMIN) neither — try fetching it directly first, since it may not be
+      // in the default "mine" scope below. Any failure (404/403/network)
+      // just falls through to the scoped list.
+      let project: Project | undefined;
+      if (preferredProjectId) {
+        try {
+          project = await api.getProject(preferredProjectId);
+        } catch {
+          project = undefined;
+        }
       }
 
-      const preferred = preferredProjectId
-        ? projects.find(p => p.id === preferredProjectId)
-        : undefined;
-      const project = preferred
-        ?? projects.find(p => p.status === 'active')
-        ?? projects[0];
+      if (!project) {
+        let projects = await api.getProjects('mine');
+        if (projects.length === 0) {
+          projects = await api.getProjects('shared');
+        }
+        if (projects.length === 0) {
+          setCurrentProject(null);
+          setLoading(false);
+          return;
+        }
+        const preferred = preferredProjectId
+          ? projects.find(p => p.id === preferredProjectId)
+          : undefined;
+        project = preferred
+          ?? projects.find(p => p.status === 'active')
+          ?? projects[0];
+      }
 
       setCurrentProject(project);
       setEditableProjectName(project.name || '');
@@ -1367,6 +1384,7 @@ export default function App({ me }: AppProps) {
       <div className="p-6">
         <HeaderBar me={me} />
         <ProjectList
+          me={me}
           onOpenProject={(id) => loadProjectData(id)}
           currentProjectId={null}
           onProjectDeleted={() => loadProjectData()}
@@ -1375,6 +1393,9 @@ export default function App({ me }: AppProps) {
       </div>
     );
   }
+
+  const myRole = currentProject.access ?? currentProject.myRole ?? 'VIEWER';
+  const canEdit = myRole !== 'VIEWER' && (currentProject.status !== 'archived' || myRole === 'OWNER' || myRole === 'ADMIN');
 
   return (
     <div className="p-6">
@@ -1404,17 +1425,19 @@ export default function App({ me }: AppProps) {
         </div>
       )}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className={me.group === 'ADMIN' ? 'grid w-full grid-cols-7' : 'grid w-full grid-cols-6'}>
           <TabsTrigger value="project-list">Project list</TabsTrigger>
           <TabsTrigger value="resource-plan">Resource Plan</TabsTrigger>
           <TabsTrigger value="resource-list">Resource List</TabsTrigger>
           <TabsTrigger value="wbs">WBS</TabsTrigger>
           <TabsTrigger value="roadmap">Roadmap</TabsTrigger>
           <TabsTrigger value="rate-card">Rate Card</TabsTrigger>
+          {me.group === 'ADMIN' && <TabsTrigger value="users">Users</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="project-list" className="mt-6">
           <ProjectList
+            me={me}
             onOpenProject={(id) => {
               loadProjectData(id);
               setActiveTab('resource-plan');
@@ -1461,6 +1484,8 @@ export default function App({ me }: AppProps) {
             }}
             roadmapItems={roadmapLanes.flatMap(lane => lane.items)}
             onUpdateRoadmapItem={handleUpdateRoadmapItem}
+            myRole={myRole}
+            canEdit={canEdit}
           />
         </TabsContent>
 
@@ -1474,6 +1499,7 @@ export default function App({ me }: AppProps) {
             onClearAllResourceLists={handleClearAllResourceLists}
             exchangeRate={currentProject?.exchangeRate}
             clientCurrency={currentProject?.clientCurrency}
+            canEdit={canEdit}
           />
         </TabsContent>
 
@@ -1491,6 +1517,7 @@ export default function App({ me }: AppProps) {
             onReplaceWbsEstimates={handleReplaceWbsEstimates}
             roadmapLanes={roadmapLanes}
             onSetWbsRoadmapLink={handleSetWbsRoadmapLink}
+            canEdit={canEdit}
           />
         </TabsContent>
 
@@ -1513,6 +1540,7 @@ export default function App({ me }: AppProps) {
             onBootstrap={handleBootstrapRoadmap}
             onSetStartDate={handleSetProjectStartDate}
             onGenerateDraftPlan={handleApplyGeneratedPlan}
+            canEdit={canEdit}
           />
         </TabsContent>
 
@@ -1533,6 +1561,12 @@ export default function App({ me }: AppProps) {
             clientCurrency={currentProject.clientCurrency}
           />
         </TabsContent>
+
+        {me.group === 'ADMIN' && (
+          <TabsContent value="users" className="mt-6">
+            <UsersPage />
+          </TabsContent>
+        )}
       </Tabs>
       <Toaster />
     </div>

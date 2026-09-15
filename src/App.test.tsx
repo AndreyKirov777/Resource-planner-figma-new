@@ -24,6 +24,8 @@ vi.mock('./components/ResourcePlan', () => ({
     onProjectNameChange: (name: string) => void;
     onExportProject?: () => void;
     onExportToExcel?: () => void;
+    myRole?: string;
+    canEdit?: boolean;
     onApplyGeneratedPlan?: (draft: {
       resourcePlans: Array<{
         role: string;
@@ -37,7 +39,7 @@ vi.mock('./components/ResourcePlan', () => ({
       resourceLists: [];
     }) => Promise<void>;
   }) => (
-    <div data-testid="resource-plan">
+    <div data-testid="resource-plan" data-my-role={props.myRole} data-can-edit={String(props.canEdit)}>
       <input
         aria-label="Project name"
         placeholder="Enter project name"
@@ -107,6 +109,7 @@ const mockProject = {
   status: 'active' as const,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
+  myRole: 'OWNER' as const,
 };
 
 vi.mock('./services/api', () => ({
@@ -154,7 +157,7 @@ afterEach(() => {
 });
 
 describe('App', () => {
-  it('renders six tabs with Rate Card last', async () => {
+  it('renders seven tabs with Rate Card before the admin-only Users tab', async () => {
     renderApp();
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /project list/i })).toBeInTheDocument();
@@ -167,7 +170,30 @@ describe('App', () => {
       'WBS',
       'Roadmap',
       'Rate Card',
+      'Users',
     ]);
+  });
+
+  it('does not show the Users tab for a non-admin', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App me={{ id: 2, email: 'manager@example.test', displayName: 'Dev Manager', group: 'MANAGER' }} />
+      </MemoryRouter>
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /project list/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('tab', { name: /^users$/i })).not.toBeInTheDocument();
+  });
+
+  it('marks ResourcePlan read-only (canEdit=false) for a VIEWER', async () => {
+    const api = await getApi();
+    vi.mocked(api.getProjects).mockResolvedValue([{ ...mockProject, myRole: 'VIEWER' as const }]);
+    renderApp();
+    await waitFor(() => {
+      expect(screen.getByTestId('resource-plan')).toHaveAttribute('data-can-edit', 'false');
+    });
+    expect(screen.getByTestId('resource-plan')).toHaveAttribute('data-my-role', 'VIEWER');
   });
 
   it('shows Resource Plan by default', async () => {

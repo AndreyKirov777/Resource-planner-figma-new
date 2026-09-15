@@ -20,6 +20,8 @@ import {
   bootstrapRoadmapSchema,
   roadmapReorderSchema,
   devLoginSchema,
+  memberUpsertSchema,
+  projectsScopeSchema,
 } from './server-validation';
 
 describe('server-validation Zod schemas', () => {
@@ -623,6 +625,32 @@ describe('server-validation Zod schemas', () => {
     it('accepts an optional returnTo', () => {
       const result = devLoginSchema.safeParse({ user: 'admin', returnTo: '/projects/5' });
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('memberUpsertSchema', () => {
+    it('accepts EDITOR and VIEWER', () => {
+      expect(memberUpsertSchema.safeParse({ role: 'EDITOR' }).success).toBe(true);
+      expect(memberUpsertSchema.safeParse({ role: 'VIEWER' }).success).toBe(true);
+    });
+
+    it('rejects OWNER — ownership transfer is out of scope', () => {
+      const result = memberUpsertSchema.safeParse({ role: 'OWNER' });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('projectsScopeSchema', () => {
+    it('accepts mine, shared, all, and no scope at all', () => {
+      expect(projectsScopeSchema.safeParse({ scope: 'mine' }).success).toBe(true);
+      expect(projectsScopeSchema.safeParse({ scope: 'shared' }).success).toBe(true);
+      expect(projectsScopeSchema.safeParse({ scope: 'all' }).success).toBe(true);
+      expect(projectsScopeSchema.safeParse({}).success).toBe(true);
+    });
+
+    it('rejects an unknown scope', () => {
+      const result = projectsScopeSchema.safeParse({ scope: 'everything' });
+      expect(result.success).toBe(false);
     });
   });
 });

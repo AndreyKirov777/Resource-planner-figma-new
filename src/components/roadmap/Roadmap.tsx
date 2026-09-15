@@ -105,6 +105,8 @@ interface RoadmapProps {
   onSetStartDate: (startDate: string | null) => Promise<void>;
   /** CAP-13: accepts a draft built from the roadmap's demand — same contract as `GeneratePlanSheet`'s existing `onAcceptPlan`. */
   onGenerateDraftPlan: (draft: GeneratePlanDraft) => Promise<void>;
+  /** False for a VIEWER, or an EDITOR on an archived project: disables every write affordance. */
+  canEdit?: boolean;
 }
 
 function collapsedStorageKey(projectId: number) {
@@ -203,6 +205,7 @@ export function Roadmap({
   onBootstrap,
   onSetStartDate,
   onGenerateDraftPlan,
+  canEdit = true,
 }: RoadmapProps) {
   const planningMode = (project.planningMode || 'weekly') as 'weekly' | 'monthly';
   const phases = useMemo(() => parsePhases(project.phases, []), [project.phases]);
@@ -731,15 +734,17 @@ export function Roadmap({
       <div className="rounded-lg border border-gray-200 p-12">
         <div className="mx-auto max-w-md text-center">
           <h3 className="text-lg font-semibold">No roadmap yet.</h3>
-          <div className="mt-4 flex justify-center gap-2">
-            <Button onClick={openBootstrapPreview} disabled={wbsItems.length === 0}>
-              Create from WBS
-            </Button>
-            <Button variant="outline" onClick={handleAddLane}>
-              Add lane
-            </Button>
-          </div>
-          {wbsItems.length === 0 && (
+          {canEdit && (
+            <div className="mt-4 flex justify-center gap-2">
+              <Button onClick={openBootstrapPreview} disabled={wbsItems.length === 0}>
+                Create from WBS
+              </Button>
+              <Button variant="outline" onClick={handleAddLane}>
+                Add lane
+              </Button>
+            </div>
+          )}
+          {canEdit && wbsItems.length === 0 && (
             <p className="text-muted-foreground mt-2 text-xs">Add WBS items first to create from WBS.</p>
           )}
           <p className="text-muted-foreground mt-4 text-xs">
@@ -853,28 +858,32 @@ export function Roadmap({
         >
           Draft plan from roadmap
         </Button>
-        <Button variant="outline" size="sm" onClick={handleAddLane}>
-          Add lane
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => handleAddItem('bar')} disabled={roadmapLanes.length === 0}>
-          Add bar
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleAddItem('milestone')}
-          disabled={roadmapLanes.length === 0}
-        >
-          Add milestone
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleAddItem('spread')}
-          disabled={roadmapLanes.length === 0}
-        >
-          Add spread
-        </Button>
+        {canEdit && (
+          <>
+            <Button variant="outline" size="sm" onClick={handleAddLane}>
+              Add lane
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleAddItem('bar')} disabled={roadmapLanes.length === 0}>
+              Add bar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleAddItem('milestone')}
+              disabled={roadmapLanes.length === 0}
+            >
+              Add milestone
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleAddItem('spread')}
+              disabled={roadmapLanes.length === 0}
+            >
+              Add spread
+            </Button>
+          </>
+        )}
         <Button
           variant="outline"
           size="sm"

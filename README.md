@@ -139,14 +139,20 @@
   - `GET /exchange-rates` - Live USD/EUR/GBP exchange rates (cached daily, with a static fallback)
 
   #### Projects
-  - `GET /projects` - Get all projects
-  - `GET /projects/:id` - Get project with all related data
-  - `POST /projects` - Create new project
-  - `PUT /projects/:id` - Update project
-  - `DELETE /projects/:id` - Delete project (cascades to resource lists, resource plans, and their allocations)
-  - `POST /projects/:id/copy` - Duplicate a project with all of its data
+  - `GET /projects` - List projects visible to the caller, filtered by an optional `?scope=mine|shared|all` query param (`mine` is the default; `all` is ADMIN-only); each row carries `ownerName` and the caller's `myRole`
+  - `GET /projects/:id` - Get project with all related data, plus the caller's `access` role
+  - `POST /projects` - Create new project (the caller becomes its OWNER)
+  - `PUT /projects/:id` - Update project (changing `status` requires OWNER/ADMIN)
+  - `DELETE /projects/:id` - Delete project (cascades to resource lists, resource plans, and their allocations) — OWNER/ADMIN only
+  - `POST /projects/:id/copy` - Duplicate a project with all of its data (the caller becomes the copy's OWNER)
   - `GET /projects/:id/export` - Export a project (lists, plans, allocations, and WBS) as JSON
-  - `POST /projects/import` - Import a project from JSON (including WBS tree + estimates)
+  - `POST /projects/import` - Import a project from JSON (including WBS tree + estimates); the caller becomes its OWNER
+
+  #### Users and sharing
+  - `GET /users` - List every user who has signed in (id, email, display name, group, active flag)
+  - `GET /projects/:id/members` - List a project's members and their roles
+  - `PUT /projects/:id/members/:userId` - Add or change a member's role (EDITOR or VIEWER) — OWNER/ADMIN only
+  - `DELETE /projects/:id/members/:userId` - Remove a member — OWNER/ADMIN only
 
   #### Rate Card (global — shared across all projects)
   - `GET /rate-cards` - Get the global rate card

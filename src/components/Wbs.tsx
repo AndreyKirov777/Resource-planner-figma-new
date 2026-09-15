@@ -119,6 +119,8 @@ interface WbsProps {
   /** Optional: absent renders the grid exactly as before the roadmap feature (no Roadmap column, no coverage cards). */
   roadmapLanes?: RoadmapLaneWithItems[];
   onSetWbsRoadmapLink?: (wbsItemId: number, roadmapItemId: number | null) => Promise<void>;
+  /** False for a VIEWER, or an EDITOR on an archived project: disables every write affordance. */
+  canEdit?: boolean;
 }
 
 const HEADER_HEIGHT = 44;
@@ -463,6 +465,7 @@ export function Wbs({
   onReplaceWbsEstimates,
   roadmapLanes = [],
   onSetWbsRoadmapLink,
+  canEdit = true,
 }: WbsProps) {
   const [collapsedIds, setCollapsedIds] = useState<Set<number>>(new Set());
   const [gridSelection, setGridSelection] = useState<GridSelection>(EMPTY_SELECTION);
@@ -645,9 +648,9 @@ export function Wbs({
   const structureBusyRef = useRef(false);
 
   const openRowMenu = useCallback((id: number, x: number, y: number) => {
-    if (isWbsOverlayOpen()) return;
+    if (isWbsOverlayOpen() || !canEdit) return;
     setRowMenu({ id, x, y });
-  }, []);
+  }, [canEdit]);
 
   // `gridSelection` is a row INDEX. Rematch it to the selected item id when
   // the visible set changes, so collapse/add/delete cannot silently point at
@@ -1360,7 +1363,7 @@ export function Wbs({
               </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          {wbsItems.length === 0 && <Button onClick={handleAddRootItem}>Add root item</Button>}
+          {wbsItems.length === 0 && canEdit && <Button onClick={handleAddRootItem}>Add root item</Button>}
         </div>
       </div>
 
@@ -1386,7 +1389,7 @@ export function Wbs({
             drawHeader={drawHeader}
             rows={rows.length}
             getCellContent={getCellContent}
-            onCellEdited={onCellEdited}
+            onCellEdited={canEdit ? onCellEdited : undefined}
             customRenderers={CUSTOM_RENDERERS}
             getRowThemeOverride={getRowThemeOverride}
             gridSelection={gridSelection}
