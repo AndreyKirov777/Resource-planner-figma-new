@@ -1,7 +1,10 @@
 import { execSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import type { Express } from 'express';
+import request from 'supertest';
 import { PrismaClient } from './src/generated/prisma';
+import type { DevFixtureName } from './server/auth/dev';
 
 /**
  * Gives one integration test file its own throwaway SQLite database
@@ -49,4 +52,16 @@ export async function isolateTestDb(
       await prisma.$disconnect();
     }
   }
+}
+
+/**
+ * Signs a supertest agent in as one of the four dev fixtures (see
+ * server/auth/dev.ts) via the same `POST /auth/dev-login` route the dev
+ * sign-in chooser uses, so integration tests exercise the real session
+ * cookie / requireAuth path instead of bypassing it.
+ */
+export async function loginAs(app: Express, fixture: DevFixtureName): Promise<request.Agent> {
+  const agent = request.agent(app);
+  await agent.post('/auth/dev-login').send({ user: fixture });
+  return agent;
 }

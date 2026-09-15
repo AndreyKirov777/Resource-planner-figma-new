@@ -3,8 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from './App';
-import type { WbsItem } from './services/api';
+import type { Me, WbsItem } from './services/api';
 import { __resetLiveExchangeRates } from './config/defaults';
+
+const ME_FIXTURE: Me = { id: 1, email: 'admin@example.test', displayName: 'Dev Admin', group: 'ADMIN' };
 
 // Separate from App.test.tsx, which mocks `./components/Wbs` (like it mocks
 // every other tab) purely to keep App.tsx's own render/tab-switching tests
@@ -14,7 +16,7 @@ import { __resetLiveExchangeRates } from './config/defaults';
 // `Wbs` component so its toolbar and cell edits can actually invoke those
 // handlers. The other four tabs stay mocked, same as App.test.tsx.
 
-const renderApp = () => render(<App />, { wrapper: MemoryRouter });
+const renderApp = () => render(<App me={ME_FIXTURE} />, { wrapper: MemoryRouter });
 
 /**
  * The same harness `Wbs.test.tsx` uses: Glide's canvas cells are unreachable

@@ -1,10 +1,10 @@
 import type { Express } from 'express';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import request from 'supertest';
-import { isolateTestDb } from './testDb';
+import type request from 'supertest';
+import { isolateTestDb, loginAs } from './testDb';
 
 let app: Express;
-let initializeDefaultProject: () => Promise<void>;
+let agent: request.Agent;
 
 const TEST_PROJECT_NAMES = [
   'Integration Test Project',
@@ -25,10 +25,10 @@ const TEST_PROJECT_NAMES = [
 const TEST_RESOURCE_PLAN = { role: 'Developer', intHourlyRate: 50, clientHourlyRate: 75 };
 
 async function cleanupTestResourcePlans() {
-  const projectsRes = await request(app).get('/api/projects');
+  const projectsRes = await agent.get('/api/projects');
   if (projectsRes.status !== 200 || !Array.isArray(projectsRes.body)) return;
   for (const project of projectsRes.body as { id: number }[]) {
-    const plansRes = await request(app).get(`/api/projects/${project.id}/resource-plans`);
+    const plansRes = await agent.get(`/api/projects/${project.id}/resource-plans`);
     if (plansRes.status !== 200 || !Array.isArray(plansRes.body)) continue;
     const testPlans = plansRes.body.filter(
       (p: { role: string; intHourlyRate: number; clientHourlyRate: number }) =>
@@ -37,17 +37,17 @@ async function cleanupTestResourcePlans() {
         p.clientHourlyRate === TEST_RESOURCE_PLAN.clientHourlyRate
     );
     for (const plan of testPlans) {
-      await request(app).delete(`/api/resource-plans/${plan.id}`);
+      await agent.delete(`/api/resource-plans/${plan.id}`);
     }
   }
 }
 
 async function cleanupTestProjects() {
-  const res = await request(app).get('/api/projects');
+  const res = await agent.get('/api/projects');
   if (res.status !== 200 || !Array.isArray(res.body)) return;
   const toDelete = res.body.filter((p: { name: string }) => TEST_PROJECT_NAMES.includes(p.name));
   for (const p of toDelete) {
-    await request(app).delete(`/api/projects/${p.id}`);
+    await agent.delete(`/api/projects/${p.id}`);
   }
 }
 
@@ -57,8 +57,8 @@ describe('API integration', () => {
     // block's bulk-import/delete tests would otherwise race that file's discipline
     // reads on a shared file. See testDb.ts.
     await isolateTestDb('api');
-    ({ app, initializeDefaultProject } = await import('./server'));
-    await initializeDefaultProject();
+    ({ app } = await import('./server'));
+    agent = await loginAs(app, 'admin');
   });
 
   afterAll(async () => {
@@ -72,7 +72,7 @@ describe('API integration', () => {
 
   describe('GET /api/projects', () => {
     it('returns an array of projects', async () => {
-      const res = await request(app).get('/api/projects');
+      const res = await agent.get('/api/projects');
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     });
@@ -80,7 +80,7 @@ describe('API integration', () => {
 
   describe('POST /api/projects', () => {
     it('creates a project and returns it with id', async () => {
-      const res = await request(app)
+      const res = await agent
         .post('/api/projects')
         .send({ name: 'Integration Test Project', description: 'For API tests' });
       expect(res.status).toBe(200);
@@ -89,19 +89,19 @@ describe('API integration', () => {
     });
 
     it('rejects missing name with 400', async () => {
-      const res = await request(app).post('/api/projects').send({});
+      const res = await agent.post('/api/projects').send({});
       expect(res.status).toBe(400);
     });
 
     it('rejects extra fields (strict validation)', async () => {
-      const res = await request(app)
+      const res = await agent
         .post('/api/projects')
         .send({ name: 'P', id: 999, createdAt: 'x' });
       expect(res.status).toBe(400);
     });
 
     it('defaults status to active when omitted', async () => {
-      const res = await request(app)
+      const res = await agent
         .post('/api/projects')
         .send({ name: 'Status Create Default' });
       expect(res.status).toBe(200);
@@ -109,7 +109,7 @@ describe('API integration', () => {
     });
 
     it('rejects invalid status with 400', async () => {
-      const res = await request(app)
+      const res = await agent
         .post('/api/projects')
         .send({ name: 'Status Create Default', status: 'paused' });
       expect(res.status).toBe(400);
@@ -118,11 +118,11 @@ describe('API integration', () => {
 
   describe('PUT /api/projects/:id', () => {
     it('updates whitelisted fields and returns project with route id', async () => {
-      const createRes = await request(app)
+      const createRes = await agent
         .post('/api/projects')
         .send({ name: 'To Update' });
       const id = createRes.body.id;
-      const res = await request(app)
+      const res = await agent
         .put(`/api/projects/${id}`)
         .send({ name: 'Updated Name' });
       expect(res.status).toBe(200);
@@ -131,31 +131,31 @@ describe('API integration', () => {
     });
 
     it('rejects body with disallowed id field (strict schema)', async () => {
-      const createRes = await request(app).post('/api/projects').send({ name: 'Strict Test' });
+      const createRes = await agent.post('/api/projects').send({ name: 'Strict Test' });
       const id = createRes.body.id;
-      const res = await request(app)
+      const res = await agent
         .put(`/api/projects/${id}`)
         .send({ name: 'OK', id: 999 });
       expect(res.status).toBe(400);
     });
 
     it('updates status and still returns archived rows from GET /api/projects', async () => {
-      const createRes = await request(app)
+      const createRes = await agent
         .post('/api/projects')
         .send({ name: 'Status Put Source' });
       const id = createRes.body.id;
-      const paused = await request(app)
+      const paused = await agent
         .put(`/api/projects/${id}`)
         .send({ status: 'paused' });
       expect(paused.status).toBe(400);
 
-      const archived = await request(app)
+      const archived = await agent
         .put(`/api/projects/${id}`)
         .send({ status: 'archived' });
       expect(archived.status).toBe(200);
       expect(archived.body.status).toBe('archived');
 
-      const list = await request(app).get('/api/projects');
+      const list = await agent.get('/api/projects');
       expect(list.status).toBe(200);
       expect(list.body.some((p: { id: number; status: string }) => p.id === id && p.status === 'archived')).toBe(true);
     });
@@ -163,55 +163,55 @@ describe('API integration', () => {
 
   describe('POST /api/projects/:id/copy', () => {
     it('copies an archived project as active', async () => {
-      const createRes = await request(app)
+      const createRes = await agent
         .post('/api/projects')
         .send({ name: 'Status Copy Source' });
       const id = createRes.body.id;
-      await request(app).put(`/api/projects/${id}`).send({ status: 'archived' });
+      await agent.put(`/api/projects/${id}`).send({ status: 'archived' });
 
-      const copyRes = await request(app)
+      const copyRes = await agent
         .post(`/api/projects/${id}/copy`)
         .send({ name: 'Status Copy Source (Copy)' });
       expect(copyRes.status).toBe(200);
       expect(copyRes.body.status).toBe('active');
       expect(copyRes.body.id).not.toBe(id);
 
-      const source = await request(app).get(`/api/projects/${id}`);
+      const source = await agent.get(`/api/projects/${id}`);
       expect(source.body.status).toBe('archived');
     });
   });
 
   describe('Global rate card', () => {
     it('bulk import replaces the rate card and records import metadata', async () => {
-      const importRes = await request(app)
+      const importRes = await agent
         .post('/api/rate-cards/bulk')
         .send({ rateCards: [{ role: 'Developer', ukraine: 50 }], fileName: 'rates.xlsx' });
       expect(importRes.status).toBe(200);
       expect(importRes.body.count).toBe(1);
 
-      const metaRes = await request(app).get('/api/rate-cards/meta');
+      const metaRes = await agent.get('/api/rate-cards/meta');
       expect(metaRes.status).toBe(200);
       expect(metaRes.body.fileName).toBe('rates.xlsx');
       expect(metaRes.body.importedAt).toBeTruthy();
 
-      const listRes = await request(app).get('/api/rate-cards');
+      const listRes = await agent.get('/api/rate-cards');
       expect(listRes.status).toBe(200);
       expect(listRes.body).toHaveLength(1);
       expect(listRes.body[0].role).toBe('Developer');
     });
 
     it('DELETE /api/rate-cards clears all rate cards and metadata', async () => {
-      await request(app)
+      await agent
         .post('/api/rate-cards/bulk')
         .send({ rateCards: [{ role: 'QA', ukraine: 30 }], fileName: 'qa.xlsx' });
 
-      const res = await request(app).delete('/api/rate-cards');
+      const res = await agent.delete('/api/rate-cards');
       expect(res.status).toBe(200);
 
-      const listRes = await request(app).get('/api/rate-cards');
+      const listRes = await agent.get('/api/rate-cards');
       expect(listRes.body).toHaveLength(0);
 
-      const metaRes = await request(app).get('/api/rate-cards/meta');
+      const metaRes = await agent.get('/api/rate-cards/meta');
       expect(metaRes.body.fileName).toBeNull();
       expect(metaRes.body.importedAt).toBeNull();
     });
@@ -231,7 +231,7 @@ describe('API integration', () => {
       } as Response);
 
       try {
-        const res = await request(app).get('/api/exchange-rates');
+        const res = await agent.get('/api/exchange-rates');
         expect(res.status).toBe(200);
         expect(res.body.rates).toEqual({ USD: 1, EUR: 0.85, GBP: 0.74 });
         expect(res.body.source).toMatch(/frankfurter|cache/);
@@ -244,18 +244,18 @@ describe('API integration', () => {
 
   describe('Validation regression', () => {
     it('POST /api/projects rejects wrong type for name', async () => {
-      const res = await request(app).post('/api/projects').send({ name: 123 });
+      const res = await agent.post('/api/projects').send({ name: 123 });
       expect(res.status).toBe(400);
     });
   });
 
   describe('Resource plans and weekly allocations', () => {
     it('creates resource plan and reflects in GET', async () => {
-      const projectsRes = await request(app).get('/api/projects');
+      const projectsRes = await agent.get('/api/projects');
       const projectId = projectsRes.body[0]?.id;
       if (!projectId) return;
 
-      const createPlanRes = await request(app)
+      const createPlanRes = await agent
         .post(`/api/projects/${projectId}/resource-plans`)
         .send({
           role: 'Developer',
@@ -267,7 +267,7 @@ describe('API integration', () => {
       if (createPlanRes.status !== 200) return;
       const planId = createPlanRes.body.id;
 
-      const plansRes = await request(app).get(`/api/projects/${projectId}/resource-plans`);
+      const plansRes = await agent.get(`/api/projects/${projectId}/resource-plans`);
       expect(plansRes.status).toBe(200);
       const found = plansRes.body.find((p: { id: number }) => p.id === planId);
       expect(found).toBeDefined();
@@ -277,41 +277,41 @@ describe('API integration', () => {
 
   describe('Plan-side role constraint (D6)', () => {
     it('accepts a role matching the project resource list, rejects one that does not, and stays unconstrained when the list is empty', async () => {
-      const projectRes = await request(app).post('/api/projects').send({ name: 'Role Constraint Test' });
+      const projectRes = await agent.post('/api/projects').send({ name: 'Role Constraint Test' });
       expect(projectRes.status).toBe(200);
       const projectId = projectRes.body.id;
 
       // Empty resource list: any role is accepted (regression guard for existing behavior).
-      const unconstrainedRes = await request(app)
+      const unconstrainedRes = await agent
         .post(`/api/projects/${projectId}/resource-plans`)
         .send({ role: 'Anything Goes' });
       expect(unconstrainedRes.status).toBe(200);
 
-      const resourceListRes = await request(app)
+      const resourceListRes = await agent
         .post(`/api/projects/${projectId}/resource-lists`)
         .send({ role: 'Backend Developer', intRate: 40 });
       expect(resourceListRes.status).toBe(200);
 
       // Non-empty list: a matching role is accepted.
-      const matchingRes = await request(app)
+      const matchingRes = await agent
         .post(`/api/projects/${projectId}/resource-plans`)
         .send({ role: 'Backend Developer' });
       expect(matchingRes.status).toBe(200);
       const planId = matchingRes.body.id;
 
       // Non-empty list: a non-matching role is rejected, both on create and update.
-      const rejectedCreateRes = await request(app)
+      const rejectedCreateRes = await agent
         .post(`/api/projects/${projectId}/resource-plans`)
         .send({ role: 'Not On The List' });
       expect(rejectedCreateRes.status).toBe(400);
 
-      const rejectedUpdateRes = await request(app)
+      const rejectedUpdateRes = await agent
         .put(`/api/resource-plans/${planId}`)
         .send({ role: 'Also Not On The List' });
       expect(rejectedUpdateRes.status).toBe(400);
 
       // Updating a field other than role is unaffected.
-      const otherFieldRes = await request(app)
+      const otherFieldRes = await agent
         .put(`/api/resource-plans/${planId}`)
         .send({ intHourlyRate: 55 });
       expect(otherFieldRes.status).toBe(200);
@@ -321,23 +321,23 @@ describe('API integration', () => {
 
   describe('Resource list hourlyRate', () => {
     it('persists hourlyRate on create/update and defaults omitted to 0', async () => {
-      const projectRes = await request(app).post('/api/projects').send({ name: 'Hourly Rate List' });
+      const projectRes = await agent.post('/api/projects').send({ name: 'Hourly Rate List' });
       expect(projectRes.status).toBe(200);
       const projectId = projectRes.body.id;
 
-      const omitted = await request(app)
+      const omitted = await agent
         .post(`/api/projects/${projectId}/resource-lists`)
         .send({ role: 'Developer', intRate: 40 });
       expect(omitted.status).toBe(200);
       expect(omitted.body.hourlyRate).toBe(0);
 
-      const created = await request(app)
+      const created = await agent
         .post(`/api/projects/${projectId}/resource-lists`)
         .send({ role: 'Lead', intRate: 50, hourlyRate: 91 });
       expect(created.status).toBe(200);
       expect(created.body.hourlyRate).toBe(91);
 
-      const updated = await request(app)
+      const updated = await agent
         .put(`/api/resource-lists/${created.body.id}`)
         .send({ hourlyRate: 110 });
       expect(updated.status).toBe(200);

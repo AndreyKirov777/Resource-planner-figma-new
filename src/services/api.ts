@@ -1,7 +1,14 @@
-import { API_UNREACHABLE_MESSAGE, isNetworkFetchError } from '../utils/apiErrors';
+import { API_UNREACHABLE_MESSAGE, isNetworkFetchError, redirectToLogin } from '../utils/apiErrors';
 
 // Use relative URL so Vite proxies /api to backend in dev, same server in production
 const API_BASE_URL = '/api';
+
+export interface Me {
+  id: number;
+  email: string;
+  displayName: string;
+  group: 'ADMIN' | 'MANAGER' | 'USER';
+}
 
 // Types
 export type GeneratePlanRegion =
@@ -249,14 +256,19 @@ function toRateCardUpdatePayload(data: Partial<RateCard>) {
 }
 
 async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  let response: Response;
   try {
-    return await fetch(input, init);
+    response = await fetch(input, init);
   } catch (err) {
     if (isNetworkFetchError(err)) {
       throw new Error(API_UNREACHABLE_MESSAGE);
     }
     throw err;
   }
+  if (response.status === 401) {
+    redirectToLogin();
+  }
+  return response;
 }
 
 async function throwIfNotOk(response: Response, fallback: string): Promise<void> {
@@ -271,6 +283,12 @@ async function throwIfNotOk(response: Response, fallback: string): Promise<void>
 
 // API functions
 export const api = {
+  async getMe(): Promise<Me> {
+    const response = await apiFetch(`${API_BASE_URL}/me`);
+    if (!response.ok) throw new Error('Failed to fetch current user');
+    return response.json();
+  },
+
   // Project endpoints
   async getProjects(): Promise<Project[]> {
     const response = await apiFetch(`${API_BASE_URL}/projects`);

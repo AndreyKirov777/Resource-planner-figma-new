@@ -13,3 +13,17 @@ export function describeError(err: unknown, fallback: string): string {
   if (isNetworkFetchError(err)) return API_UNREACHABLE_MESSAGE;
   return err instanceof Error ? err.message : fallback;
 }
+
+/**
+ * Sends an unauthenticated browser to sign in, preserving where it was so it
+ * can return there after sign-in. The public `/client/:token` page never
+ * requires a session, so a 401 there (e.g. an expired share link fetch) must
+ * not bounce the visitor into the sign-in flow.
+ */
+export function redirectToLogin(): void {
+  if (typeof window === 'undefined') return;
+  const { pathname, search } = window.location;
+  if (pathname.startsWith('/client/')) return;
+  const returnTo = encodeURIComponent(pathname + search);
+  window.location.href = `/auth/login?returnTo=${returnTo}`;
+}

@@ -2,6 +2,73 @@
 
 This guide explains how to deploy the Resource Planning Application to a remote VM (res-pln-dev-vm.ipa.dataart.net) using Docker.
 
+## Authentication prerequisites (multi-user access)
+
+The app now requires sign-in via Microsoft Entra ID in production (`AUTH_MODE=entra`, the default when unset). Set these up **before** the first production deploy.
+
+### 1. HTTPS reverse proxy (required)
+
+Session cookies are marked `Secure` in production (`COOKIE_SECURE` defaults to `true` whenever `NODE_ENV=production`), so the app must sit behind TLS. Put a reverse proxy in front of the container and forward only port 3001 internally. A minimal [Caddy](https://caddyserver.com/) example (`Caddyfile`):
+
+```
+res-pln-dev-vm.ipa.dataart.net {
+  reverse_proxy localhost:3001
+}
+```
+
+Caddy provisions and renews the certificate automatically. Set `TRUST_PROXY=1` on the app container so Express trusts the proxy's `X-Forwarded-*` headers.
+
+### 2. Entra ID app registration
+
+In the Azure portal (Entra ID → App registrations → New registration):
+
+1. **Redirect URIs** (platform: Web) — add both:
+   - `https://res-pln-dev-vm.ipa.dataart.net/auth/callback` (production)
+   - `http://localhost:3001/auth/callback` (local dev against a real tenant)
+2. **Client secret** — Certificates & secrets → New client secret. Copy the value into `ENTRA_CLIENT_SECRET` (it is shown once).
+3. **`groups` claim** — Token configuration → Add groups claim → Security groups, for both ID and access tokens. Entra only emits the `groups` claim for groups the app registration is explicitly configured to receive; keep this to a small set (the three groups below), not "all groups the user is in" — see the overage risk note below.
+4. **Three security groups** — create (or reuse) three Entra security groups for ADMIN, MANAGER, and USER, and note their object ids for `ENTRA_GROUP_ADMIN`/`ENTRA_GROUP_MANAGER`/`ENTRA_GROUP_USER`.
+5. Record the **Application (client) ID** and **Directory (tenant) ID** for `ENTRA_CLIENT_ID` / `ENTRA_TENANT_ID`.
+
+Membership in these groups is managed entirely in Entra — the app never assigns or edits group membership.
+
+### 3. Environment variables
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `AUTH_MODE` | no | `entra` (default) in production; `dev` is refused when `NODE_ENV=production`. |
+| `SESSION_SECRET` | yes (entra) | Signs the short-lived sign-in flow cookie. `openssl rand -base64 32`. |
+| `ENTRA_TENANT_ID` | yes (entra) | Directory (tenant) ID. |
+| `ENTRA_CLIENT_ID` | yes (entra) | Application (client) ID. |
+| `ENTRA_CLIENT_SECRET` | yes (entra) | Client secret value. |
+| `ENTRA_REDIRECT_URI` | yes (entra) | `https://<host>/auth/callback`. |
+| `ENTRA_GROUP_ADMIN` / `_MANAGER` / `_USER` | yes (entra) | Security group object ids. |
+| `ADMIN_EMAILS` | recommended | Comma-separated emails that bootstrap as ADMIN before groups are wired up; the first sign-in from one of these assigns all pre-existing (legacy) projects to that user. |
+| `COOKIE_SECURE` | no | Defaults to `true` in production. Set `false` only for an HTTP-only staging environment. |
+| `TRUST_PROXY` | yes (behind a proxy) | `1` so Express trusts `X-Forwarded-*` from the reverse proxy. |
+| `DATABASE_URL` | no | Defaults to `file:/app/data/dev.db?connection_limit=1` in the container; keep the `connection_limit=1` param (SQLite + WAL, see below). |
+
+### 4. First sign-in
+
+After deploying, sign in once with an `ADMIN_EMAILS` account. This assigns every pre-existing (legacy, ownerless) project to that admin and creates its `ProjectMember` (OWNER) row — the one-time ownership migration described in the design.
+
+### 5. Database backups
+
+The container's `sqlite3` CLI (installed in the production image) takes a consistent online backup even while the app is running (SQLite's WAL mode makes this safe):
+
+```bash
+# Run daily via cron on the host, or as a scheduled task hitting the container:
+docker --context prod exec resource-planner sqlite3 /app/data/dev.db ".backup /app/data/backup-$(date +\%F).db"
+```
+
+A host crontab entry (adjust the container name):
+
+```cron
+0 3 * * * docker --context prod exec resource-planner sqlite3 /app/data/dev.db ".backup /app/data/backup-$(date +\%F).db"
+```
+
+Prune old `backup-*.db` files on a schedule that matches your retention needs.
+
 ## Deploy from your local machine (recommended)
 
 Use the deploy script from the project root. One-time setup is required.
@@ -39,7 +106,7 @@ To only restart containers without rebuilding:
 ./scripts/deploy-to-vm.sh --skip-build
 ```
 
-The script waits for `http://127.0.0.1:3001/api/projects` on the VM and fails (with logs) if the container crash-loops.
+The script waits for `http://127.0.0.1:3001/api/health` on the VM and fails (with logs) if the container crash-loops.
 
 If deploy fails with Prisma **P3005** (existing DB volume without migration history), recover without wiping data:
 ```bash
@@ -248,14 +315,13 @@ If you see **"Bind for 0.0.0.0:80 failed: port is already allocated"**, port 80 
    - You need to explicitly copy the database for backups (see Database Backup section)
    - On first deployment, a fresh database will be created with default data
 2. **Environment Variables**: Add any production environment variables to the `docker-compose.yml` file under the `environment` section.
-3. **HTTPS**: For production, consider setting up a reverse proxy (nginx) with SSL certificates.
+3. **HTTPS**: Required in production — session cookies are `Secure`. See "Authentication prerequisites" above.
 4. **Firewall**: Ensure ports 8080 and/or 3001 are open on your VM's firewall.
 
 ## Next Steps
 
 Consider:
-- Setting up automated backups
-- Configuring a reverse proxy (nginx) for HTTPS
+- Automating the database backup cron (see "Authentication prerequisites" above)
 - Setting up monitoring and logging
 - Implementing CI/CD for automated deployments
 

@@ -13,7 +13,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 [ -f "$SCRIPT_DIR/deploy.config.local.sh" ] && . "$SCRIPT_DIR/deploy.config.local.sh"
 
 SSH_TARGET="${REMOTE_USER}@${REMOTE_HOST}"
-HEALTH_URL="http://127.0.0.1:3001/api/projects"
+HEALTH_URL="http://127.0.0.1:3001/api/health"
 HEALTH_RETRIES="${HEALTH_RETRIES:-36}"   # ~3 minutes at 5s interval
 HEALTH_INTERVAL_SEC="${HEALTH_INTERVAL_SEC:-5}"
 

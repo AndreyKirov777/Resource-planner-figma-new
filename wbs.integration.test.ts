@@ -1,7 +1,7 @@
 import type { Express } from 'express';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
-import { isolateTestDb } from './testDb';
+import type request from 'supertest';
+import { isolateTestDb, loginAs } from './testDb';
 import {
   wbsEstimateSchema,
   wbsItemCreateSchema,
@@ -10,7 +10,7 @@ import {
 } from './server-validation';
 
 let app: Express;
-let initializeDefaultProject: () => Promise<void>;
+let agent: request.Agent;
 
 /**
  * WBS-1 (data model, API, client wrapper) tests.
@@ -214,13 +214,13 @@ describe('WBS API integration', () => {
   let validDisciplineB: string;
 
   async function cleanupTestProjects() {
-    const res = await request(app).get('/api/projects');
+    const res = await agent.get('/api/projects');
     if (res.status !== 200 || !Array.isArray(res.body)) return;
     const toDelete = res.body.filter((p: { name: string }) =>
       p.name.startsWith(TEST_PROJECT_NAME) || p.name.startsWith('WBS-4 ')
     );
     for (const p of toDelete as { id: number }[]) {
-      await request(app).delete(`/api/projects/${p.id}`);
+      await agent.delete(`/api/projects/${p.id}`);
     }
   }
 
@@ -248,15 +248,15 @@ describe('WBS API integration', () => {
         ],
       });
     });
-    ({ app, initializeDefaultProject } = await import('./server'));
-    await initializeDefaultProject();
+    ({ app } = await import('./server'));
+    agent = await loginAs(app, 'admin');
     await cleanupTestProjects();
-    const projRes = await request(app).post('/api/projects').send({ name: TEST_PROJECT_NAME });
+    const projRes = await agent.post('/api/projects').send({ name: TEST_PROJECT_NAME });
     projectId = projRes.body.id;
-    const otherRes = await request(app).post('/api/projects').send({ name: TEST_PROJECT_NAME_OTHER });
+    const otherRes = await agent.post('/api/projects').send({ name: TEST_PROJECT_NAME_OTHER });
     otherProjectId = otherRes.body.id;
 
-    const rateCardsRes = await request(app).get('/api/rate-cards');
+    const rateCardsRes = await agent.get('/api/rate-cards');
     const liveDisciplines = Array.from(
       new Set(((rateCardsRes.body ?? []) as { discipline: string }[]).map((r) => r.discipline))
     );
@@ -275,20 +275,20 @@ describe('WBS API integration', () => {
 
   describe('GET /api/projects/:projectId/wbs', () => {
     it('returns [] (not 404) for a project with no WBS items', async () => {
-      const res = await request(app).get(`/api/projects/${otherProjectId}/wbs`);
+      const res = await agent.get(`/api/projects/${otherProjectId}/wbs`);
       expect(res.status).toBe(200);
       expect(res.body).toEqual([]);
     });
 
     it('orders items deterministically by id when displayOrder ties (both default to 0)', async () => {
-      const first = await request(app)
+      const first = await agent
         .post(`/api/projects/${otherProjectId}/wbs-items`)
         .send({ name: 'Tie A' });
-      const second = await request(app)
+      const second = await agent
         .post(`/api/projects/${otherProjectId}/wbs-items`)
         .send({ name: 'Tie B' });
 
-      const res = await request(app).get(`/api/projects/${otherProjectId}/wbs`);
+      const res = await agent.get(`/api/projects/${otherProjectId}/wbs`);
       const ids = res.body.map((i: { id: number }) => i.id);
       expect(ids.indexOf(first.body.id)).toBeLessThan(ids.indexOf(second.body.id));
     });
@@ -296,7 +296,7 @@ describe('WBS API integration', () => {
 
   describe('POST /api/projects/:projectId/wbs-items', () => {
     it('creates a root item with phaseName null (Unassigned) and 201', async () => {
-      const res = await request(app)
+      const res = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Design' });
       expect(res.status).toBe(201);
@@ -306,7 +306,7 @@ describe('WBS API integration', () => {
     });
 
     it('creates an item with nested estimates and 201', async () => {
-      const res = await request(app)
+      const res = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'API', estimates: [{ discipline: validDisciplineA, hours: 40 }] });
       expect(res.status).toBe(201);
@@ -317,25 +317,25 @@ describe('WBS API integration', () => {
     });
 
     it('rejects an unknown discipline in nested estimates with 400 and writes nothing', async () => {
-      const before = await request(app).get(`/api/projects/${projectId}/wbs`);
+      const before = await agent.get(`/api/projects/${projectId}/wbs`);
       const beforeCount = before.body.length;
 
-      const res = await request(app)
+      const res = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Bad discipline', estimates: [{ discipline: UNKNOWN_DISCIPLINE, hours: 5 }] });
       expect(res.status).toBe(400);
 
-      const after = await request(app).get(`/api/projects/${projectId}/wbs`);
+      const after = await agent.get(`/api/projects/${projectId}/wbs`);
       expect(after.body.length).toBe(beforeCount);
     });
 
     it('rejects a cross-project parentId with 400', async () => {
-      const foreignRootRes = await request(app)
+      const foreignRootRes = await agent
         .post(`/api/projects/${otherProjectId}/wbs-items`)
         .send({ name: 'Foreign root' });
       const foreignParentId = foreignRootRes.body.id;
 
-      const res = await request(app)
+      const res = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Cross-project child', parentId: foreignParentId });
       expect(res.status).toBe(400);
@@ -344,70 +344,70 @@ describe('WBS API integration', () => {
 
   describe('PUT /api/wbs-items/:id', () => {
     it('rejects a self-parent with 400', async () => {
-      const createRes = await request(app)
+      const createRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Self parent test' });
       const id = createRes.body.id;
 
-      const res = await request(app).put(`/api/wbs-items/${id}`).send({ parentId: id });
+      const res = await agent.put(`/api/wbs-items/${id}`).send({ parentId: id });
       expect(res.status).toBe(400);
     });
 
     it('rejects a cross-project parentId with 400', async () => {
-      const createRes = await request(app)
+      const createRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Reparent test' });
       const id = createRes.body.id;
 
-      const foreignRes = await request(app)
+      const foreignRes = await agent
         .post(`/api/projects/${otherProjectId}/wbs-items`)
         .send({ name: 'Foreign parent' });
       const foreignParentId = foreignRes.body.id;
 
-      const res = await request(app).put(`/api/wbs-items/${id}`).send({ parentId: foreignParentId });
+      const res = await agent.put(`/api/wbs-items/${id}`).send({ parentId: foreignParentId });
       expect(res.status).toBe(400);
     });
 
     it('rejects a descendant parentId that would cycle with 400', async () => {
-      const rootRes = await request(app)
+      const rootRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Cycle root' });
       const rootId = rootRes.body.id;
-      const childRes = await request(app)
+      const childRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Cycle child', parentId: rootId });
       const childId = childRes.body.id;
 
-      const res = await request(app).put(`/api/wbs-items/${rootId}`).send({ parentId: childId });
+      const res = await agent.put(`/api/wbs-items/${rootId}`).send({ parentId: childId });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/cycle/i);
     });
 
     it('rejects a multi-hop ancestor loop with 400', async () => {
-      const aRes = await request(app)
+      const aRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'A' });
       const aId = aRes.body.id;
-      const bRes = await request(app)
+      const bRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'B', parentId: aId });
       const bId = bRes.body.id;
-      const cRes = await request(app)
+      const cRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'C', parentId: bId });
       const cId = cRes.body.id;
 
-      const res = await request(app).put(`/api/wbs-items/${aId}`).send({ parentId: cId });
+      const res = await agent.put(`/api/wbs-items/${aId}`).send({ parentId: cId });
       expect(res.status).toBe(400);
     });
 
     it('updates scalar fields', async () => {
-      const createRes = await request(app)
+      const createRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Rename me' });
       const id = createRes.body.id;
 
-      const res = await request(app)
+      const res = await agent
         .put(`/api/wbs-items/${id}`)
         .send({ name: 'Renamed', phaseName: 'Phase 1', displayOrder: 3 });
       expect(res.status).toBe(200);
@@ -419,12 +419,12 @@ describe('WBS API integration', () => {
 
   describe('PUT /api/wbs-items/:id/estimates', () => {
     it('replaces the estimate set (delete-then-recreate)', async () => {
-      const createRes = await request(app)
+      const createRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Estimates target', estimates: [{ discipline: validDisciplineA, hours: 10 }] });
       const id = createRes.body.id;
 
-      const replaceRes = await request(app)
+      const replaceRes = await agent
         .put(`/api/wbs-items/${id}/estimates`)
         .send([
           { discipline: validDisciplineB, hours: 8 },
@@ -435,7 +435,7 @@ describe('WBS API integration', () => {
       const disciplines = replaceRes.body.map((e: { discipline: string }) => e.discipline).sort();
       expect(disciplines).toEqual([validDisciplineA, validDisciplineB].sort());
 
-      const getRes = await request(app).get(`/api/projects/${projectId}/wbs`);
+      const getRes = await agent.get(`/api/projects/${projectId}/wbs`);
       const item = getRes.body.find((i: { id: number }) => i.id === id);
       expect(item.estimates).toHaveLength(2);
       // Old estimate (validDisciplineA: 10h) is gone — replaced by the new one (20h).
@@ -444,24 +444,24 @@ describe('WBS API integration', () => {
     });
 
     it('rejects an unknown discipline with 400 and writes nothing', async () => {
-      const createRes = await request(app)
+      const createRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Estimates reject target', estimates: [{ discipline: validDisciplineA, hours: 10 }] });
       const id = createRes.body.id;
 
-      const res = await request(app)
+      const res = await agent
         .put(`/api/wbs-items/${id}/estimates`)
         .send([{ discipline: UNKNOWN_DISCIPLINE, hours: 5 }]);
       expect(res.status).toBe(400);
 
-      const getRes = await request(app).get(`/api/projects/${projectId}/wbs`);
+      const getRes = await agent.get(`/api/projects/${projectId}/wbs`);
       const item = getRes.body.find((i: { id: number }) => i.id === id);
       expect(item.estimates).toHaveLength(1); // unchanged
       expect(item.estimates[0].discipline).toBe(validDisciplineA);
     });
 
     it('returns 404 for a non-existent WBS item instead of a raw 500', async () => {
-      const res = await request(app)
+      const res = await agent
         .put('/api/wbs-items/999999999/estimates')
         .send([{ discipline: validDisciplineA, hours: 5 }]);
       expect(res.status).toBe(404);
@@ -472,12 +472,12 @@ describe('WBS API integration', () => {
       // succeed and createMany would then throw on the unique constraint,
       // permanently losing the existing estimate below (delete-then-recreate
       // is not wrapped in a transaction, per this endpoint's stated convention).
-      const createRes = await request(app)
+      const createRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Duplicate payload target', estimates: [{ discipline: validDisciplineA, hours: 10 }] });
       const id = createRes.body.id;
 
-      const res = await request(app)
+      const res = await agent
         .put(`/api/wbs-items/${id}/estimates`)
         .send([
           { discipline: validDisciplineB, hours: 8 },
@@ -485,7 +485,7 @@ describe('WBS API integration', () => {
         ]);
       expect(res.status).toBe(400);
 
-      const getRes = await request(app).get(`/api/projects/${projectId}/wbs`);
+      const getRes = await agent.get(`/api/projects/${projectId}/wbs`);
       const item = getRes.body.find((i: { id: number }) => i.id === id);
       expect(item.estimates).toHaveLength(1); // original estimate survives untouched
       expect(item.estimates[0].discipline).toBe(validDisciplineA);
@@ -495,17 +495,17 @@ describe('WBS API integration', () => {
 
   describe('DELETE /api/wbs-items/:id (cascade)', () => {
     it('deletes the item, its subtree, and all their estimates', async () => {
-      const rootRes = await request(app)
+      const rootRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Cascade root', estimates: [{ discipline: validDisciplineA, hours: 5 }] });
       const rootId = rootRes.body.id;
 
-      const childRes = await request(app)
+      const childRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({ name: 'Cascade child', parentId: rootId, estimates: [{ discipline: validDisciplineB, hours: 3 }] });
       const childId = childRes.body.id;
 
-      const grandchildRes = await request(app)
+      const grandchildRes = await agent
         .post(`/api/projects/${projectId}/wbs-items`)
         .send({
           name: 'Cascade grandchild',
@@ -514,10 +514,10 @@ describe('WBS API integration', () => {
         });
       const grandchildId = grandchildRes.body.id;
 
-      const delRes = await request(app).delete(`/api/wbs-items/${rootId}`);
+      const delRes = await agent.delete(`/api/wbs-items/${rootId}`);
       expect(delRes.status).toBe(200);
 
-      const getRes = await request(app).get(`/api/projects/${projectId}/wbs`);
+      const getRes = await agent.get(`/api/projects/${projectId}/wbs`);
       const ids = getRes.body.map((i: { id: number }) => i.id);
       expect(ids).not.toContain(rootId);
       expect(ids).not.toContain(childId);
@@ -527,19 +527,19 @@ describe('WBS API integration', () => {
 
   describe('GET /export and POST /import (WBS-4)', () => {
     async function deleteProject(id: number) {
-      await request(app).delete(`/api/projects/${id}`);
+      await agent.delete(`/api/projects/${id}`);
     }
 
     it('round-trips a nested WBS with estimates, lists, and plans', async () => {
-      const proj = await request(app).post('/api/projects').send({ name: 'WBS-4 round-trip source' });
+      const proj = await agent.post('/api/projects').send({ name: 'WBS-4 round-trip source' });
       const srcId = proj.body.id;
 
-      const listRes = await request(app)
+      const listRes = await agent
         .post(`/api/projects/${srcId}/resource-lists`)
         .send({ role: 'Developer', intRate: 40 });
       expect(listRes.status).toBe(200);
 
-      const planRes = await request(app)
+      const planRes = await agent
         .post(`/api/projects/${srcId}/resource-plans`)
         .send({
           role: 'Developer',
@@ -549,7 +549,7 @@ describe('WBS API integration', () => {
         });
       expect(planRes.status).toBe(200);
 
-      const rootRes = await request(app)
+      const rootRes = await agent
         .post(`/api/projects/${srcId}/wbs-items`)
         .send({
           name: 'Root task',
@@ -563,7 +563,7 @@ describe('WBS API integration', () => {
       expect(rootRes.status).toBe(201);
       const rootId = rootRes.body.id;
 
-      const childRes = await request(app)
+      const childRes = await agent
         .post(`/api/projects/${srcId}/wbs-items`)
         .send({
           name: 'Child task',
@@ -574,16 +574,16 @@ describe('WBS API integration', () => {
         });
       expect(childRes.status).toBe(201);
 
-      const exportRes = await request(app).get(`/api/projects/${srcId}/export`);
+      const exportRes = await agent.get(`/api/projects/${srcId}/export`);
       expect(exportRes.status).toBe(200);
       expect(exportRes.body.schemaVersion).toBe(4);
       expect(exportRes.body.data.wbsItems).toHaveLength(2);
 
-      const importRes = await request(app).post('/api/projects/import').send(exportRes.body);
+      const importRes = await agent.post('/api/projects/import').send(exportRes.body);
       expect(importRes.status).toBe(200);
       const newId = importRes.body.projectId;
 
-      const wbs = (await request(app).get(`/api/projects/${newId}/wbs`)).body as Array<{
+      const wbs = (await agent.get(`/api/projects/${newId}/wbs`)).body as Array<{
         id: number;
         name: string;
         parentId: number | null;
@@ -607,9 +607,9 @@ describe('WBS API integration', () => {
       expect(newChild!.estimates[0].hours).toBe(4);
       expect(newRoot!.id).not.toBe(rootId);
 
-      const lists = (await request(app).get(`/api/projects/${newId}/resource-lists`)).body;
+      const lists = (await agent.get(`/api/projects/${newId}/resource-lists`)).body;
       expect(lists.some((r: { role: string }) => r.role === 'Developer')).toBe(true);
-      const plans = (await request(app).get(`/api/projects/${newId}/resource-plans`)).body;
+      const plans = (await agent.get(`/api/projects/${newId}/resource-plans`)).body;
       expect(plans.some((p: { role: string }) => p.role === 'Developer')).toBe(true);
 
       await deleteProject(srcId);
@@ -617,17 +617,17 @@ describe('WBS API integration', () => {
     });
 
     it('exports empty wbsItems and schemaVersion 4 when the project has no WBS', async () => {
-      const proj = await request(app).post('/api/projects').send({ name: 'WBS-4 empty source' });
+      const proj = await agent.post('/api/projects').send({ name: 'WBS-4 empty source' });
       const srcId = proj.body.id;
 
-      const exportRes = await request(app).get(`/api/projects/${srcId}/export`);
+      const exportRes = await agent.get(`/api/projects/${srcId}/export`);
       expect(exportRes.status).toBe(200);
       expect(exportRes.body.schemaVersion).toBe(4);
       expect(exportRes.body.data.wbsItems).toEqual([]);
 
-      const importRes = await request(app).post('/api/projects/import').send(exportRes.body);
+      const importRes = await agent.post('/api/projects/import').send(exportRes.body);
       expect(importRes.status).toBe(200);
-      const wbs = (await request(app).get(`/api/projects/${importRes.body.projectId}/wbs`)).body;
+      const wbs = (await agent.get(`/api/projects/${importRes.body.projectId}/wbs`)).body;
       expect(wbs).toEqual([]);
 
       await deleteProject(srcId);
@@ -635,7 +635,7 @@ describe('WBS API integration', () => {
     });
 
     it('imports a v2 payload (no wbsItems) and a raw unwrapped body as empty WBS', async () => {
-      const v2 = await request(app).post('/api/projects/import').send({
+      const v2 = await agent.post('/api/projects/import').send({
         schemaVersion: 2,
         data: {
           name: 'WBS-4 v2 wrapped',
@@ -643,11 +643,11 @@ describe('WBS API integration', () => {
         },
       });
       expect(v2.status).toBe(200);
-      expect((await request(app).get(`/api/projects/${v2.body.projectId}/wbs`)).body).toEqual([]);
-      const lists = (await request(app).get(`/api/projects/${v2.body.projectId}/resource-lists`)).body;
+      expect((await agent.get(`/api/projects/${v2.body.projectId}/wbs`)).body).toEqual([]);
+      const lists = (await agent.get(`/api/projects/${v2.body.projectId}/resource-lists`)).body;
       expect(lists.some((r: { role: string }) => r.role === 'BA')).toBe(true);
 
-      const raw = await request(app).post('/api/projects/import').send({
+      const raw = await agent.post('/api/projects/import').send({
         name: 'WBS-4 v2 raw',
         resourcePlans: [{
           role: 'QA',
@@ -657,14 +657,14 @@ describe('WBS API integration', () => {
         }],
       });
       expect(raw.status).toBe(200);
-      expect((await request(app).get(`/api/projects/${raw.body.projectId}/wbs`)).body).toEqual([]);
+      expect((await agent.get(`/api/projects/${raw.body.projectId}/wbs`)).body).toEqual([]);
 
       await deleteProject(v2.body.projectId);
       await deleteProject(raw.body.projectId);
     });
 
     it('promotes orphan and cyclic parentId items to roots', async () => {
-      const orphan = await request(app).post('/api/projects/import').send({
+      const orphan = await agent.post('/api/projects/import').send({
         schemaVersion: 3,
         data: {
           name: 'WBS-4 orphan',
@@ -674,11 +674,11 @@ describe('WBS API integration', () => {
         },
       });
       expect(orphan.status).toBe(200);
-      const orphanWbs = (await request(app).get(`/api/projects/${orphan.body.projectId}/wbs`)).body;
+      const orphanWbs = (await agent.get(`/api/projects/${orphan.body.projectId}/wbs`)).body;
       expect(orphanWbs).toHaveLength(1);
       expect(orphanWbs[0].parentId).toBeNull();
 
-      const cycle = await request(app).post('/api/projects/import').send({
+      const cycle = await agent.post('/api/projects/import').send({
         schemaVersion: 3,
         data: {
           name: 'WBS-4 cycle',
@@ -689,7 +689,7 @@ describe('WBS API integration', () => {
         },
       });
       expect(cycle.status).toBe(200);
-      const cycleWbs = (await request(app).get(`/api/projects/${cycle.body.projectId}/wbs`)).body as Array<{
+      const cycleWbs = (await agent.get(`/api/projects/${cycle.body.projectId}/wbs`)).body as Array<{
         parentId: number | null;
       }>;
       expect(cycleWbs).toHaveLength(2);
@@ -700,7 +700,7 @@ describe('WBS API integration', () => {
     });
 
     it('writes an estimate whose discipline is not on the live rate card', async () => {
-      const res = await request(app).post('/api/projects/import').send({
+      const res = await agent.post('/api/projects/import').send({
         schemaVersion: 3,
         data: {
           name: 'WBS-4 unknown discipline',
@@ -714,7 +714,7 @@ describe('WBS API integration', () => {
         },
       });
       expect(res.status).toBe(200);
-      const wbs = (await request(app).get(`/api/projects/${res.body.projectId}/wbs`)).body;
+      const wbs = (await agent.get(`/api/projects/${res.body.projectId}/wbs`)).body;
       expect(wbs[0].estimates[0].discipline).toBe(UNKNOWN_DISCIPLINE);
       expect(wbs[0].estimates[0].hours).toBe(12);
 
@@ -722,7 +722,7 @@ describe('WBS API integration', () => {
     });
 
     it('imports omitted status as active and keeps schemaVersion 4', async () => {
-      const res = await request(app).post('/api/projects/import').send({
+      const res = await agent.post('/api/projects/import').send({
         schemaVersion: 4,
         data: {
           name: 'WBS-4 missing status',
@@ -730,11 +730,11 @@ describe('WBS API integration', () => {
         },
       });
       expect(res.status).toBe(200);
-      const project = (await request(app).get(`/api/projects/${res.body.projectId}`)).body;
+      const project = (await agent.get(`/api/projects/${res.body.projectId}`)).body;
       expect(project.status).toBe('active');
       expect(res.body.schemaVersion ?? 4).toBe(4);
 
-      const exportRes = await request(app).get(`/api/projects/${res.body.projectId}/export`);
+      const exportRes = await agent.get(`/api/projects/${res.body.projectId}/export`);
       expect(exportRes.status).toBe(200);
       expect(exportRes.body.schemaVersion).toBe(4);
       expect(exportRes.body.data.status).toBe('active');
@@ -743,22 +743,22 @@ describe('WBS API integration', () => {
     });
 
     it('round-trips archived status without bumping schemaVersion', async () => {
-      const proj = await request(app).post('/api/projects').send({ name: 'WBS-4 archived source' });
+      const proj = await agent.post('/api/projects').send({ name: 'WBS-4 archived source' });
       const srcId = proj.body.id;
-      const archived = await request(app).put(`/api/projects/${srcId}`).send({ status: 'archived' });
+      const archived = await agent.put(`/api/projects/${srcId}`).send({ status: 'archived' });
       expect(archived.status).toBe(200);
 
-      const exportRes = await request(app).get(`/api/projects/${srcId}/export`);
+      const exportRes = await agent.get(`/api/projects/${srcId}/export`);
       expect(exportRes.status).toBe(200);
       expect(exportRes.body.schemaVersion).toBe(4);
       expect(exportRes.body.data.status).toBe('archived');
 
-      const importRes = await request(app).post('/api/projects/import').send(exportRes.body);
+      const importRes = await agent.post('/api/projects/import').send(exportRes.body);
       expect(importRes.status).toBe(200);
-      const imported = (await request(app).get(`/api/projects/${importRes.body.projectId}`)).body;
+      const imported = (await agent.get(`/api/projects/${importRes.body.projectId}`)).body;
       expect(imported.status).toBe('archived');
 
-      const reexport = await request(app).get(`/api/projects/${importRes.body.projectId}/export`);
+      const reexport = await agent.get(`/api/projects/${importRes.body.projectId}/export`);
       expect(reexport.body.schemaVersion).toBe(4);
 
       await deleteProject(srcId);
@@ -766,7 +766,7 @@ describe('WBS API integration', () => {
     });
 
     it('skips malformed estimate rows and coerces displayOrder/hours without 500', async () => {
-      const res = await request(app).post('/api/projects/import').send({
+      const res = await agent.post('/api/projects/import').send({
         schemaVersion: 3,
         data: {
           name: 'WBS-4 malformed estimates',
@@ -785,7 +785,7 @@ describe('WBS API integration', () => {
         },
       });
       expect(res.status).toBe(200);
-      const wbs = (await request(app).get(`/api/projects/${res.body.projectId}/wbs`)).body;
+      const wbs = (await agent.get(`/api/projects/${res.body.projectId}/wbs`)).body;
       expect(wbs[0].displayOrder).toBe(2);
       expect(wbs[0].estimates).toHaveLength(2);
       expect(wbs[0].estimates.find((e: { discipline: string }) => e.discipline === validDisciplineA).hours).toBe(5);

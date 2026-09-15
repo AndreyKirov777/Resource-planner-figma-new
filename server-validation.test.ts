@@ -19,6 +19,7 @@ import {
   wbsRoadmapLinkSchema,
   bootstrapRoadmapSchema,
   roadmapReorderSchema,
+  devLoginSchema,
 } from './server-validation';
 
 describe('server-validation Zod schemas', () => {
@@ -603,6 +604,24 @@ describe('server-validation Zod schemas', () => {
           { id: 20, laneId: 2, displayOrder: 0 },
         ],
       });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('devLoginSchema', () => {
+    it('accepts each of the four fixture names', () => {
+      for (const user of ['admin', 'manager', 'user', 'user2']) {
+        expect(devLoginSchema.safeParse({ user }).success).toBe(true);
+      }
+    });
+
+    it('rejects an unknown fixture name', () => {
+      const result = devLoginSchema.safeParse({ user: 'superadmin' });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts an optional returnTo', () => {
+      const result = devLoginSchema.safeParse({ user: 'admin', returnTo: '/projects/5' });
       expect(result.success).toBe(true);
     });
   });

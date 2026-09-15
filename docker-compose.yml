@@ -12,10 +12,22 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - DATABASE_URL=file:/app/data/dev.db
+      - DATABASE_URL=file:/app/data/dev.db?connection_limit=1
+      - AUTH_MODE=${AUTH_MODE:-entra}
+      - ENTRA_TENANT_ID=${ENTRA_TENANT_ID}
+      - ENTRA_CLIENT_ID=${ENTRA_CLIENT_ID}
+      - ENTRA_CLIENT_SECRET=${ENTRA_CLIENT_SECRET}
+      - ENTRA_REDIRECT_URI=${ENTRA_REDIRECT_URI}
+      - ENTRA_GROUP_ADMIN=${ENTRA_GROUP_ADMIN}
+      - ENTRA_GROUP_MANAGER=${ENTRA_GROUP_MANAGER}
+      - ENTRA_GROUP_USER=${ENTRA_GROUP_USER}
+      - ADMIN_EMAILS=${ADMIN_EMAILS}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      - TRUST_PROXY=${TRUST_PROXY:-1}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/projects"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -3,11 +3,10 @@ import path from 'path';
 // Use a stable database path so data persists across all runs (same file every time)
 if (!process.env.DATABASE_URL) {
   const dbPath = path.join(__dirname, 'prisma', 'dev.db').replace(/\\/g, '/');
-  process.env.DATABASE_URL = `file:${dbPath}`;
+  process.env.DATABASE_URL = `file:${dbPath}?connection_limit=1`;
 }
 
 import express from 'express';
-import cors from 'cors';
 import { PrismaClient } from './src/generated/prisma';
 import {
   projectCreateSchema,
@@ -50,6 +49,9 @@ import { APP_DEFAULTS } from './src/config/defaults';
 import { wouldCreateCycle } from './src/utils/wbsTree';
 import { getDailyExchangeRates } from './server/exchangeRates';
 import { convertRoadmapItemsToMonthly, convertRoadmapItemsToWeekly } from './src/utils/roadmap';
+import { createDevAuthRouter } from './server/auth/dev';
+import { createEntraAuthRouter } from './server/auth/entra';
+import { requireAuth } from './server/auth/session';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -59,11 +61,43 @@ const PORT = 3001;
 // Key: IP address, Value: array of request timestamps (ms).
 const rateLimitStore = new Map<string, number[]>();
 
-app.use(cors());
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
+async function configureSqlite() {
+  try {
+    await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL');
+    await prisma.$queryRawUnsafe('PRAGMA busy_timeout=5000');
+  } catch (error) {
+    console.error('Failed to configure SQLite pragmas:', error);
+  }
+}
+void configureSqlite();
+
 app.use(express.json());
 
 // Serve static files from the React app build directory
 app.use(express.static(path.join(__dirname, 'build')));
+
+// Public: used by the Docker healthcheck, must not require a session.
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true });
+});
+
+const authMode = process.env.AUTH_MODE === 'dev' ? 'dev' : 'entra';
+app.use(authMode === 'dev' ? createDevAuthRouter(prisma) : createEntraAuthRouter(prisma));
+
+app.use('/api', requireAuth(prisma));
+
+app.get('/api/me', (req, res) => {
+  res.json({
+    id: req.user!.id,
+    email: req.user!.email,
+    displayName: req.user!.displayName,
+    group: req.user!.group,
+  });
+});
 
 /**
  * Prisma's SQLite DateTime column requires a full ISO-8601 datetime — a
@@ -77,23 +111,6 @@ function normalizeStartDate(value: string | null | undefined): string | null | u
   if (value == null || value === '') return value === '' ? null : value;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toISOString();
-}
-
-// Initialize default project if none exists
-async function initializeDefaultProject() {
-  const existingProject = await prisma.project.findFirst();
-  if (!existingProject) {
-    await prisma.project.create({
-      data: {
-        name: 'Default Project',
-        description: 'Default project for resource planning',
-        daysInFTE: APP_DEFAULTS.daysInFTE,
-        clientCurrency: APP_DEFAULTS.clientCurrency,
-        exchangeRate: APP_DEFAULTS.exchangeRate,
-        defaultMargin: APP_DEFAULTS.defaultMargin,
-      }
-    });
-  }
 }
 
 // Project endpoints
@@ -1834,14 +1851,12 @@ app.get(/^(?!\/api).*/, (req, res) => {
 });
 
 // Export app for Supertest integration tests
-export { app, initializeDefaultProject };
+export { app };
 
 // Start server when not in test (Vitest sets process.env.VITEST)
 if (typeof process !== 'undefined' && process.env?.VITEST !== 'true') {
-  initializeDefaultProject().then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-      console.log(`API endpoints available at http://localhost:${PORT}/api`);
-    });
-  }).catch(console.error);
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`API endpoints available at http://localhost:${PORT}/api`);
+  });
 }

@@ -25,6 +25,9 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
+# sqlite3 CLI for the daily backup cron (see DEPLOYMENT.md)
+RUN apk add --no-cache sqlite
+
 # Copy package files
 COPY package*.json ./
 COPY prisma ./prisma/

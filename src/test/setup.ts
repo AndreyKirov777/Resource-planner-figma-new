@@ -5,6 +5,7 @@ import path from 'node:path';
 // (prisma/dev.db) never fires. Redirects the whole suite to the disposable
 // prisma/test.db created by globalSetup.ts, never the real database.
 process.env.DATABASE_URL = `file:${path.resolve(process.cwd(), 'prisma', 'test.db')}`;
+process.env.AUTH_MODE = 'dev';
 
 import '@testing-library/jest-dom';
 

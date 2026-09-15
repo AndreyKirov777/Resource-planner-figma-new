@@ -28,6 +28,15 @@
   - **Resource Plans**: Manage planning data with per-period allocations
   - **Allocations**: Track resource allocation by planning period
 
+  ## Authentication
+
+  Every `/api` route except `GET /api/health` requires a signed-in session. Sign-in is server-side, via an httpOnly `SameSite=Lax` session cookie — there is no client-side token to manage.
+
+  - **`AUTH_MODE=entra` (default)** — Microsoft Entra ID, single tenant, authorization-code flow with PKCE (`openid-client`). The `/auth/login` route starts the flow, `/auth/callback` completes it, and `/auth/logout` (POST) ends the session and signs out of Entra. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the app registration steps.
+  - **`AUTH_MODE=dev`** — a fixture sign-in page at `/auth/login` offering four accounts (admin, manager, user, user2), one per group plus a second USER account for testing sharing. Refused at startup when `NODE_ENV=production`.
+
+  Every signed-in user has a **group** — `ADMIN`, `MANAGER`, or `USER` — resolved on each sign-in from the Entra ID token's `groups` claim (or the `ADMIN_EMAILS` bootstrap list) and stored on the user. A person in none of the three groups sees a "no access" page and no account is created for them. See `.env.example` for the full list of auth-related environment variables.
+
   ## Database Schema
 
   > Authoritative schema: [`prisma/schema.prisma`](prisma/schema.prisma). The summary below is for orientation — if the two disagree, the `.prisma` file wins.
@@ -122,7 +131,12 @@
 
   ### Endpoints
 
-  > The list below is the authoritative API reference and is verified against `server.ts` by an automated test (`readme.test.ts`). If you add, remove, or rename a route, update this list — `npm test` will fail otherwise.
+  > The list below is the authoritative API reference and is verified against `server.ts` by an automated test (`readme.test.ts`). If you add, remove, or rename a route, update this list — `npm test` will fail otherwise. Every route below except `GET /health` requires a signed-in session (see **Authentication**); `/auth/*` routes are mounted on a separate router and are intentionally not part of this list.
+
+  #### System
+  - `GET /health` - Public liveness check for the Docker healthcheck; no session required
+  - `GET /me` - The signed-in user's id, email, display name, and group
+  - `GET /exchange-rates` - Live USD/EUR/GBP exchange rates (cached daily, with a static fallback)
 
   #### Projects
   - `GET /projects` - Get all projects

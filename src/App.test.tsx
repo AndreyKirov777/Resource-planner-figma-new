@@ -5,12 +5,15 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ExcelJS from 'exceljs';
 import App from './App';
+import type { Me } from './services/api';
+
+const ME_FIXTURE: Me = { id: 1, email: 'admin@example.test', displayName: 'Dev Admin', group: 'ADMIN' };
 
 // App uses react-router hooks (useSearchParams); provide a Router context in tests.
 const renderApp = (initialEntries: string[] = ['/']) =>
   render(
     <MemoryRouter initialEntries={initialEntries}>
-      <App />
+      <App me={ME_FIXTURE} />
     </MemoryRouter>
   );
 
@@ -202,23 +205,14 @@ describe('App', () => {
     });
   });
 
-  it('calls createProject and loads new project when no projects exist', async () => {
+  it('shows the project list instead of auto-creating a project when none exist', async () => {
     const api = await getApi();
     vi.mocked(api.getProjects).mockResolvedValue([]);
-    const newProject = { ...mockProject, id: 2, name: 'Default Project' };
-    vi.mocked(api.createProject).mockResolvedValue(newProject);
     renderApp();
     await waitFor(() => {
-      expect(api.createProject).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Default Project' })
-      );
+      expect(screen.getByTestId('project-list')).toBeInTheDocument();
     });
-    await waitFor(() => {
-      expect(api.getResourceLists).toHaveBeenCalledWith(2);
-      expect(api.getResourcePlans).toHaveBeenCalledWith(2);
-    });
-    // Rate cards are global and loaded once, with no project id
-    expect(api.getRateCards).toHaveBeenCalledWith();
+    expect(api.createProject).not.toHaveBeenCalled();
   });
 
   it('Export JSON triggers download via createObjectURL', async () => {

@@ -435,3 +435,12 @@ export type RoadmapItemUpdateInput = z.infer<typeof roadmapItemUpdateSchema>;
 export type RoadmapLinksReplaceInput = z.infer<typeof roadmapLinksReplaceSchema>;
 export type WbsRoadmapLinkInput = z.infer<typeof wbsRoadmapLinkSchema>;
 export type BootstrapRoadmapInput = z.infer<typeof bootstrapRoadmapSchema>;
+
+// --- Auth ---
+
+export const devLoginSchema = z.object({
+  user: z.enum(['admin', 'manager', 'user', 'user2']),
+  returnTo: z.string().max(2000).optional(),
+}).strict();
+
+export type DevLoginInput = z.infer<typeof devLoginSchema>;

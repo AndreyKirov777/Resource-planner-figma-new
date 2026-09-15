@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { API_UNREACHABLE_MESSAGE, describeError, isNetworkFetchError } from './apiErrors';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { API_UNREACHABLE_MESSAGE, describeError, isNetworkFetchError, redirectToLogin } from './apiErrors';
 
 describe('describeError', () => {
   it('rewrites the browser\'s native fetch TypeError into an actionable API-down message', () => {
@@ -25,5 +25,29 @@ describe('isNetworkFetchError', () => {
   it('is true only for the native network-failure messages', () => {
     expect(isNetworkFetchError(new TypeError('Failed to fetch'))).toBe(true);
     expect(isNetworkFetchError(new Error('Failed to fetch projects'))).toBe(false);
+  });
+});
+
+describe('redirectToLogin', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('navigates to /auth/login with the current path and query as returnTo', () => {
+    const location = { pathname: '/projects/5', search: '?tab=plan', href: '' };
+    vi.stubGlobal('location', location);
+
+    redirectToLogin();
+
+    expect(location.href).toBe('/auth/login?returnTo=%2Fprojects%2F5%3Ftab%3Dplan');
+  });
+
+  it('does nothing on the public /client/:token page', () => {
+    const location = { pathname: '/client/abc123', search: '', href: 'https://example.test/client/abc123' };
+    vi.stubGlobal('location', location);
+
+    redirectToLogin();
+
+    expect(location.href).toBe('https://example.test/client/abc123');
   });
 });

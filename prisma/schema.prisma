@@ -26,15 +26,98 @@ model Project {
   // Anchors period 1 for the roadmap's calendar labels; null = ordinals only.
   startDate       DateTime?
   status          String          @default("active")
+  ownerId         Int?
+  createdById     Int?
+  updatedById     Int?
+  version         Int             @default(0)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
   // Relations
+  owner           User?           @relation("ProjectOwner", fields: [ownerId], references: [id])
+  createdBy       User?           @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  updatedBy       User?           @relation("ProjectUpdatedBy", fields: [updatedById], references: [id])
+  members         ProjectMember[]
+  shareLinks      ShareLink[]
   resourceLists   ResourceList[]
   resourcePlans   ResourcePlan[]
   wbsItems        WbsItem[]
   roadmapLanes    RoadmapLane[]
   roadmapItems    RoadmapItem[]
+}
+
+enum UserGroup {
+  ADMIN
+  MANAGER
+  USER
+}
+
+enum MemberRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+// An identity that has signed in via Entra ID (or a dev fixture). Created on first sign-in only.
+model User {
+  id            Int       @id @default(autoincrement())
+  entraObjectId String    @unique
+  email         String    @unique
+  displayName   String
+  group         UserGroup
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions             Session[]
+  projectMembers       ProjectMember[]
+  ownedProjects        Project[]      @relation("ProjectOwner")
+  createdProjects      Project[]      @relation("ProjectCreatedBy")
+  updatedProjects      Project[]      @relation("ProjectUpdatedBy")
+  updatedResourceLists ResourceList[] @relation("ResourceListUpdatedBy")
+  updatedResourcePlans ResourcePlan[] @relation("ResourcePlanUpdatedBy")
+  createdShareLinks    ShareLink[]    @relation("ShareLinkCreatedBy")
+}
+
+// Server-side session, keyed by an opaque cookie value. Sliding 12h / absolute 30d expiry.
+model Session {
+  id         String   @id
+  userId     Int
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime
+  expiresAt  DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// A user's role on one project. OWNER is also mirrored on Project.ownerId for fast lookups.
+model ProjectMember {
+  id        Int        @id @default(autoincrement())
+  projectId Int
+  userId    Int
+  role      MemberRole
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+// An expiring, revocable public token for the client-safe plan payload (replaces /client/:projectId).
+model ShareLink {
+  id          Int       @id @default(autoincrement())
+  token       String    @unique
+  projectId   Int
+  expiresAt   DateTime
+  createdById Int?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("ShareLinkCreatedBy", fields: [createdById], references: [id])
 }
 
 // Rate card is global: a single shared set common to all projects.
@@ -74,12 +157,15 @@ model ResourceList {
   hourlyRate      Float           @default(0)
   location        String?
   description     String?
+  version         Int             @default(0)
+  updatedById     Int?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  
+
   // Relations
   projectId       Int
   project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  updatedBy       User?           @relation("ResourceListUpdatedBy", fields: [updatedById], references: [id])
 }
 
 model ResourcePlan {
@@ -90,12 +176,15 @@ model ResourcePlan {
   intHourlyRate   Float
   clientHourlyRate Float
   displayOrder    Int             @default(0)
+  version         Int             @default(0)
+  updatedById     Int?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  
+
   // Relations
   projectId       Int
   project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  updatedBy       User?           @relation("ResourcePlanUpdatedBy", fields: [updatedById], references: [id])
   allocations     Allocation[]
 }
 

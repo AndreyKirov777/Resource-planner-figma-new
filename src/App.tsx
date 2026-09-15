@@ -13,6 +13,7 @@ import { Wbs } from './components/Wbs';
 import { Roadmap } from './components/roadmap/Roadmap';
 import {
   api,
+  Me,
   Project,
   Phase,
   Allocation,
@@ -48,7 +49,25 @@ import { describeError } from './utils/apiErrors';
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-export default function App() {
+function HeaderBar({ me }: { me: Me }) {
+  return (
+    <div className="flex items-center justify-end gap-3 mb-4 text-sm text-muted-foreground">
+      <span>{me.displayName}</span>
+      <Badge variant="outline">{me.group}</Badge>
+      <form method="post" action="/auth/logout">
+        <button type="submit" className="underline hover:text-foreground">
+          Sign out
+        </button>
+      </form>
+    </div>
+  );
+}
+
+interface AppProps {
+  me: Me;
+}
+
+export default function App({ me }: AppProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [editableProjectName, setEditableProjectName] = useState<string>('');
@@ -96,28 +115,21 @@ export default function App() {
       setLoading(true);
       setError(null);
       
-      // Get all projects (or create default)
       const projects = await api.getProjects();
-      let project: Project;
-      
+
       if (projects.length === 0) {
-        // Create default project if none exists
-        project = await api.createProject({
-          name: 'Default Project',
-          description: 'Default project for resource planning',
-          daysInFTE: 20,
-          clientCurrency: 'EUR',
-          exchangeRate: 0.89
-        });
-      } else {
-        const preferred = preferredProjectId
-          ? projects.find(p => p.id === preferredProjectId)
-          : undefined;
-        project = preferred
-          ?? projects.find(p => p.status === 'active')
-          ?? projects[0];
+        setCurrentProject(null);
+        setLoading(false);
+        return;
       }
-      
+
+      const preferred = preferredProjectId
+        ? projects.find(p => p.id === preferredProjectId)
+        : undefined;
+      const project = preferred
+        ?? projects.find(p => p.status === 'active')
+        ?? projects[0];
+
       setCurrentProject(project);
       setEditableProjectName(project.name || '');
       setEditableProjectDescription(project.description || '');
@@ -1325,6 +1337,7 @@ export default function App() {
   if (loading && !currentProject) {
     return (
       <div className="p-6">
+        <HeaderBar me={me} />
         <div className="flex items-center justify-center h-64">
           <div className="text-lg">Loading project data...</div>
         </div>
@@ -1335,9 +1348,10 @@ export default function App() {
   if (error && !currentProject) {
     return (
       <div className="p-6">
+        <HeaderBar me={me} />
         <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
           <div className="text-red-800 font-medium">Error: {error}</div>
-          <button 
+          <button
             onClick={() => loadProjectData()}
             className="mt-2 text-red-600 hover:text-red-800 underline"
           >
@@ -1351,15 +1365,20 @@ export default function App() {
   if (!currentProject) {
     return (
       <div className="p-6">
-        <div className="text-center">
-          <div className="text-lg">No project found</div>
-        </div>
+        <HeaderBar me={me} />
+        <ProjectList
+          onOpenProject={(id) => loadProjectData(id)}
+          currentProjectId={null}
+          onProjectDeleted={() => loadProjectData()}
+          onProjectUpdated={() => loadProjectData()}
+        />
       </div>
     );
   }
 
   return (
     <div className="p-6">
+      <HeaderBar me={me} />
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
           <div className="text-red-800 font-medium">Error: {error}</div>
