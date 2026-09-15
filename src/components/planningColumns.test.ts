@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   LEAD_COLUMNS,
   COLUMN_MENU_SECTIONS,
+  TOTAL_COLUMNS,
   getVisibleLeadColumns,
+  getVisibleMenuSections,
+  getVisibleTotalColumns,
   resolveColumn,
   loadHiddenColumns,
   saveHiddenColumns,
@@ -62,8 +65,8 @@ describe('planningColumns', () => {
     expect(resolveColumn(9, visible, 8)).toEqual({ kind: 'lead', id: 'margin' });
     expect(resolveColumn(10, visible, 8)).toEqual({ kind: 'period', index: 0 });
     expect(resolveColumn(17, visible, 8)).toEqual({ kind: 'period', index: 7 });
-    expect(resolveColumn(18, visible, 8)).toEqual({ kind: 'total', index: 0 });
-    expect(resolveColumn(20, visible, 8)).toEqual({ kind: 'total', index: 2 });
+    expect(resolveColumn(18, visible, 8)).toEqual({ kind: 'total', id: 'cost' });
+    expect(resolveColumn(20, visible, 8)).toEqual({ kind: 'total', id: 'efforts' });
     expect(resolveColumn(21, visible, 8)).toEqual({ kind: 'none' });
   });
 
@@ -72,7 +75,7 @@ describe('planningColumns', () => {
     expect(visible).toHaveLength(7);
     expect(resolveColumn(3, visible, 8)).toEqual({ kind: 'lead', id: 'intHourly' });
     expect(resolveColumn(7, visible, 8)).toEqual({ kind: 'period', index: 0 });
-    expect(resolveColumn(15, visible, 8)).toEqual({ kind: 'total', index: 0 });
+    expect(resolveColumn(15, visible, 8)).toEqual({ kind: 'total', id: 'cost' });
   });
 
   it('still resolves periods when every toggleable column is hidden', () => {
@@ -122,5 +125,67 @@ describe('planningColumns', () => {
     });
     expect(() => saveHiddenColumns(1, ['name'])).not.toThrow();
     setItem.mockRestore();
+  });
+
+  describe('USER visibility ceiling', () => {
+    it('drops every internal lead column for USER, even when nothing is hidden', () => {
+      const visible = getVisibleLeadColumns([], 'USER');
+      expect(visible.map((c) => c.id)).not.toContain('intHourly');
+      expect(visible.map((c) => c.id)).not.toContain('intDaily');
+      expect(visible.map((c) => c.id)).not.toContain('margin');
+      expect(visible.map((c) => c.id)).toContain('clientHourly');
+    });
+
+    it('keeps internal columns visible for MANAGER and ADMIN by default', () => {
+      for (const group of ['MANAGER', 'ADMIN'] as const) {
+        const visible = getVisibleLeadColumns([], group);
+        expect(visible.map((c) => c.id)).toContain('intHourly');
+        expect(visible.map((c) => c.id)).toContain('margin');
+      }
+    });
+
+    it('a USER never gets an internal column back even if it was named in storage as visible', () => {
+      // storage says "show everything" (hidden = []) — USER still never sees intHourly/intDaily/margin.
+      const visible = getVisibleLeadColumns([], 'USER');
+      const internalIds = LEAD_COLUMNS.filter((c) => c.internal).map((c) => c.id);
+      for (const id of internalIds) {
+        expect(visible.some((c) => c.id === id)).toBe(false);
+      }
+    });
+
+    it('drops the Internal menu section (and the lone margin section) entirely for USER, keeps Client and the rest', () => {
+      const sections = getVisibleMenuSections('USER');
+      expect(sections.some((s) => s.label === 'Internal')).toBe(false);
+      expect(sections.flatMap((s) => s.ids)).toEqual([
+        'role', 'clientRole', 'name', 'location', 'clientHourly', 'clientDaily',
+      ]);
+    });
+
+    it('keeps every menu section for MANAGER and ADMIN', () => {
+      for (const group of ['MANAGER', 'ADMIN'] as const) {
+        expect(getVisibleMenuSections(group)).toEqual(COLUMN_MENU_SECTIONS);
+      }
+    });
+
+    it('drops the Cost total for USER, keeps Price and Efforts', () => {
+      const totals = getVisibleTotalColumns('USER');
+      expect(totals.map((t) => t.id)).toEqual(['price', 'efforts']);
+    });
+
+    it('keeps every total column for MANAGER and ADMIN', () => {
+      for (const group of ['MANAGER', 'ADMIN', undefined] as const) {
+        expect(getVisibleTotalColumns(group)).toEqual(TOTAL_COLUMNS);
+      }
+    });
+
+    it('resolveColumn total index tracks whatever totalColumns array is actually rendered', () => {
+      const visible = getVisibleLeadColumns([], 'USER');
+      const totals = getVisibleTotalColumns('USER');
+      // 5 non-internal frozen lead cols + clientHourly + clientDaily = 7, then 8 periods, then totals.
+      const totalsStart = visible.length + 8;
+      expect(resolveColumn(totalsStart, visible, 8, totals)).toEqual({ kind: 'total', id: 'price' });
+      expect(resolveColumn(totalsStart + 1, visible, 8, totals)).toEqual({ kind: 'total', id: 'efforts' });
+      expect(resolveColumn(totalsStart + 2, visible, 8, totals)).toEqual({ kind: 'none' });
+    });
   });
 });

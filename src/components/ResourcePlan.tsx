@@ -24,9 +24,9 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { Plus, X, Trash2, ChevronLeft, ChevronRight, ChevronDown, MoreVertical, Pencil, Minus, Palette, Link2, GripVertical, SplitSquareHorizontal, Columns3 } from 'lucide-react';
-import { Project, Phase, ProjectRole, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft, RoadmapItem } from '../services/api';
+import { api, Project, Phase, ProjectRole, Me, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType, Allocation, GeneratePlanDraft, RoadmapItem } from '../services/api';
 import { ShareDialog } from './ShareDialog';
-import { clientHourlyRate as calcClientHourlyRate, hoursPerPeriod, buildPlanFinancials } from '../utils/calculations';
+import { hoursPerPeriod, buildPlanFinancials } from '../utils/calculations';
 import { PHASE_COLORS, parsePhases, getPhaseForPeriod, phaseStartOffset, reorderPhases, remapPeriodNumber, splitPhase, uniquePhaseName } from '../utils/phases';
 import { remapRoadmapItemsForPhaseChange } from '../utils/roadmap';
 import { APP_DEFAULTS, LOCATIONS, exchangeRateForCurrency } from '../config/defaults';
@@ -38,27 +38,13 @@ import {
   TOTAL_COLUMNS,
   COLUMN_MENU_SECTIONS,
   getVisibleLeadColumns,
+  getVisibleMenuSections,
+  getVisibleTotalColumns,
   loadHiddenColumns,
   saveHiddenColumns,
   resolveColumn,
   type LeadColumnId,
 } from './planningColumns';
-
-export function planFieldsFromList(
-  selected: ResourceListType,
-  project: Pick<Project, 'defaultMargin' | 'exchangeRate'>,
-) {
-  const clientHourlyRate = selected.hourlyRate > 0
-    ? selected.hourlyRate
-    : calcClientHourlyRate(selected.intRate, (project.defaultMargin || 25.0) / 100, project.exchangeRate);
-  return {
-    role: selected.role,
-    intHourlyRate: selected.intRate,
-    clientHourlyRate,
-    name: selected.name || '',
-    clientRole: selected.clientRole || '',
-  };
-}
 
 interface ResourcePlanProps {
   project: Project;
@@ -93,6 +79,8 @@ interface ResourcePlanProps {
   myRole: ProjectRole;
   /** False for a VIEWER, or an EDITOR on an archived project: disables every write affordance. */
   canEdit: boolean;
+  /** The signed-in user's group — USER never sees internal cost/margin figures, regardless of project role. */
+  group: Me['group'];
 }
 
 
@@ -158,6 +146,7 @@ export function ResourcePlan({
   onUpdateRoadmapItem,
   myRole,
   canEdit,
+  group,
 }: ResourcePlanProps) {
   const planningMode = (project.planningMode || 'weekly') as 'weekly' | 'monthly';
   const isMonthly = planningMode === 'monthly';
@@ -186,7 +175,9 @@ export function ResourcePlan({
     setHiddenColumns(loadHiddenColumns(project.id));
   }, [project.id]);
 
-  const visibleLeadColumns = useMemo(() => getVisibleLeadColumns(hiddenColumns), [hiddenColumns]);
+  const visibleLeadColumns = useMemo(() => getVisibleLeadColumns(hiddenColumns, group), [hiddenColumns, group]);
+  const visibleTotalColumns = useMemo(() => getVisibleTotalColumns(group), [group]);
+  const visibleMenuSections = useMemo(() => getVisibleMenuSections(group), [group]);
   const frozenColumnCount = useMemo(
     () => visibleLeadColumns.filter((c) => c.frozen).length,
     [visibleLeadColumns]
@@ -427,9 +418,9 @@ export function ResourcePlan({
         periodIndex++;
       }
     });
-    TOTAL_COLUMNS.forEach((t) => cols.push({ title: t.title, width: t.width, group: 'Total' }));
+    visibleTotalColumns.forEach((t) => cols.push({ title: t.title, width: t.width, group: 'Total' }));
     return cols;
-  }, [phases, isMonthly, visibleLeadColumns]);
+  }, [phases, isMonthly, visibleLeadColumns, visibleTotalColumns]);
 
   // Get cell content function for glide-data-grid
   const getCellContent = useCallback(([col, row]: Item): GridCell => {
@@ -437,7 +428,7 @@ export function ResourcePlan({
     const plan = resourcePlans[row];
     if (!plan) return empty;
 
-    const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length);
+    const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length, visibleTotalColumns);
 
     if (resolved.kind === 'lead') {
       switch (resolved.id) {
@@ -536,16 +527,16 @@ export function ResourcePlan({
 
     if (resolved.kind === 'total') {
       const text =
-        resolved.index === 0
+        resolved.id === 'cost'
           ? `$${Math.round(calculateTotalIntCost(plan))}`
-          : resolved.index === 1
+          : resolved.id === 'price'
             ? `${currencySymbol}${Math.round(calculateTotalPrice(plan))}`
             : `${Math.round(calculateEstimatedEfforts(plan))}`;
       return { kind: GridCellKind.Text, data: text, allowOverlay: false, displayData: text };
     }
 
     return empty;
-  }, [resourcePlans, periodNumbers, currencySymbol, resourceLists, removeRole, project.exchangeRate, visibleLeadColumns]);
+  }, [resourcePlans, periodNumbers, currencySymbol, resourceLists, removeRole, project.exchangeRate, visibleLeadColumns, visibleTotalColumns]);
 
   // D6 (2026-08-12 WBS proposal): a role is allowed once the project has resources listed
   // and it matches one of them; an empty resource list leaves plan roles unconstrained.
@@ -559,7 +550,7 @@ export function ResourcePlan({
     const plan = resourcePlans[row];
     if (!plan) return;
 
-    const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length);
+    const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length, visibleTotalColumns);
 
     if (resolved.kind === 'lead') {
       // Role cell: primary path is the role picker dialog. Typed text is matched against
@@ -573,12 +564,14 @@ export function ResourcePlan({
           resourceLists.find((r) => r.role === newRole);
 
         if (selectedResource) {
-          const updatedResourcePlans = resourcePlans.map(p =>
-            p.id === plan.id
-              ? { ...p, ...planFieldsFromList(selectedResource, project) }
-              : p
-          );
-          onResourcePlansChange(updatedResourcePlans);
+          // Rates are computed server-side (clientHourlyRate() from the resource-list
+          // row) rather than client-side — the path a USER caller, who never holds
+          // intRate, uses to apply a picked role.
+          api.applyListEntry(plan.id, selectedResource.id)
+            .then((updated) => {
+              onResourcePlansChange(resourcePlans.map(p => (p.id === plan.id ? { ...p, ...updated } : p)));
+            })
+            .catch((err) => console.error('Failed to apply resource list entry:', err));
         } else if (!validateRole(newRole)) {
           // No match, and the resource list is non-empty (or the role is otherwise
           // invalid): revert instead of persisting free text.
@@ -1254,21 +1247,23 @@ export function ResourcePlan({
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="defaultMargin">Default Margin</Label>
-                <Input
-                  id="defaultMargin"
-                  type="text"
-                  value={`${Number.isFinite(project.defaultMargin as number) ? (project.defaultMargin as number).toFixed(0) : '50'}%`}
-                  onChange={(e) => {
-                    const numeric = e.target.value.replace(/[^0-9.]/g, '');
-                    const parsed = parseFloat(numeric);
-                    const clamped = isNaN(parsed) ? 0 : Math.max(0, Math.min(100, parsed));
-                    onProjectSettingsChange({ defaultMargin: clamped });
-                  }}
-                  disabled={!canEdit}
-                />
-              </div>
+              {group !== 'USER' && (
+                <div className="space-y-2">
+                  <Label htmlFor="defaultMargin">Default Margin</Label>
+                  <Input
+                    id="defaultMargin"
+                    type="text"
+                    value={`${Number.isFinite(project.defaultMargin as number) ? (project.defaultMargin as number).toFixed(0) : '50'}%`}
+                    onChange={(e) => {
+                      const numeric = e.target.value.replace(/[^0-9.]/g, '');
+                      const parsed = parseFloat(numeric);
+                      const clamped = isNaN(parsed) ? 0 : Math.max(0, Math.min(100, parsed));
+                      onProjectSettingsChange({ defaultMargin: clamped });
+                    }}
+                    disabled={!canEdit}
+                  />
+                </div>
+              )}
             </div>
           </div>
           <div className="pointer-events-none absolute right-6 top-6 h-[126px] w-auto">
@@ -1284,12 +1279,14 @@ export function ResourcePlan({
         <CardContent className="pt-6">
           <div
             className="w-full gap-3"
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(10, minmax(0, 1fr))' }}
+            style={{ display: 'grid', gridTemplateColumns: `repeat(${group === 'USER' ? 8 : 10}, minmax(0, 1fr))` }}
           >
-            <div className="min-w-0">
-              <Label>Total Internal Cost</Label>
-              <div className="text-lg">${Math.round(totals.totalIntCost)}</div>
-            </div>
+            {group !== 'USER' && (
+              <div className="min-w-0">
+                <Label>Total Internal Cost</Label>
+                <div className="text-lg">${Math.round(totals.totalIntCost)}</div>
+              </div>
+            )}
             <div className="min-w-0">
               <Label>Total cost</Label>
               <div className="text-lg">{currencySymbol}{Math.round(totals.totalPrice)}</div>
@@ -1306,10 +1303,12 @@ export function ResourcePlan({
               <Label>Duration ({periodLabelPlural.toLowerCase()})</Label>
               <div className="text-lg">{totalPeriods}</div>
             </div>
-            <div className="min-w-0">
-              <Label>Calculated Project Margin</Label>
-              <div className="text-lg">{totals.calculatedMargin.toFixed(1)}%</div>
-            </div>
+            {group !== 'USER' && (
+              <div className="min-w-0">
+                <Label>Calculated Project Margin</Label>
+                <div className="text-lg">{totals.calculatedMargin.toFixed(1)}%</div>
+              </div>
+            )}
             <div className="min-w-0">
               <Label>Blended Hourly Rate</Label>
               <div className="text-lg">{currencySymbol}{totals.blendedHourlyRate.toFixed(0)}</div>
@@ -1361,13 +1360,21 @@ export function ResourcePlan({
                   {phaseTotals.map((pt) => (
                     <div key={pt.name} className="flex flex-wrap items-center gap-x-4 gap-y-0">
                       <span className="font-medium text-foreground">{pt.name}:</span>
-                      <span>Cost ${Math.round(pt.cost)}</span>
-                      <span>|</span>
+                      {group !== 'USER' && (
+                        <>
+                          <span>Cost ${Math.round(pt.cost)}</span>
+                          <span>|</span>
+                        </>
+                      )}
                       <span>Price {currencySymbol}{Math.round(pt.price)}</span>
                       <span>|</span>
                       <span>{Math.round(pt.efforts)}h</span>
-                      <span>|</span>
-                      <span>{pt.margin.toFixed(1)}%</span>
+                      {group !== 'USER' && (
+                        <>
+                          <span>|</span>
+                          <span>{pt.margin.toFixed(1)}%</span>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1601,7 +1608,9 @@ export function ResourcePlan({
                     Clear all
                   </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => setShowGeneratePlan(true)}>✦ Generate AI Plan</Button>
+                {group !== 'USER' && (
+                  <Button size="sm" variant="outline" onClick={() => setShowGeneratePlan(true)}>✦ Generate AI Plan</Button>
+                )}
               </>
             )}
             <DropdownMenu>
@@ -1618,7 +1627,7 @@ export function ResourcePlan({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[236px]">
-                {COLUMN_MENU_SECTIONS.map((section, sectionIndex) => (
+                {visibleMenuSections.map((section, sectionIndex) => (
                   <React.Fragment key={section.label ?? `section-${sectionIndex}`}>
                     {sectionIndex > 0 && <DropdownMenuSeparator />}
                     {section.label && (
@@ -1703,7 +1712,7 @@ export function ResourcePlan({
             }}
             onCellActivated={(cell) => {
               const [col, row] = cell;
-              const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length);
+              const resolved = resolveColumn(col, visibleLeadColumns, periodNumbers.length, visibleTotalColumns);
               if (resolved.kind !== 'lead') return;
               if (!canEdit) return;
 
@@ -1812,12 +1821,11 @@ export function ResourcePlan({
                   const selectedId = Number(roleSelection);
                   const selectedResource = resourceLists.find((r) => r.id === selectedId);
                   if (selectedResource) {
-                    const updatedResourcePlans = resourcePlans.map(p =>
-                      p.id === plan.id
-                        ? { ...p, ...planFieldsFromList(selectedResource, project) }
-                        : p
-                    );
-                    onResourcePlansChange(updatedResourcePlans);
+                    api.applyListEntry(plan.id, selectedResource.id)
+                      .then((updated) => {
+                        onResourcePlansChange(resourcePlans.map(p => (p.id === plan.id ? { ...p, ...updated } : p)));
+                      })
+                      .catch((err) => console.error('Failed to apply resource list entry:', err));
                   }
                   setRolePicker({ open: false, row: null });
                 }}

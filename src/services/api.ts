@@ -123,15 +123,18 @@ export interface RateCard {
   namingInPM: string;
   discipline: string;
   description?: string;
-  ukraine: number;
-  easternEurope: number;
-  asiaGE: number;
-  asiaARMKZ: number;
-  latam: number;
-  mexico: number;
-  india: number;
-  newYork: number;
-  london: number;
+  // Internal per-region rates: absent from every response to a USER caller.
+  ukraine?: number;
+  easternEurope?: number;
+  asiaGE?: number;
+  asiaARMKZ?: number;
+  latam?: number;
+  mexico?: number;
+  india?: number;
+  newYork?: number;
+  london?: number;
+  /** Client price per region, computed server-side; present only when `?projectId=` is passed and the caller isn't USER. */
+  price?: Partial<Record<GeneratePlanRegion, number>>;
   createdAt: string;
   updatedAt: string;
 }
@@ -429,9 +432,43 @@ export const api = {
   },
 
   // Rate Card endpoints (global: a single shared set common to all projects)
-  async getRateCards(): Promise<RateCard[]> {
-    const response = await apiFetch(`${API_BASE_URL}/rate-cards`);
+  async getRateCards(projectId?: number): Promise<RateCard[]> {
+    const query = projectId != null ? `?projectId=${projectId}` : '';
+    const response = await apiFetch(`${API_BASE_URL}/rate-cards${query}`);
     if (!response.ok) throw new Error('Failed to fetch rate cards');
+    return response.json();
+  },
+
+  /** Seeds a resource-list row from a rate-card entry, with rates computed server-side. */
+  async seedFromRateCard(projectId: number, rateCardId: number, region: GeneratePlanRegion): Promise<ResourceList> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/resource-lists/from-rate-card`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rateCardId, region }),
+    });
+    await throwIfNotOk(response, 'Failed to add resource from rate card');
+    return response.json();
+  },
+
+  /** Creates a new resource-plan row from a resource-list entry, with rates computed server-side. */
+  async createPlanFromListEntry(projectId: number, resourceListId: number): Promise<ResourcePlan> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/resource-plans/from-resource-list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resourceListId }),
+    });
+    await throwIfNotOk(response, 'Failed to add resource plan from resource list');
+    return response.json();
+  },
+
+  /** Applies a resource-list entry's role/rates to an EXISTING plan row, computed server-side. */
+  async applyListEntry(planId: number, resourceListId: number): Promise<ResourcePlan> {
+    const response = await apiFetch(`${API_BASE_URL}/resource-plans/${planId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resourceListId }),
+    });
+    await throwIfNotOk(response, 'Failed to apply resource list entry');
     return response.json();
   },
 

@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import type request from 'supertest';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { isolateTestDb, loginAs } from './testDb';
+import { clientHourlyRate } from './src/utils/calculations';
 
 let app: Express;
 let admin: request.Agent;
@@ -16,6 +17,10 @@ let p1ResourcePlanId: number;
 
 // P2: owned by manager, not shared with admin — exercises the ADMIN bypass.
 let p2: number;
+
+// P3: owned by admin, user=EDITOR — exercises USER write access (dev fixture
+// `user` is group USER but needs project-level write access for these tests).
+let p3: number;
 
 describe('Access control integration', () => {
   beforeAll(async () => {
@@ -54,6 +59,10 @@ describe('Access control integration', () => {
 
     const p2Res = await manager.post('/api/projects').send({ name: 'P2 Manager Owned' });
     p2 = p2Res.body.id;
+
+    const p3Res = await admin.post('/api/projects').send({ name: 'P3 USER write access' });
+    p3 = p3Res.body.id;
+    await admin.put(`/api/projects/${p3}/members/${userId}`).send({ role: 'EDITOR' });
   });
 
   describe('project invisibility (404, not 403)', () => {
@@ -237,6 +246,138 @@ describe('Access control integration', () => {
         region: 'ukraine',
       });
       expect(otherUserRes.status).not.toBe(429);
+    });
+  });
+
+  describe('USER visibility ceiling', () => {
+    it('strips every internal key from a project GET for USER, keeps them for MANAGER', async () => {
+      const userRes = await user.get(`/api/projects/${p1}`);
+      expect(userRes.status).toBe(200);
+      expect(userRes.body.defaultMargin).toBeUndefined();
+      expect(userRes.body.exchangeRate).toBeUndefined();
+
+      const managerRes = await manager.get(`/api/projects/${p1}`);
+      expect(managerRes.status).toBe(200);
+      expect(managerRes.body.defaultMargin).not.toBeUndefined();
+      expect(managerRes.body.exchangeRate).not.toBeUndefined();
+    });
+
+    it('strips intRate from resource-list rows and intHourlyRate from resource-plan rows for USER, keeps them for MANAGER', async () => {
+      const listRes = await user.get(`/api/projects/${p1}/resource-lists`);
+      expect(listRes.status).toBe(200);
+      for (const row of listRes.body) expect(row.intRate).toBeUndefined();
+
+      const planRes = await user.get(`/api/projects/${p1}/resource-plans`);
+      expect(planRes.status).toBe(200);
+      for (const row of planRes.body) expect(row.intHourlyRate).toBeUndefined();
+
+      const managerListRes = await manager.get(`/api/projects/${p1}/resource-lists`);
+      for (const row of managerListRes.body) expect(row.intRate).not.toBeUndefined();
+      const managerPlanRes = await manager.get(`/api/projects/${p1}/resource-plans`);
+      for (const row of managerPlanRes.body) expect(row.intHourlyRate).not.toBeUndefined();
+    });
+
+    it('strips every internal key from the export payload for USER', async () => {
+      const res = await user.get(`/api/projects/${p1}/export`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.defaultMargin).toBeUndefined();
+      expect(res.body.data.exchangeRate).toBeUndefined();
+      for (const row of res.body.data.resourceLists) expect(row.intRate).toBeUndefined();
+      for (const row of res.body.data.resourcePlans) expect(row.intHourlyRate).toBeUndefined();
+    });
+
+    it('ignores intRate in a USER write body — the stored value is unchanged, other fields still apply', async () => {
+      const rlRes = await admin.post(`/api/projects/${p3}/resource-lists`).send({ role: 'Dev', intRate: 30 });
+      const listId = rlRes.body.id;
+
+      const writeRes = await user.put(`/api/resource-lists/${listId}`).send({ intRate: 999, role: 'Dev renamed' });
+      expect(writeRes.status).toBe(200);
+
+      const stored = await admin.get(`/api/projects/${p3}/resource-lists`);
+      const row = stored.body.find((r: { id: number }) => r.id === listId);
+      expect(row.intRate).toBe(30);
+      expect(row.role).toBe('Dev renamed');
+    });
+  });
+
+  describe('from-rate-card / from-resource-list rate derivation', () => {
+    it('from-rate-card computes hourlyRate via clientHourlyRate; callable by USER, who never sees intRate', async () => {
+      const rateCardsRes = await admin.get('/api/rate-cards');
+      const rateCard = rateCardsRes.body.find((rc: { role: string }) => rc.role === 'Test Developer');
+      const projectRes = await admin.get(`/api/projects/${p3}`);
+      const marginPct = (projectRes.body.defaultMargin ?? 45) / 100;
+      const expectedHourlyRate = clientHourlyRate(rateCard.ukraine, marginPct, projectRes.body.exchangeRate);
+
+      const res = await user.post(`/api/projects/${p3}/resource-lists/from-rate-card`).send({
+        rateCardId: rateCard.id,
+        region: 'ukraine',
+      });
+      expect(res.status).toBe(201);
+
+      const stored = await admin.get(`/api/projects/${p3}/resource-lists`);
+      const created = stored.body.find((r: { id: number }) => r.id === res.body.id);
+      expect(created.intRate).toBe(rateCard.ukraine);
+      expect(created.hourlyRate).toBeCloseTo(expectedHourlyRate, 5);
+    });
+
+    it('from-resource-list computes clientHourlyRate for a new plan row via the same fallback formula', async () => {
+      const created = await admin.post(`/api/projects/${p3}/resource-lists`).send({ role: 'RL Dev', intRate: 40 });
+      const listRow = created.body;
+      const projectRes = await admin.get(`/api/projects/${p3}`);
+      const expectedClientHourlyRate = listRow.hourlyRate > 0
+        ? listRow.hourlyRate
+        : clientHourlyRate(listRow.intRate, (projectRes.body.defaultMargin || 25.0) / 100, projectRes.body.exchangeRate);
+
+      const res = await user.post(`/api/projects/${p3}/resource-plans/from-resource-list`).send({
+        resourceListId: listRow.id,
+      });
+      expect(res.status).toBe(201);
+
+      const plansRes = await admin.get(`/api/projects/${p3}/resource-plans`);
+      const plan = plansRes.body.find((p: { id: number }) => p.id === res.body.id);
+      expect(plan.intHourlyRate).toBe(listRow.intRate);
+      expect(plan.clientHourlyRate).toBeCloseTo(expectedClientHourlyRate, 5);
+    });
+  });
+
+  describe('rate-card write access is ADMIN-only', () => {
+    it('403s POST/PUT/DELETE for MANAGER and USER, allows ADMIN', async () => {
+      const managerCreate = await manager.post('/api/rate-cards').send({ role: 'Blocked' });
+      expect(managerCreate.status).toBe(403);
+      const userCreate = await user.post('/api/rate-cards').send({ role: 'Blocked' });
+      expect(userCreate.status).toBe(403);
+
+      const adminCreate = await admin.post('/api/rate-cards').send({ role: 'Allowed' });
+      expect(adminCreate.status).toBe(200);
+      const rateCardId = adminCreate.body.id;
+
+      const managerUpdate = await manager.put(`/api/rate-cards/${rateCardId}`).send({ role: 'Still Blocked' });
+      expect(managerUpdate.status).toBe(403);
+      const userDelete = await user.delete(`/api/rate-cards/${rateCardId}`);
+      expect(userDelete.status).toBe(403);
+
+      const adminUpdate = await admin.put(`/api/rate-cards/${rateCardId}`).send({ role: 'Allowed Renamed' });
+      expect(adminUpdate.status).toBe(200);
+      const adminDelete = await admin.delete(`/api/rate-cards/${rateCardId}`);
+      expect(adminDelete.status).toBe(200);
+    });
+
+    it('read access is open to every group', async () => {
+      for (const agent of [admin, manager, user]) {
+        const res = await agent.get('/api/rate-cards');
+        expect(res.status).toBe(200);
+      }
+    });
+  });
+
+  describe('generate-plan is unavailable to USER', () => {
+    it('403s for USER before validation (an invalid mode would otherwise 400)', async () => {
+      const userRes = await user.post('/api/projects/generate-plan').send({
+        mode: 'new',
+        description: 'test',
+        region: 'ukraine',
+      });
+      expect(userRes.status).toBe(403);
     });
   });
 });

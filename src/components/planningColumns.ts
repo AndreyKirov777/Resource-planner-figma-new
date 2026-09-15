@@ -16,6 +16,9 @@ export type LeadColumnId =
   | 'clientDaily'
   | 'margin';
 
+/** A signed-in user's group — kept local (no import from services/api) since this is a pure, dependency-free module. */
+export type Group = 'ADMIN' | 'MANAGER' | 'USER';
+
 export interface LeadColumnDef {
   id: LeadColumnId;
   /** Header text in the grid. */
@@ -29,6 +32,8 @@ export interface LeadColumnDef {
   pinned?: boolean;
   /** Label in the Columns menu. */
   menuLabel?: string;
+  /** Carries an internal figure: never shown to USER, regardless of the hidden-columns preference. */
+  internal?: true;
 }
 
 export const LEAD_COLUMNS: readonly LeadColumnDef[] = [
@@ -37,19 +42,26 @@ export const LEAD_COLUMNS: readonly LeadColumnDef[] = [
   { id: 'clientRole',   title: 'Client Role',    width: 150, frozen: true, menuLabel: 'Client Role' },
   { id: 'name',         title: 'Name',           width: 150, frozen: true, menuLabel: 'Name' },
   { id: 'location',     title: 'Location',       width: 70,  frozen: true, menuLabel: 'Location' },
-  { id: 'intHourly',    title: 'Hourly cost',    width: 90, group: 'Internal', menuLabel: 'Hourly cost' },
-  { id: 'intDaily',     title: 'Daily cost',     width: 90, group: 'Internal', menuLabel: 'Daily cost' },
+  { id: 'intHourly',    title: 'Hourly cost',    width: 90, group: 'Internal', menuLabel: 'Hourly cost', internal: true },
+  { id: 'intDaily',     title: 'Daily cost',     width: 90, group: 'Internal', menuLabel: 'Daily cost', internal: true },
   { id: 'clientHourly', title: 'Hourly rate',    width: 90, group: 'Client',   menuLabel: 'Hourly rate' },
   { id: 'clientDaily',  title: 'Daily rate',     width: 90, group: 'Client',   menuLabel: 'Daily rate' },
-  { id: 'margin',       title: 'Margin',         width: 70,  menuLabel: 'Margin' },
+  { id: 'margin',       title: 'Margin',         width: 70,  menuLabel: 'Margin', internal: true },
 ];
 
-/** Trailing total columns. Order matters: index 0 = Cost, 1 = Price, 2 = Efforts. */
-export const TOTAL_COLUMNS: readonly { title: string; width: number }[] = [
-  { title: 'Cost', width: 100 },
-  { title: 'Price', width: 100 },
-  { title: 'Efforts, h', width: 90 },
+export type TotalColumnId = 'cost' | 'price' | 'efforts';
+
+/** Trailing total columns. `id: 'cost'` is internal and dropped for USER — see getVisibleTotalColumns. */
+export const TOTAL_COLUMNS: readonly { id: TotalColumnId; title: string; width: number }[] = [
+  { id: 'cost', title: 'Cost', width: 100 },
+  { id: 'price', title: 'Price', width: 100 },
+  { id: 'efforts', title: 'Efforts, h', width: 90 },
 ];
+
+/** Total columns actually rendered: USER never sees the internal Cost total. */
+export function getVisibleTotalColumns(group?: Group): readonly { id: TotalColumnId; title: string; width: number }[] {
+  return group === 'USER' ? TOTAL_COLUMNS.filter((c) => c.id !== 'cost') : TOTAL_COLUMNS;
+}
 
 export interface ColumnMenuSection {
   label?: string;
@@ -98,25 +110,43 @@ export function saveHiddenColumns(projectId: number, hidden: readonly LeadColumn
   }
 }
 
-/** Lead columns actually rendered, in grid order. Pinned columns always survive. */
-export function getVisibleLeadColumns(hidden: readonly LeadColumnId[]): LeadColumnDef[] {
-  return LEAD_COLUMNS.filter((c) => c.pinned || !hidden.includes(c.id));
+/**
+ * Lead columns actually rendered, in grid order. Pinned columns always survive.
+ * USER never sees an internal column, regardless of the hidden-columns preference.
+ */
+export function getVisibleLeadColumns(hidden: readonly LeadColumnId[], group?: Group): LeadColumnDef[] {
+  return LEAD_COLUMNS.filter((c) => {
+    if (group === 'USER' && c.internal) return false;
+    return c.pinned || !hidden.includes(c.id);
+  });
+}
+
+/** Columns-menu layout actually offered: USER never gets a section/entry for an internal column. */
+export function getVisibleMenuSections(group?: Group): ColumnMenuSection[] {
+  if (group !== 'USER') return COLUMN_MENU_SECTIONS.map((s) => ({ ...s }));
+  const internalIds = new Set(LEAD_COLUMNS.filter((c) => c.internal).map((c) => c.id));
+  return COLUMN_MENU_SECTIONS
+    .map((section) => ({ ...section, ids: section.ids.filter((id) => !internalIds.has(id)) }))
+    .filter((section) => section.ids.length > 0);
 }
 
 export type ResolvedColumn =
   | { kind: 'lead'; id: LeadColumnId }
   | { kind: 'period'; index: number }
-  | { kind: 'total'; index: number }
+  | { kind: 'total'; id: TotalColumnId }
   | { kind: 'none' };
 
 /**
  * The ONLY place that turns a grid column index into meaning. Every handler must go
- * through this instead of comparing indices to literals.
+ * through this instead of comparing indices to literals. `totalColumns` must be the
+ * SAME array actually rendered (see getVisibleTotalColumns) so a dropped Cost column
+ * doesn't shift the meaning of the remaining indices.
  */
 export function resolveColumn(
   colIndex: number,
   visibleLead: readonly LeadColumnDef[],
-  periodCount: number
+  periodCount: number,
+  totalColumns: readonly { id: TotalColumnId }[] = TOTAL_COLUMNS
 ): ResolvedColumn {
   if (colIndex < 0) return { kind: 'none' };
   if (colIndex < visibleLead.length) return { kind: 'lead', id: visibleLead[colIndex].id };
@@ -125,7 +155,7 @@ export function resolveColumn(
   if (periodIndex < periodCount) return { kind: 'period', index: periodIndex };
 
   const totalIndex = periodIndex - periodCount;
-  if (totalIndex < TOTAL_COLUMNS.length) return { kind: 'total', index: totalIndex };
+  if (totalIndex < totalColumns.length) return { kind: 'total', id: totalColumns[totalIndex].id };
 
   return { kind: 'none' };
 }

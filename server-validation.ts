@@ -133,6 +133,10 @@ export const resourcePlanUpdateSchema = z.object({
   clientHourlyRate: z.number().optional(),
   displayOrder: z.number().int().min(0).optional(),
   allocations: z.array(allocationSchema).optional(),
+  // When present, the server copies role/rates from this resource-list entry
+  // (clientHourlyRate() derivation) instead of trusting the client's numbers —
+  // the path a USER caller (who never sees intRate) uses to apply a picked role.
+  resourceListId: z.number().int().positive().optional(),
 }).strict();
 
 export const reorderSchema = z.object({
@@ -146,6 +150,22 @@ export const allocationUpdateSchema = z.object({
 
 export const convertPlanningModeSchema = z.object({
   targetMode: z.enum(['weekly', 'monthly']),
+}).strict();
+
+// --- Server-side rate derivation (phase 3: USER never holds intRate/intHourlyRate) ---
+
+export const fromRateCardSchema = z.object({
+  rateCardId: z.number().int().positive(),
+  region: z.enum(REGION_COLUMNS),
+}).strict();
+
+export const fromResourceListSchema = z.object({
+  resourceListId: z.number().int().positive(),
+  allocations: z.array(allocationSchema).optional(),
+}).strict();
+
+export const rateCardsQuerySchema = z.object({
+  projectId: z.coerce.number().int().positive().optional(),
 }).strict();
 
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;

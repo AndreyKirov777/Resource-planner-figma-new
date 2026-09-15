@@ -34,11 +34,14 @@ import {
   roadmapReorderSchema,
   memberUpsertSchema,
   projectsScopeSchema,
+  fromRateCardSchema,
+  fromResourceListSchema,
+  rateCardsQuerySchema,
 } from './server-validation';
 import { generateResourcePlan } from './server/planner/generateResourcePlan';
 import { loadAIConfig } from './server/llm/config';
 import { StructuredValidationError } from './server/llm/index';
-import { buildDisciplineEnum } from './server/planner/rateCard';
+import { buildDisciplineEnum, REGION_COLUMNS } from './server/planner/rateCard';
 import { parseProjectPhases, phaseLength } from './server/planner/phases';
 import {
   convertWeeklyToMonthly,
@@ -55,6 +58,10 @@ import { createDevAuthRouter } from './server/auth/dev';
 import { createEntraAuthRouter } from './server/auth/entra';
 import { requireAuth } from './server/auth/session';
 import { AccessError, createAccessHelpers } from './server/auth/access';
+import { userFilterMiddleware } from './server/auth/visibility';
+import { clientHourlyRate } from './src/utils/calculations';
+import { regionToLocationLabel } from './src/utils/regions';
+import { getClientRoleFromRole } from './src/utils/clientRoleMapping';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -98,6 +105,7 @@ const authMode = process.env.AUTH_MODE === 'dev' ? 'dev' : 'entra';
 app.use(authMode === 'dev' ? createDevAuthRouter(prisma) : createEntraAuthRouter(prisma));
 
 app.use('/api', requireAuth(prisma));
+app.use('/api', userFilterMiddleware);
 
 app.get('/api/me', (req, res) => {
   res.json({
@@ -783,9 +791,37 @@ function toGlobalRateCardData(rateCard: any) {
 
 app.get('/api/rate-cards', async (req, res) => {
   try {
+    const parsedQuery = rateCardsQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsedQuery.error.flatten() });
+    }
+    const { projectId } = parsedQuery.data;
     const rateCards = await prisma.globalRateCard.findMany();
+
+    // Price is computed server-side per region so a USER caller — who never
+    // receives the region columns themselves — can still see nothing at all
+    // rather than a Price column with no inputs.
+    if (projectId != null && req.user!.group !== 'USER') {
+      await requireProjectAccess(req.user!, projectId, 'read');
+      const project = await prisma.project.findUnique({ where: { id: projectId } });
+      if (project) {
+        const marginPct = (project.defaultMargin ?? APP_DEFAULTS.defaultMargin) / 100;
+        const withPrice = rateCards.map((rc) => ({
+          ...rc,
+          price: Object.fromEntries(
+            REGION_COLUMNS.map((region) => [
+              region,
+              clientHourlyRate(rc[region], marginPct, project.exchangeRate),
+            ])
+          ),
+        }));
+        return res.json(withPrice);
+      }
+    }
+
     res.json(rateCards);
   } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to fetch rate cards' });
   }
 });
@@ -804,6 +840,9 @@ app.get('/api/rate-cards/meta', async (req, res) => {
 
 app.post('/api/rate-cards', async (req, res) => {
   try {
+    if (req.user!.group !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only admins may edit the rate card' });
+    }
     const rateCard = await prisma.globalRateCard.create({
       data: toGlobalRateCardData(req.body)
     });
@@ -821,6 +860,9 @@ app.post('/api/rate-cards', async (req, res) => {
 // the import metadata (file name + timestamp).
 app.post('/api/rate-cards/bulk', async (req, res) => {
   try {
+    if (req.user!.group !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only admins may edit the rate card' });
+    }
     const rateCards = Array.isArray(req.body) ? req.body : req.body?.rateCards;
     if (!Array.isArray(rateCards)) {
       return res.status(400).json({ error: 'rateCards array required' });
@@ -851,6 +893,9 @@ app.post('/api/rate-cards/bulk', async (req, res) => {
 
 app.put('/api/rate-cards/:id', async (req, res) => {
   try {
+    if (req.user!.group !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only admins may edit the rate card' });
+    }
     const parsed = rateCardUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
@@ -867,6 +912,9 @@ app.put('/api/rate-cards/:id', async (req, res) => {
 
 app.delete('/api/rate-cards/:id', async (req, res) => {
   try {
+    if (req.user!.group !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only admins may edit the rate card' });
+    }
     await prisma.globalRateCard.delete({
       where: { id: parseInt(req.params.id) }
     });
@@ -879,6 +927,9 @@ app.delete('/api/rate-cards/:id', async (req, res) => {
 // Delete the entire global rate card and clear the import metadata.
 app.delete('/api/rate-cards', async (req, res) => {
   try {
+    if (req.user!.group !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only admins may edit the rate card' });
+    }
     const count = await prisma.$transaction(async (tx) => {
       const result = await tx.globalRateCard.deleteMany({});
       await tx.rateCardImportMeta.upsert({
@@ -973,6 +1024,46 @@ app.delete('/api/resource-lists/:id', async (req, res) => {
   }
 });
 
+// Seeds a resource-list row from a global rate card entry for one region,
+// computing the internal/client rates server-side — the only path a USER
+// caller (who never holds `intRate`) can use to add a catalog role to a project.
+app.post('/api/projects/:projectId/resource-lists/from-rate-card', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.projectId);
+    const parsed = fromRateCardSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    await requireProjectAccess(req.user!, projectId, 'write');
+
+    const [rateCard, project] = await Promise.all([
+      prisma.globalRateCard.findUnique({ where: { id: parsed.data.rateCardId } }),
+      prisma.project.findUnique({ where: { id: projectId } }),
+    ]);
+    if (!rateCard) return res.status(404).json({ error: 'Rate card entry not found' });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const intRate = rateCard[parsed.data.region];
+    const marginPct = (project.defaultMargin ?? APP_DEFAULTS.defaultMargin) / 100;
+    const resourceList = await prisma.resourceList.create({
+      data: {
+        role: rateCard.role,
+        clientRole: getClientRoleFromRole(rateCard.role),
+        description: rateCard.description ?? null,
+        intRate,
+        hourlyRate: clientHourlyRate(intRate, marginPct, project.exchangeRate),
+        location: regionToLocationLabel(parsed.data.region),
+        projectId,
+      },
+    });
+    res.status(201).json(resourceList);
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    console.error('Error seeding resource list from rate card:', error);
+    res.status(500).json({ error: 'Failed to add resource from rate card' });
+  }
+});
+
 // Resource Plan endpoints
 // D6 (2026-08-12 WBS proposal): plan-side role is constrained to the project's resource
 // list once it has entries; an empty list leaves rows unconstrained.
@@ -1049,6 +1140,68 @@ app.post('/api/projects/:projectId/resource-plans', async (req, res) => {
   }
 });
 
+/** Same derivation `planFieldsFromList` used to do client-side — kept verbatim, including the 25% fallback margin. */
+function planFieldsFromResourceList(
+  resourceList: { role: string; intRate: number; hourlyRate: number; name: string | null; clientRole: string | null },
+  project: { defaultMargin: number | null; exchangeRate: number }
+) {
+  return {
+    role: resourceList.role,
+    intHourlyRate: resourceList.intRate,
+    clientHourlyRate:
+      resourceList.hourlyRate > 0
+        ? resourceList.hourlyRate
+        : clientHourlyRate(resourceList.intRate, (project.defaultMargin || 25.0) / 100, project.exchangeRate),
+    name: resourceList.name || '',
+    clientRole: resourceList.clientRole || '',
+  };
+}
+
+// Creates a new resource-plan row from a resource-list entry, computing the
+// internal/client rates server-side — the path a USER caller uses to apply a
+// role to the plan without ever holding `intRate` in the browser.
+app.post('/api/projects/:projectId/resource-plans/from-resource-list', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.projectId);
+    const parsed = fromResourceListSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    await requireProjectAccess(req.user!, projectId, 'write');
+
+    const [resourceList, project] = await Promise.all([
+      prisma.resourceList.findUnique({ where: { id: parsed.data.resourceListId } }),
+      prisma.project.findUnique({ where: { id: projectId } }),
+    ]);
+    if (!resourceList || resourceList.projectId !== projectId) {
+      return res.status(400).json({ error: 'resourceListId must reference a resource list in this project' });
+    }
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const validAllocations = (parsed.data.allocations || [])
+      .filter((a) => a.periodNumber > 0)
+      .map((a) => ({ periodNumber: a.periodNumber, allocation: a.allocation }));
+    const maxOrder = await prisma.resourcePlan.aggregate({
+      where: { projectId },
+      _max: { displayOrder: true },
+    });
+    const resourcePlan = await prisma.resourcePlan.create({
+      data: {
+        ...planFieldsFromResourceList(resourceList, project),
+        displayOrder: (maxOrder._max.displayOrder ?? -1) + 1,
+        projectId,
+        allocations: { create: validAllocations },
+      },
+      include: { allocations: true },
+    });
+    res.status(201).json(resourcePlan);
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    console.error('Error creating resource plan from resource list:', error);
+    res.status(500).json({ error: 'Failed to add resource plan from resource list' });
+  }
+});
+
 app.put('/api/resource-plans/:id', async (req, res) => {
   try {
     const parsed = resourcePlanUpdateSchema.safeParse(req.body);
@@ -1063,18 +1216,32 @@ app.put('/api/resource-plans/:id', async (req, res) => {
       return res.status(404).json({ error: 'Resource plan not found', details: 'The resource plan you are trying to update does not exist' });
     }
     await requireProjectAccess(req.user!, existing.projectId, 'write');
-    if (parsed.data.role !== undefined) {
+    const { allocations: incomingAllocations, resourceListId, ...updateData } = parsed.data;
+
+    // When resourceListId is given, the role and its internal/client rates
+    // come from that resource-list row, computed server-side (the path a USER
+    // caller — who never holds intRate — uses to apply a picked role).
+    // Anything else in the body for those fields is ignored.
+    let derivedFields: Partial<typeof updateData> = {};
+    if (resourceListId !== undefined) {
+      const resourceList = await prisma.resourceList.findUnique({ where: { id: resourceListId } });
+      if (!resourceList || resourceList.projectId !== existing.projectId) {
+        return res.status(400).json({ error: 'resourceListId must reference a resource list in this project' });
+      }
+      const project = await prisma.project.findUnique({ where: { id: existing.projectId } });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      derivedFields = planFieldsFromResourceList(resourceList, project);
+    } else if (parsed.data.role !== undefined) {
       const resourceList = await prisma.resourceList.findMany({ where: { projectId: existing.projectId } });
       if (!isRoleAllowed(parsed.data.role, resourceList)) {
         return res.status(400).json({ error: 'Validation failed', details: 'role must match an entry in the project resource list' });
       }
     }
-    const { allocations: incomingAllocations, ...updateData } = parsed.data;
 
     // Update resource plan (whitelisted fields only)
     const resourcePlan = await prisma.resourcePlan.update({
       where: { id: parseInt(req.params.id) },
-      data: { ...updateData, updatedById: req.user!.id },
+      data: { ...updateData, ...derivedFields, updatedById: req.user!.id },
       include: {
         allocations: true
       }
@@ -1402,6 +1569,10 @@ app.post('/api/projects/:id/convert-planning-mode', async (req, res) => {
 // Read-only: zero DB writes. Must stay ABOVE the SPA catch-all.
 app.post('/api/projects/generate-plan', async (req, res) => {
   try {
+    // A USER-applied draft would lose internal rates on the way in — decided: no access at all.
+    if (req.user!.group === 'USER') {
+      return res.status(403).json({ error: 'Plan generation is not available for your group' });
+    }
     // Validate request body.
     const parsed = generatePlanRequestSchema.safeParse(req.body);
     if (!parsed.success) {

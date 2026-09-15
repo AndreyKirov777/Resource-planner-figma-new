@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import { ResourceList as ResourceListType } from '../services/api';
+import { ResourceList as ResourceListType, Me } from '../services/api';
 import { LOCATIONS } from '../config/defaults';
 import { LOCATION_LABELS, canonicalLocationLabel, locationAbbr } from '../utils/regions';
 import { marginPct } from '../utils/calculations';
@@ -29,6 +29,8 @@ interface ResourceListProps {
   clientCurrency?: string;
   /** False for a VIEWER, or an EDITOR on an archived project: disables every write affordance. */
   canEdit?: boolean;
+  /** The signed-in user's group — USER never sees internal cost/margin figures, regardless of project role. */
+  group: Me['group'];
 }
 
 // Custom cell renderer component for the Actions column
@@ -60,7 +62,9 @@ export function ResourceList({
   exchangeRate = 1,
   clientCurrency,
   canEdit = true,
+  group,
 }: ResourceListProps) {
+  const isUser = group === 'USER';
   const currencySymbol =
     clientCurrency === 'EUR' ? '€' : clientCurrency === 'GBP' ? '£' : '$';
   const [newRole, setNewRole] = useState('');
@@ -124,18 +128,20 @@ export function ResourceList({
         tooltipValueGetter: (params: any) => canonicalLocationLabel(params.value),
         transform: (newValue: any) => canonicalLocationLabel(newValue) || undefined,
       }),
-      makeFieldColumn('intRate', 'Hourly cost', {
-        width: 150,
-        valueFormatter: (params: any) => `$${params.value.toFixed(2)}`,
-        transform: (newValue: any) => parseFloat(newValue) || 0,
-      }),
+      ...(isUser ? [] : [
+        makeFieldColumn('intRate', 'Hourly cost', {
+          width: 150,
+          valueFormatter: (params: any) => `$${params.value.toFixed(2)}`,
+          transform: (newValue: any) => parseFloat(newValue) || 0,
+        }),
+      ]),
       makeFieldColumn('hourlyRate', 'Hourly rate', {
         width: 120,
         valueFormatter: (params: any) =>
           params.value != null ? `${currencySymbol}${Math.round(params.value)}` : '',
         transform: (newValue: any) => parseFloat(newValue) || 0,
       }),
-      {
+      ...(isUser ? [] : [{
         headerName: 'Margin',
         colId: 'margin',
         width: 90,
@@ -144,15 +150,15 @@ export function ResourceList({
           marginPct(params.data?.hourlyRate ?? 0, params.data?.intRate ?? 0, exchangeRate),
         valueFormatter: (params) =>
           params.value == null ? '' : `${Number(params.value).toFixed(1)}%`,
-      },
+      } satisfies ColDef<ResourceListType>]),
       makeFieldColumn('description', 'Description', { width: 360 }),
     ];
 
     return canEdit ? [actionsColumn, ...otherColumns] : otherColumns;
-  }, [resourceLists, onResourceListsChange, onResourceListUpdate, deleteResource, exchangeRate, currencySymbol, canEdit]);
+  }, [resourceLists, onResourceListsChange, onResourceListUpdate, deleteResource, exchangeRate, currencySymbol, canEdit, isUser]);
 
   const addResource = () => {
-    if (!newRole.trim() || !newRate.trim()) return;
+    if (!newRole.trim() || (!isUser && !newRate.trim())) return;
     
     const newResource: Partial<ResourceListType> = {
       role: newRole.trim(),
@@ -216,17 +222,19 @@ export function ResourceList({
                 className="mt-1"
               />
             </div>
-            <div className="w-24">
-              <Label htmlFor="newRate" className="text-sm font-medium">Rate ($/h)</Label>
-              <Input
-                id="newRate"
-                type="number"
-                placeholder="25.00"
-                value={newRate}
-                onChange={(e) => setNewRate(e.target.value)}
-                className="mt-1"
-              />
-            </div>
+            {!isUser && (
+              <div className="w-24">
+                <Label htmlFor="newRate" className="text-sm font-medium">Rate ($/h)</Label>
+                <Input
+                  id="newRate"
+                  type="number"
+                  placeholder="25.00"
+                  value={newRate}
+                  onChange={(e) => setNewRate(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+            )}
             <div className="w-36">
               <Label htmlFor="newLocation" className="text-sm font-medium">Location</Label>
               <Select value={newLocation} onValueChange={setNewLocation}>
@@ -254,7 +262,7 @@ export function ResourceList({
             </div>
             <Button 
               onClick={addResource} 
-              disabled={!newRole.trim() || !newRate.trim()}
+              disabled={!newRole.trim() || (!isUser && !newRate.trim())}
               className="mb-0"
             >
               <Plus className="h-4 w-4 mr-1" />
@@ -297,24 +305,26 @@ export function ResourceList({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <Label>Total Resources</Label>
-              <div className="text-lg">{totalResources}</div>
+      {!isUser && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label>Total Resources</Label>
+                <div className="text-lg">{totalResources}</div>
+              </div>
+              <div>
+                <Label>Average Rate</Label>
+                <div className="text-lg">${averageRate.toFixed(2)}/h</div>
+              </div>
+              <div>
+                <Label>Average Daily Rate</Label>
+                <div className="text-lg">${(averageRate * 8).toFixed(2)}/day</div>
+              </div>
             </div>
-            <div>
-              <Label>Average Rate</Label>
-              <div className="text-lg">${averageRate.toFixed(2)}/h</div>
-            </div>
-            <div>
-              <Label>Average Daily Rate</Label>
-              <div className="text-lg">${(averageRate * 8).toFixed(2)}/day</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

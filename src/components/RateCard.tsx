@@ -7,11 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Plus, Trash2, Search, X, ArrowLeft, FileSpreadsheet, CalendarClock } from 'lucide-react';
 import * as ExcelJS from 'exceljs';
-import { RateCard as RateCardType } from '../services/api';
-import { getClientRoleFromRole } from '../utils/clientRoleMapping';
+import { RateCard as RateCardType, Me } from '../services/api';
 import { APP_DEFAULTS, LOCATIONS } from '../config/defaults';
 import { GENERATE_PLAN_REGIONS } from '../utils/regions';
-import { clientHourlyRate } from '../utils/calculations';
+import type { GeneratePlanRegion } from '../services/api';
 
 // The 9 rate-card regions: RateCard field, tab slug (activeRegionTab), the
 // grid column header, and the resource-list location string. `LOCATIONS` and
@@ -25,25 +24,6 @@ const REGION_FIELDS = LOCATIONS.map(({ slug, label: locationLabel }, i) => ({
   columnLabel: GENERATE_PLAN_REGIONS[i].label,
   locationLabel,
 }));
-
-/** Roster payload from a rate-card row. `hourlyRate` is the same Price the grid shows. */
-export function resourceFromRateCard(
-  rateCard: RateCardType,
-  regionSlug: string,
-  marginPct: number,
-  fxRate: number,
-) {
-  const region = REGION_FIELDS.find((r) => r.slug === regionSlug) ?? REGION_FIELDS[0];
-  const intRate = Number(rateCard[region.field]) || 0;
-  return {
-    role: rateCard.role,
-    clientRole: getClientRoleFromRole(rateCard.role),
-    description: rateCard.description ?? undefined,
-    intRate,
-    hourlyRate: clientHourlyRate(intRate, marginPct / 100, fxRate),
-    location: region.locationLabel || undefined,
-  };
-}
 
 /** Width that fits the header label plus sort icon and padding. */
 function widthForHeader(headerName: string): number {
@@ -96,11 +76,14 @@ interface RateCardProps {
   onAddRateCardsBulk: (rateCards: Partial<RateCardType>[], fileName?: string) => Promise<{ message: string; count: number }>;
   onDeleteRateCard: (id: number) => void;
   onDeleteAllRateCards: () => void;
-  onAddResourceList?: (resource: any) => void; // Add this prop for resource list integration
+  /** Seeds a resource-list entry from a rate-card row — rates are computed server-side. */
+  onSeedFromRateCard?: (rateCardId: number, region: GeneratePlanRegion) => void;
   defaultLocation?: string;
   defaultMargin?: number | null;
   exchangeRate?: number;
   clientCurrency?: string;
+  /** The signed-in user's group — gates write controls and the USER visibility ceiling. */
+  group: Me['group'];
 }
 
 export function RateCard({
@@ -112,12 +95,20 @@ export function RateCard({
   onAddRateCardsBulk,
   onDeleteRateCard,
   onDeleteAllRateCards,
-  onAddResourceList,
+  onSeedFromRateCard,
   defaultLocation,
   defaultMargin,
   exchangeRate,
   clientCurrency,
+  group,
 }: RateCardProps) {
+  const isAdmin = group === 'ADMIN';
+  const isUser = group === 'USER';
+  const isManager = group === 'MANAGER';
+  // Only ADMIN can edit rows, import, or clear the table (server 403s any write otherwise).
+  const canWrite = isAdmin;
+  // MANAGER has no add-to-list action; ADMIN and USER both seed resource lists from here.
+  const canAddToList = !isManager;
   // State for external filters
   const [namingInPMFilter, setNamingInPMFilter] = useState<string>('all');
   const [disciplineFilter, setDisciplineFilter] = useState<string>('all');
@@ -176,7 +167,6 @@ export function RateCard({
   }, [rateCards, namingInPMFilter, disciplineFilter]);
   
   const marginPct = defaultMargin ?? APP_DEFAULTS.defaultMargin;
-  const fxRate = exchangeRate ?? APP_DEFAULTS.exchangeRate;
   const currencySymbol =
     clientCurrency === 'EUR' ? '€' : clientCurrency === 'GBP' ? '£' : '$';
 
@@ -201,7 +191,7 @@ export function RateCard({
         width: 80,
         cellRenderer: ActionsCellRenderer,
         pinned: 'left',
-        hide: false
+        hide: !canAddToList
       },
       {
         headerName: 'Rate card role',
@@ -209,7 +199,7 @@ export function RateCard({
         sortable: true,
         filter: false,
         resizable: true,
-        editable: true,
+        editable: canWrite,
         onCellValueChanged: (params: any) => {
           const updatedRateCards = rateCards.map(rateCard =>
             rateCard.id === params.data.id
@@ -227,7 +217,7 @@ export function RateCard({
         sortable: true,
         filter: false, // Disable built-in filter since we're using external filter
         resizable: true,
-        editable: true,
+        editable: canWrite,
         onCellValueChanged: (params: any) => {
           const updatedRateCards = rateCards.map(rateCard =>
             rateCard.id === params.data.id
@@ -245,7 +235,7 @@ export function RateCard({
         sortable: true,
         filter: false, // Disable built-in filter since we're using external filter
         resizable: true,
-        editable: true,
+        editable: canWrite,
         onCellValueChanged: (params: any) => {
           const updatedRateCards = rateCards.map(rateCard =>
             rateCard.id === params.data.id
@@ -264,7 +254,7 @@ export function RateCard({
         filter: false,
         resizable: true,
         flex: 1,
-        editable: true,
+        editable: canWrite,
         onCellValueChanged: (params: any) => {
           const updatedRateCards = rateCards.map(rateCard =>
             rateCard.id === params.data.id
@@ -278,6 +268,9 @@ export function RateCard({
       }
     ];
 
+    // USER only ever sees the four catalog columns above — no rates, no region tabs, no Price.
+    if (isUser) return baseColumns;
+
     // Regional rate columns with dynamic visibility based on active tab
     const regionalColumns: ColDef<RateCardType>[] = REGION_FIELDS.map(({ slug, field, columnLabel }) => ({
       headerName: columnLabel,
@@ -290,7 +283,7 @@ export function RateCard({
       suppressSizeToFit: true,
       valueFormatter: currencyFormatter,
       type: 'numericColumn',
-      editable: true,
+      editable: canWrite,
       hide: activeRegionTab !== slug,
       onCellValueChanged: (params: any) => {
         const updatedRateCards = rateCards.map(rateCard =>
@@ -304,6 +297,7 @@ export function RateCard({
       }
     }));
 
+    // Computed server-side (clientHourlyRate) and returned only when the caller isn't USER.
     const priceColumn: ColDef<RateCardType> = {
       headerName: 'Price',
       colId: 'price',
@@ -315,10 +309,10 @@ export function RateCard({
       suppressSizeToFit: true,
       editable: false,
       type: 'numericColumn',
-      valueGetter: (params) =>
-        params.data
-          ? resourceFromRateCard(params.data, activeRegionTab, marginPct, fxRate).hourlyRate
-          : 0,
+      valueGetter: (params) => {
+        const region = REGION_FIELDS.find((r) => r.slug === activeRegionTab);
+        return (region && params.data?.price?.[region.field]) ?? 0;
+      },
       valueFormatter: (params) => {
         if (params.value != null) {
           return `${currencySymbol}${Math.round(params.value)}`;
@@ -328,7 +322,7 @@ export function RateCard({
     };
 
     return [...baseColumns, ...regionalColumns, priceColumn];
-  }, [rateCards, onRateCardsChange, onRateCardUpdate, activeRegionTab, marginPct, fxRate, currencySymbol]);
+  }, [rateCards, onRateCardsChange, onRateCardUpdate, activeRegionTab, currencySymbol, isUser, canWrite]);
 
   const handleImportRateCard = async () => {
     try {
@@ -441,51 +435,57 @@ export function RateCard({
     }
   };
 
-  // Enhanced Add button handler that adds to resource list
+  // Enhanced Add button handler — seeds a resource-list entry via the server (rates are computed there).
   const handleAddRateCard = (rateCardData: RateCardType) => {
-    if (!onAddResourceList) {
-      console.warn('onAddResourceList prop not provided - cannot add to resource list');
+    if (!onSeedFromRateCard || rateCardData.id == null) {
+      console.warn('onSeedFromRateCard prop not provided - cannot add to resource list');
       return;
     }
 
-    const newResource = resourceFromRateCard(rateCardData, activeRegionTab, marginPct, fxRate);
-    onAddResourceList(newResource);
+    const region = REGION_FIELDS.find((r) => r.slug === activeRegionTab)?.field ?? 'ukraine';
+    onSeedFromRateCard(rateCardData.id, region);
   };
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center gap-2">
-        <Button onClick={handleImportRateCard} title="Import rate card">
-          <Plus className="h-4 w-4 mr-1"/>
-          Import rate card
-        </Button>
-        <Button
-          onClick={handleClearAllRateCards}
-          variant="destructive"
-          title="Clear all rate cards"
-          disabled={rateCards.length === 0}
-        >
-          <Trash2 className="h-4 w-4 mr-1"/>
-          Clear All
-        </Button>
-        {importMeta?.fileName && (
-          <div className="ml-2 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm">
-            <span className="flex items-center gap-1.5" title="Imported file">
-              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-              <span className="font-medium text-foreground">{importMeta.fileName}</span>
-            </span>
-            {importMeta.importedAt && (
-              <>
-                <span className="h-4 w-px bg-border" />
-                <span className="flex items-center gap-1.5 text-muted-foreground" title="Last imported">
-                  <CalendarClock className="h-4 w-4" />
-                  {new Date(importMeta.importedAt).toLocaleString()}
-                </span>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      {(canWrite || importMeta?.fileName) && (
+        <div className="flex items-center gap-2">
+          {canWrite && (
+            <>
+              <Button onClick={handleImportRateCard} title="Import rate card">
+                <Plus className="h-4 w-4 mr-1"/>
+                Import rate card
+              </Button>
+              <Button
+                onClick={handleClearAllRateCards}
+                variant="destructive"
+                title="Clear all rate cards"
+                disabled={rateCards.length === 0}
+              >
+                <Trash2 className="h-4 w-4 mr-1"/>
+                Clear All
+              </Button>
+            </>
+          )}
+          {importMeta?.fileName && (
+            <div className="ml-2 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm">
+              <span className="flex items-center gap-1.5" title="Imported file">
+                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                <span className="font-medium text-foreground">{importMeta.fileName}</span>
+              </span>
+              {importMeta.importedAt && (
+                <>
+                  <span className="h-4 w-px bg-border" />
+                  <span className="flex items-center gap-1.5 text-muted-foreground" title="Last imported">
+                    <CalendarClock className="h-4 w-4" />
+                    {new Date(importMeta.importedAt).toLocaleString()}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* External Filters */}
       <div className="flex items-center gap-4">
@@ -523,29 +523,32 @@ export function RateCard({
           </Select>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">Default Margin:</span>
-          <span className="text-sm">{marginPct.toFixed(0)}%</span>
-        </div>
+        {!isUser && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">Default Margin:</span>
+            <span className="text-sm">{marginPct.toFixed(0)}%</span>
+          </div>
+        )}
       </div>
 
       {/* Regional Tab Switcher */}
-      <div className="space-y-3">
-     
-        <Tabs value={activeRegionTab} onValueChange={setActiveRegionTab}>
-          <TabsList className="flex w-full overflow-x-auto">
-            <TabsTrigger value="ukraine">Ukraine</TabsTrigger>
-            <TabsTrigger value="eastern-europe">Eastern Europe</TabsTrigger>
-            <TabsTrigger value="asia-ge">Asia (GE)</TabsTrigger>
-            <TabsTrigger value="asia-arm-kz">Asia (ARM,KZ)</TabsTrigger>
-            <TabsTrigger value="latam">LATAM</TabsTrigger>
-            <TabsTrigger value="mexico">Mexico</TabsTrigger>
-            <TabsTrigger value="india">India</TabsTrigger>
-            <TabsTrigger value="new-york">New York</TabsTrigger>
-            <TabsTrigger value="london">London</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      {!isUser && (
+        <div className="space-y-3">
+          <Tabs value={activeRegionTab} onValueChange={setActiveRegionTab}>
+            <TabsList className="flex w-full overflow-x-auto">
+              <TabsTrigger value="ukraine">Ukraine</TabsTrigger>
+              <TabsTrigger value="eastern-europe">Eastern Europe</TabsTrigger>
+              <TabsTrigger value="asia-ge">Asia (GE)</TabsTrigger>
+              <TabsTrigger value="asia-arm-kz">Asia (ARM,KZ)</TabsTrigger>
+              <TabsTrigger value="latam">LATAM</TabsTrigger>
+              <TabsTrigger value="mexico">Mexico</TabsTrigger>
+              <TabsTrigger value="india">India</TabsTrigger>
+              <TabsTrigger value="new-york">New York</TabsTrigger>
+              <TabsTrigger value="london">London</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
       <div className="ag-theme-alpine" style={{ height: 600, width: '100%' }}>
         <AgGridReact
           ref={gridRef}

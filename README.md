@@ -37,6 +37,8 @@
 
   Every signed-in user has a **group** — `ADMIN`, `MANAGER`, or `USER` — resolved on each sign-in from the Entra ID token's `groups` claim (or the `ADMIN_EMAILS` bootstrap list) and stored on the user. A person in none of the three groups sees a "no access" page and no account is created for them. See `.env.example` for the full list of auth-related environment variables.
 
+  A caller's group is separate from their per-project role (OWNER/EDITOR/VIEWER/ADMIN, see **Users and sharing** below): the group governs a **visibility ceiling** applied on top of that role. Every JSON response — and every incoming write body — is stripped of internal cost/margin figures (`intRate`, `intHourlyRate`, `defaultMargin`, `exchangeRate`, and the nine rate-card region columns) for a `USER`-group caller, regardless of their project role; `MANAGER` and `ADMIN` see these fields normally. A `USER` still applies rate-card roles and resource-list entries to a plan via `from-rate-card`/`from-resource-list` (and the typed-role/picker paths on `PUT /resource-plans/:id`), which compute the resulting rates server-side so the number never has to pass through their browser.
+
   ## Database Schema
 
   > Authoritative schema: [`prisma/schema.prisma`](prisma/schema.prisma). The summary below is for orientation — if the two disagree, the `.prisma` file wins.
@@ -155,7 +157,7 @@
   - `DELETE /projects/:id/members/:userId` - Remove a member — OWNER/ADMIN only
 
   #### Rate Card (global — shared across all projects)
-  - `GET /rate-cards` - Get the global rate card
+  - `GET /rate-cards` - Get the global rate card. Accepts an optional `projectId` query param; when given and the caller isn't in the USER group, each row also carries a `price` map (client rate per region, computed server-side from that project's margin and exchange rate). Write endpoints below are ADMIN-only.
   - `GET /rate-cards/meta` - Get metadata about the last rate card import
   - `POST /rate-cards` - Create a rate card entry
   - `POST /rate-cards/bulk` - Bulk import/replace rate card entries (Excel import)
@@ -168,6 +170,7 @@
   - `POST /projects/:projectId/resource-lists` - Create resource
   - `PUT /resource-lists/:id` - Update resource
   - `DELETE /resource-lists/:id` - Delete resource
+  - `POST /projects/:projectId/resource-lists/from-rate-card` - Seed a resource-list entry from a global rate-card row for a given region; the client rate is computed server-side, so a USER caller (who never holds internal rates) can still use this to add resources
 
   #### Resource Plans
   - `GET /projects/:projectId/resource-plans` - Get resource plans for project
@@ -176,6 +179,7 @@
   - `DELETE /resource-plans/:id` - Delete resource plan
   - `PUT /projects/:projectId/resource-plans/reorder` - Reorder a project's resource plans
   - `POST /projects/:id/convert-planning-mode` - Convert a project between weekly and monthly planning
+  - `POST /projects/:projectId/resource-plans/from-resource-list` - Create a resource-plan row from a resource-list entry, deriving internal/client rates server-side from that entry
 
   #### Allocations
   - `GET /resource-plans/:resourcePlanId/allocations` - Get allocations for a resource plan
@@ -184,7 +188,7 @@
   - `DELETE /allocations/:id` - Delete an allocation
 
   #### AI Planner
-  - `POST /projects/generate-plan` - Generate a draft resource plan from a natural-language description (read-only; rate-limited per IP)
+  - `POST /projects/generate-plan` - Generate a draft resource plan from a natural-language description (read-only; rate-limited per signed-in user). Not available to the USER group (403) — applying a generated draft would otherwise lose internal rates on the way in.
 
   #### WBS
   - `GET /projects/:projectId/wbs` - Get the flat list of WBS items (with estimates) for a project

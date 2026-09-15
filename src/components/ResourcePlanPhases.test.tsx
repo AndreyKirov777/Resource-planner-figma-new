@@ -83,6 +83,7 @@ function renderPlan(
       onUpdateRoadmapItem={onUpdateRoadmapItem}
       myRole="OWNER"
       canEdit={true}
+      group="ADMIN"
     />
   );
 }
@@ -279,6 +280,7 @@ describe('phase split', () => {
         onProjectDescriptionChange={vi.fn()}
         myRole="OWNER"
         canEdit={true}
+        group="ADMIN"
       />
     );
 

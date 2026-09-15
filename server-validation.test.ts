@@ -22,6 +22,10 @@ import {
   devLoginSchema,
   memberUpsertSchema,
   projectsScopeSchema,
+  resourcePlanUpdateSchema,
+  fromRateCardSchema,
+  fromResourceListSchema,
+  rateCardsQuerySchema,
 } from './server-validation';
 
 describe('server-validation Zod schemas', () => {
@@ -650,6 +654,61 @@ describe('server-validation Zod schemas', () => {
 
     it('rejects an unknown scope', () => {
       const result = projectsScopeSchema.safeParse({ scope: 'everything' });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('resourcePlanUpdateSchema resourceListId', () => {
+    it('accepts an optional resourceListId', () => {
+      const result = resourcePlanUpdateSchema.safeParse({ resourceListId: 5 });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects a non-positive resourceListId', () => {
+      const result = resourcePlanUpdateSchema.safeParse({ resourceListId: 0 });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('fromRateCardSchema', () => {
+    it('accepts a valid rateCardId and region', () => {
+      const result = fromRateCardSchema.safeParse({ rateCardId: 1, region: 'ukraine' });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects an unknown region', () => {
+      const result = fromRateCardSchema.safeParse({ rateCardId: 1, region: 'mars' });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('fromResourceListSchema', () => {
+    it('accepts a resourceListId with optional allocations', () => {
+      expect(fromResourceListSchema.safeParse({ resourceListId: 1 }).success).toBe(true);
+      expect(
+        fromResourceListSchema.safeParse({
+          resourceListId: 1,
+          allocations: [{ periodNumber: 1, allocation: 100 }],
+        }).success
+      ).toBe(true);
+    });
+
+    it('rejects a missing resourceListId', () => {
+      const result = fromResourceListSchema.safeParse({});
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('rateCardsQuerySchema', () => {
+    it('accepts no projectId and a numeric-string projectId (Express query params)', () => {
+      expect(rateCardsQuerySchema.safeParse({}).success).toBe(true);
+      const result = rateCardsQuerySchema.safeParse({ projectId: '5' });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.projectId).toBe(5);
+    });
+
+    it('rejects a non-numeric projectId', () => {
+      const result = rateCardsQuerySchema.safeParse({ projectId: 'abc' });
       expect(result.success).toBe(false);
     });
   });

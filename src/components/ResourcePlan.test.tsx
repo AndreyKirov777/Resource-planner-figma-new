@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { GridCellKind } from '@glideapps/glide-data-grid';
-import { ResourcePlan, planFieldsFromList } from './ResourcePlan';
+import { ResourcePlan } from './ResourcePlan';
+import { api } from '../services/api';
 import type { Project, ResourceList as ResourceListType, ResourcePlan as ResourcePlanType } from '../services/api';
 import { columnStorageKey } from './planningColumns';
 import { __resetLiveExchangeRates, setLiveExchangeRates } from '../config/defaults';
+
+vi.mock('../services/api', async (importOriginal) => {
+  const actual = await importOriginal() as object;
+  return {
+    ...actual,
+    api: { applyListEntry: vi.fn() },
+  };
+});
 
 if (!Element.prototype.hasPointerCapture) {
   Element.prototype.hasPointerCapture = () => false;
@@ -70,6 +79,7 @@ const defaultProps = {
   onProjectDescriptionChange: vi.fn(),
   myRole: 'OWNER' as const,
   canEdit: true,
+  group: 'ADMIN' as const,
 };
 
 function installMemoryLocalStorage() {
@@ -105,6 +115,7 @@ describe('ResourcePlan', () => {
   beforeEach(() => {
     installMemoryLocalStorage();
     __resetLiveExchangeRates();
+    vi.mocked(api.applyListEntry).mockReset();
   });
   it('renders project name input', () => {
     render(<ResourcePlan {...defaultProps} />);
@@ -452,9 +463,9 @@ describe('ResourcePlan', () => {
       );
     });
 
-    it('copies a non-zero list hourlyRate onto clientHourlyRate', () => {
+    it('applies a typed role match via the server (rates are computed there, not in the browser)', async () => {
       const selected = { ...resourceList[0], hourlyRate: 91 };
-      expect(planFieldsFromList(selected, mockProject).clientHourlyRate).toBe(91);
+      vi.mocked(api.applyListEntry).mockResolvedValue({ ...rolePlan, clientHourlyRate: 91 });
 
       const onResourcePlansChange = vi.fn();
       render(
@@ -466,13 +477,15 @@ describe('ResourcePlan', () => {
         />
       );
       capturedGridProps.onCellEdited?.([1, 0], { kind: GridCellKind.Text, data: 'Backend Developer' } as never);
-      expect(onResourcePlansChange).toHaveBeenCalledWith([
-        expect.objectContaining({ clientHourlyRate: 91 }),
-      ]);
-    });
 
-    it('falls back to Default Margin when list hourlyRate is 0', () => {
-      expect(planFieldsFromList(resourceList[0], mockProject).clientHourlyRate).toBeCloseTo(40 / 0.75);
+      await waitFor(() => {
+        expect(api.applyListEntry).toHaveBeenCalledWith(rolePlan.id, selected.id);
+      });
+      await waitFor(() => {
+        expect(onResourcePlansChange).toHaveBeenCalledWith([
+          expect.objectContaining({ clientHourlyRate: 91 }),
+        ]);
+      });
     });
 
     it('falls back to the placeholder role when the resource list is empty', async () => {
@@ -491,6 +504,70 @@ describe('ResourcePlan', () => {
       expect(onAddResourcePlan).toHaveBeenCalledWith(
         expect.objectContaining({ role: 'New role' })
       );
+    });
+  });
+
+  describe('USER visibility ceiling', () => {
+    const userProps = { ...defaultProps, group: 'USER' as const };
+
+    it('hides Total Internal Cost and Calculated Project Margin, keeps Total cost and Discounted cost', () => {
+      render(<ResourcePlan {...userProps} />);
+      expect(screen.queryByText('Total Internal Cost')).not.toBeInTheDocument();
+      expect(screen.queryByText('Calculated Project Margin')).not.toBeInTheDocument();
+      expect(screen.getByText('Total cost')).toBeInTheDocument();
+      expect(screen.getByText('Discounted cost')).toBeInTheDocument();
+    });
+
+    it('hides the Default Margin input in project settings', () => {
+      render(<ResourcePlan {...userProps} />);
+      expect(screen.queryByLabelText('Default Margin')).not.toBeInTheDocument();
+    });
+
+    it('hides the Generate AI Plan button even when canEdit is true', () => {
+      render(<ResourcePlan {...userProps} />);
+      expect(screen.queryByRole('button', { name: /generate ai plan/i })).not.toBeInTheDocument();
+    });
+
+    it('keeps the Generate AI Plan button for MANAGER and ADMIN with edit access', () => {
+      for (const group of ['MANAGER', 'ADMIN'] as const) {
+        const { unmount } = render(<ResourcePlan {...defaultProps} group={group} />);
+        expect(screen.getByRole('button', { name: /generate ai plan/i })).toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it('drops Cost and margin from the phase breakdown, keeps Price and hours', () => {
+      const plan: ResourcePlanType = {
+        id: 1,
+        role: 'Dev',
+        intHourlyRate: 200,
+        clientHourlyRate: 250,
+        displayOrder: 0,
+        projectId: 1,
+        createdAt: '',
+        updatedAt: '',
+        allocations: Array.from({ length: 10 }, (_, i) => ({
+          id: i + 1,
+          periodNumber: i + 1,
+          allocation: 100,
+          resourcePlanId: 1,
+          createdAt: '',
+          updatedAt: '',
+        })),
+      };
+      render(
+        <ResourcePlan
+          {...userProps}
+          project={{
+            ...mockProject,
+            phases: JSON.stringify([{ name: 'Phase 1', periodCount: 10 }]),
+          }}
+          resourcePlans={[plan]}
+        />,
+      );
+
+      expect(screen.queryByText(/^Cost \$/)).not.toBeInTheDocument();
+      expect(screen.getByText(/^Price \$/)).toBeInTheDocument();
     });
   });
 });

@@ -31,6 +31,7 @@ import {
   RoadmapItemKind,
   BootstrapRoadmapPayload,
   RoadmapReorderPayload,
+  GeneratePlanRegion,
 } from './services/api';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
@@ -111,6 +112,16 @@ export default function App({ me }: AppProps) {
     }
   };
 
+  // Refetch with `projectId` once a project is selected: the server only computes
+  // each row's client `price` (via clientHourlyRate) when a project is given, since
+  // that needs the project's margin/exchange rate.
+  useEffect(() => {
+    if (!currentProject) return;
+    api.getRateCards(currentProject.id)
+      .then(setRateCards)
+      .catch(err => console.error('Error loading project rate cards:', err));
+  }, [currentProject?.id]);
+
   const loadProjectData = async (preferredProjectId?: number) => {
     try {
       setLoading(true);
@@ -189,13 +200,27 @@ export default function App({ me }: AppProps) {
 
   const handleAddResourceList = async (newResource: Partial<ResourceListType>) => {
     if (!currentProject) return;
-    
+
     try {
       const createdResource = await api.createResourceList(currentProject.id, newResource);
       setResourceLists(prev => [...prev, createdResource]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add resource');
       console.error('Error adding resource:', err);
+    }
+  };
+
+  // Rates are computed server-side from the rate-card row (clientHourlyRate()) —
+  // the path a USER caller, who never holds intRate, uses to seed the resource list.
+  const handleSeedFromRateCard = async (rateCardId: number, region: GeneratePlanRegion) => {
+    if (!currentProject) return;
+
+    try {
+      const createdResource = await api.seedFromRateCard(currentProject.id, rateCardId, region);
+      setResourceLists(prev => [...prev, createdResource]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add resource from rate card');
+      console.error('Error seeding resource from rate card:', err);
     }
   };
 
@@ -786,7 +811,7 @@ export default function App({ me }: AppProps) {
     }
   };
 
-  const handleExportToExcel = async () => {
+  const handleExportToExcel = async (includeInternal: boolean) => {
     if (!currentProject || resourcePlans.length === 0) {
       alert('No planning data to export');
       return;
@@ -835,15 +860,16 @@ export default function App({ me }: AppProps) {
       const currencySymbol = currentProject.clientCurrency === 'EUR' ? '€' :
         currentProject.clientCurrency === 'GBP' ? '£' : '$';
 
-      // Lead columns 1..9 are Rate Card Role, Client Role, Name, Location, Internal Hourly,
-      // Internal Daily, Client Hourly, Client Daily, Margin — the number formats below index
-      // off these, so a new lead column means updating them together.
-      const COL_INT_HOURLY = 5;
-      const COL_INT_DAILY = 6;
-      const COL_CLIENT_HOURLY = 7;
-      const COL_CLIENT_DAILY = 8;
-      const COL_MARGIN = 9;
-      const firstWeekCol = 10;
+      // Lead columns are Rate Card Role, Client Role, Name, Location, [Internal Hourly,
+      // Internal Daily,] Client Hourly, Client Daily, [Margin] — the number formats below
+      // index off these, so a new lead column means updating them together. The bracketed
+      // internal columns are omitted entirely (not just hidden) when includeInternal is false.
+      const COL_INT_HOURLY = includeInternal ? 5 : -1;
+      const COL_INT_DAILY = includeInternal ? 6 : -1;
+      const COL_CLIENT_HOURLY = includeInternal ? 7 : 5;
+      const COL_CLIENT_DAILY = includeInternal ? 8 : 6;
+      const COL_MARGIN = includeInternal ? 9 : -1;
+      const firstWeekCol = includeInternal ? 10 : 7;
 
       // Hex to Excel ARGB (e.g. #E3F2FD -> 'FFE3F2FD')
       const hexToArgb = (hex: string): string => {
@@ -883,13 +909,12 @@ export default function App({ me }: AppProps) {
         'Client Role',
         'Name',
         'Location',
-        'Internal Hourly Cost ($)',
-        'Internal Daily Cost ($)',
+        ...(includeInternal ? ['Internal Hourly Cost ($)', 'Internal Daily Cost ($)'] : []),
         `Client Hourly Rate (${currencySymbol})`,
         `Client Daily Rate (${currencySymbol})`,
-        'Margin (%)',
+        ...(includeInternal ? ['Margin (%)'] : []),
         ...weekNumbers.map((w) => `${periodLbl} ${w} (%)`),
-        'Total Internal Cost ($)',
+        ...(includeInternal ? ['Total Internal Cost ($)'] : []),
         `Total cost (${currencySymbol})`,
         'Estimated Efforts (h)',
       ];
@@ -913,16 +938,15 @@ export default function App({ me }: AppProps) {
           canonicalLocationLabel(
             findResourceForPlan(plan.role, plan.intHourlyRate, resourceLists)?.location
           ),
-          plan.intHourlyRate,
-          intDailyRate,
+          ...(includeInternal ? [plan.intHourlyRate, intDailyRate] : []),
           plan.clientHourlyRate,
           clientDailyRate,
-          margin,
+          ...(includeInternal ? [margin] : []),
           ...weekNumbers.map((weekNum) => {
             const allocation = plan.allocations.find((wa) => wa.periodNumber === weekNum);
             return allocation?.allocation || 0;
           }),
-          totalIntCost,
+          ...(includeInternal ? [totalIntCost] : []),
           totalPrice,
           totalEfforts,
         ];
@@ -932,16 +956,9 @@ export default function App({ me }: AppProps) {
       // Totals row
       const totalsRow = [
         'TOTALS',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
+        ...headers.slice(1, firstWeekCol - 1).map(() => ''),
         ...weekNumbers.map(() => ''),
-        financials.totals.intCost,
+        ...(includeInternal ? [financials.totals.intCost] : []),
         financials.totals.price,
         financials.totals.effortHours,
       ];
@@ -956,30 +973,32 @@ export default function App({ me }: AppProps) {
       phaseSummaryTitleRow.font = { bold: true };
       const phaseSummaryHeaderRow = worksheet.addRow([
         'Phase',
-        'Internal Cost ($)',
+        ...(includeInternal ? ['Internal Cost ($)'] : []),
         `Price (${currencySymbol})`,
         'Estimated Efforts (h)',
-        'Margin (%)',
+        ...(includeInternal ? ['Margin (%)'] : []),
       ]);
       phaseSummaryHeaderRow.font = { bold: true };
       phaseSummaryHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
       const phaseSummaryClientFmt = currentProject.clientCurrency === 'EUR' ? '€#,##0.00'
         : currentProject.clientCurrency === 'GBP' ? '£#,##0.00' : '$#,##0.00';
+      const phaseSummaryPriceCol = includeInternal ? 3 : 2;
+      const phaseSummaryEffortsCol = includeInternal ? 4 : 3;
       const phaseSummaryDataRowNumbers: number[] = [];
       financials.phaseTotals.forEach((pt) => {
         const phaseRow = worksheet.addRow([
           pt.name,
-          Math.round(pt.cost * 100) / 100,
+          ...(includeInternal ? [Math.round(pt.cost * 100) / 100] : []),
           Math.round(pt.price * 100) / 100,
           Math.round(pt.efforts * 100) / 100,
-          Math.round(pt.margin * 100) / 100,
+          ...(includeInternal ? [Math.round(pt.margin * 100) / 100] : []),
         ]);
         phaseSummaryDataRowNumbers.push(phaseRow.number);
         const r = worksheet.getRow(phaseRow.number);
-        if (r.getCell(2).value != null) r.getCell(2).numFmt = '$#,##0.00';
-        if (r.getCell(3).value != null) r.getCell(3).numFmt = phaseSummaryClientFmt;
-        if (r.getCell(4).value != null) r.getCell(4).numFmt = '#,##0.00';
-        if (r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
+        if (includeInternal && r.getCell(2).value != null) r.getCell(2).numFmt = '$#,##0.00';
+        if (r.getCell(phaseSummaryPriceCol).value != null) r.getCell(phaseSummaryPriceCol).numFmt = phaseSummaryClientFmt;
+        if (r.getCell(phaseSummaryEffortsCol).value != null) r.getCell(phaseSummaryEffortsCol).numFmt = '#,##0.00';
+        if (includeInternal && r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
       });
 
       // Project financial summary (investment-aware)
@@ -991,12 +1010,12 @@ export default function App({ me }: AppProps) {
         ? '—'
         : Math.round(financials.totals.investmentPct * 100) / 100;
       ([
-        ['Total Internal Cost ($)', Math.round(financials.totals.intCost * 100) / 100],
+        ...(includeInternal ? [['Total Internal Cost ($)', Math.round(financials.totals.intCost * 100) / 100]] : []),
         [`Total cost (${currencySymbol})`, Math.round(financials.totals.price * 100) / 100],
         [`Discounted cost (${currencySymbol})`, Math.round(financials.totals.discountedCost * 100) / 100],
         [`Investment (${currencySymbol})`, Math.round(investmentAmount * 100) / 100],
         ['Investment %', investmentPctLabel],
-        ['Project Margin (%)', Math.round(financials.totals.margin * 100) / 100],
+        ...(includeInternal ? [['Project Margin (%)', Math.round(financials.totals.margin * 100) / 100]] : []),
         [`Blended Hourly Rate (${currencySymbol})`, Math.round(financials.totals.blendedHourlyRate * 100) / 100],
         [`Blended Daily Rate (${currencySymbol})`, Math.round(financials.totals.blendedDailyRate * 100) / 100],
       ] as Array<[string, string | number]>).forEach(([label, value]) => {
@@ -1016,28 +1035,33 @@ export default function App({ me }: AppProps) {
         }
       });
 
-      const internalCostColumns = [COL_INT_HOURLY, COL_INT_DAILY, firstWeekCol + weekNumbers.length];
+      // Total Internal Cost only exists as a trailing summary column when includeInternal;
+      // Total cost and Estimated Efforts shift left by one column without it.
+      const totalIntCostCol = firstWeekCol + weekNumbers.length;
+      const totalPriceCol = totalIntCostCol + (includeInternal ? 1 : 0);
+      const totalEffortsCol = totalPriceCol + 1;
+
+      const internalCostColumns = includeInternal ? [COL_INT_HOURLY, COL_INT_DAILY, totalIntCostCol] : [];
       internalCostColumns.forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = '$#,##0';
       });
-      const clientCurrencyColumns = [COL_CLIENT_HOURLY, COL_CLIENT_DAILY, firstWeekCol + weekNumbers.length + 1];
+      const clientCurrencyColumns = [COL_CLIENT_HOURLY, COL_CLIENT_DAILY, totalPriceCol];
       const clientCurrencyFormat = currentProject.clientCurrency === 'EUR' ? '€#,##0' :
         currentProject.clientCurrency === 'GBP' ? '£#,##0' : '$#,##0';
       clientCurrencyColumns.forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = clientCurrencyFormat;
       });
-      const marginColumn = COL_MARGIN;
       const weekColumns = weekNumbers.map((_, index) => firstWeekCol + index);
-      [marginColumn, ...weekColumns].forEach((colIndex) => {
+      [...(includeInternal ? [COL_MARGIN] : []), ...weekColumns].forEach((colIndex) => {
         worksheet.getColumn(colIndex).numFmt = '0"%"';
       });
-      worksheet.getColumn(firstWeekCol + weekNumbers.length + 2).numFmt = '0';
+      worksheet.getColumn(totalEffortsCol).numFmt = '0';
 
-      // Re-apply Phase Summary cell formats (columns 4 & 5 are overwritten by column formats above)
+      // Re-apply Phase Summary cell formats (overwritten by the column formats above)
       phaseSummaryDataRowNumbers.forEach((rowNum) => {
         const r = worksheet.getRow(rowNum);
-        if (r.getCell(4).value != null) r.getCell(4).numFmt = '#,##0.00';
-        if (r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
+        if (r.getCell(phaseSummaryEffortsCol).value != null) r.getCell(phaseSummaryEffortsCol).numFmt = '#,##0.00';
+        if (includeInternal && r.getCell(5).value != null) r.getCell(5).numFmt = '0.00"%"';
       });
 
       const buffer = await workbook.xlsx.writeBuffer();
@@ -1058,7 +1082,7 @@ export default function App({ me }: AppProps) {
     }
   };
 
-  const handleExportToPNG = () => {
+  const handleExportToPNG = (includeInternal: boolean) => {
     if (!currentProject || resourcePlans.length === 0) {
       alert('No planning data to export');
       return;
@@ -1139,10 +1163,10 @@ export default function App({ me }: AppProps) {
       { label: 'Client Role',                       w: 130 },
       { label: 'Name',                              w: 130 },
       { label: 'Location',                          w: 70  },
-      { label: 'Int. Hourly ($)',                   w: 110 },
+      ...(includeInternal ? [{ label: 'Int. Hourly ($)', w: 110 }] : []),
       { label: `Client Hourly (${currencySymbol})`, w: 120 },
-      { label: 'Margin %',                          w: 80  },
-      { label: 'Total Int. Cost ($)',               w: 130 },
+      ...(includeInternal ? [{ label: 'Margin %', w: 80 }] : []),
+      ...(includeInternal ? [{ label: 'Total Int. Cost ($)', w: 130 }] : []),
       { label: `Total cost (${currencySymbol})`,    w: 120 },
       { label: 'Est. Efforts (h)',                  w: 110 },
     ];
@@ -1208,10 +1232,10 @@ export default function App({ me }: AppProps) {
         row.clientRole,
         row.name,
         row.location,
-        `$${row.intHourlyRate.toFixed(0)}`,
+        ...(includeInternal ? [`$${row.intHourlyRate.toFixed(0)}`] : []),
         `${currencySymbol}${row.clientHourlyRate.toFixed(0)}`,
-        `${row.margin.toFixed(1)}%`,
-        `$${Math.round(row.intCost).toLocaleString()}`,
+        ...(includeInternal ? [`${row.margin.toFixed(1)}%`] : []),
+        ...(includeInternal ? [`$${Math.round(row.intCost).toLocaleString()}`] : []),
         `${currencySymbol}${Math.round(row.price).toLocaleString()}`,
         `${Math.round(row.efforts).toLocaleString()}h`,
       ];
@@ -1235,8 +1259,9 @@ export default function App({ me }: AppProps) {
     ctx.fillStyle = '#e2e8f0';
     ctx.fillRect(tableX, totalsY, tableW, ROW_H);
     const totalsValues = [
-      'TOTALS', '', '', '', '', '', '',
-      `$${Math.round(grandIntCost).toLocaleString()}`,
+      'TOTALS',
+      ...columns.slice(1, columns.length - (includeInternal ? 3 : 2)).map(() => ''),
+      ...(includeInternal ? [`$${Math.round(grandIntCost).toLocaleString()}`] : []),
       `${currencySymbol}${Math.round(grandPrice).toLocaleString()}`,
       `${Math.round(grandEfforts).toLocaleString()}h`,
     ];
@@ -1311,14 +1336,14 @@ export default function App({ me }: AppProps) {
     const pngDurationLabel = pngPlanMode === 'monthly' ? 'Duration (months)' : 'Duration (weeks)';
 
     const metrics = [
-      { label: 'Total Internal Cost',                      value: `$${Math.round(grandIntCost).toLocaleString()}` },
+      ...(includeInternal ? [{ label: 'Total Internal Cost', value: `$${Math.round(grandIntCost).toLocaleString()}` }] : []),
       { label: `Total cost (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandPrice).toLocaleString()}` },
       { label: `Discounted cost (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(grandDiscounted).toLocaleString()}` },
       { label: `Investment (${currentProject.clientCurrency})`, value: `${currencySymbol}${Math.round(investmentAmount).toLocaleString()}` },
       { label: 'Investment %',                             value: investmentPctDisplay },
       { label: 'Total Estimated Efforts',                  value: `${Math.round(grandEfforts).toLocaleString()} h` },
       { label: pngDurationLabel,                           value: `${totalPeriods}` },
-      { label: 'Project Margin',                           value: `${projectMargin.toFixed(1)}%`, highlight: projectMargin > 0 },
+      ...(includeInternal ? [{ label: 'Project Margin', value: `${projectMargin.toFixed(1)}%`, highlight: projectMargin > 0 }] : []),
       { label: `Blended Hourly Rate (${currentProject.clientCurrency})`, value: `${currencySymbol}${blendedHourlyRate.toFixed(0)}` },
       { label: `Blended Daily Rate (${currentProject.clientCurrency})`,  value: `${currencySymbol}${blendedDailyRate.toFixed(0)}` },
     ];
@@ -1467,8 +1492,8 @@ export default function App({ me }: AppProps) {
             onProjectSettingsChange={handleProjectSettingsChange}
             onExportProject={handleExportProject}
             onImportProject={handleImportProject}
-            onExportToExcel={handleExportToExcel}
-            onExportToPNG={handleExportToPNG}
+            onExportToExcel={() => handleExportToExcel(me.group !== 'USER')}
+            onExportToPNG={() => handleExportToPNG(me.group !== 'USER')}
             onClearAllResourcePlans={handleClearAllResourcePlans}
             onApplyGeneratedPlan={handleApplyGeneratedPlan}
             onConvertPlanningMode={handleConvertPlanningMode}
@@ -1486,6 +1511,7 @@ export default function App({ me }: AppProps) {
             onUpdateRoadmapItem={handleUpdateRoadmapItem}
             myRole={myRole}
             canEdit={canEdit}
+            group={me.group}
           />
         </TabsContent>
 
@@ -1500,6 +1526,7 @@ export default function App({ me }: AppProps) {
             exchangeRate={currentProject?.exchangeRate}
             clientCurrency={currentProject?.clientCurrency}
             canEdit={canEdit}
+            group={me.group}
           />
         </TabsContent>
 
@@ -1554,11 +1581,12 @@ export default function App({ me }: AppProps) {
             onAddRateCardsBulk={handleAddRateCardsBulk}
             onDeleteRateCard={handleDeleteRateCard}
             onDeleteAllRateCards={handleDeleteAllRateCards}
-            onAddResourceList={handleAddResourceList}
+            onSeedFromRateCard={handleSeedFromRateCard}
             defaultLocation={currentProject?.defaultLocation}
             defaultMargin={currentProject.defaultMargin}
             exchangeRate={currentProject.exchangeRate}
             clientCurrency={currentProject.clientCurrency}
+            group={me.group}
           />
         </TabsContent>
 

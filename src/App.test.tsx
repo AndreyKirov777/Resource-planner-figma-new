@@ -316,6 +316,49 @@ describe('App', () => {
     expect(totals[11]).toBeGreaterThan(0); // Total Internal Cost, right of the week columns
   });
 
+  it('omits internal cost/margin columns from the Excel export for a USER', async () => {
+    const user = userEvent.setup();
+    let exported: Blob | undefined;
+    global.URL.createObjectURL = vi.fn((blob: Blob) => {
+      exported = blob;
+      return 'blob:mock-url';
+    }) as unknown as typeof URL.createObjectURL;
+    global.URL.revokeObjectURL = vi.fn();
+
+    const api = await getApi();
+    vi.mocked(api.getResourcePlans).mockResolvedValue([
+      { id: 1, projectId: 1, role: 'BA', clientRole: 'Analyst', name: 'Ann', intHourlyRate: 30,
+        clientHourlyRate: 60, displayOrder: 0, createdAt: '', updatedAt: '',
+        allocations: [{ id: 1, resourcePlanId: 1, periodNumber: 1, allocation: 100, createdAt: '', updatedAt: '' }] },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App me={{ id: 3, email: 'user@example.test', displayName: 'Dev User', group: 'USER' }} />
+      </MemoryRouter>
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /export excel/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: /export excel/i }));
+    await waitFor(() => expect(exported).toBeDefined());
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await exported!.arrayBuffer());
+    const sheet = workbook.worksheets[0];
+
+    const headers = sheet.getRow(2).values as string[];
+    expect(headers).not.toContain('Internal Hourly Cost ($)');
+    expect(headers).not.toContain('Internal Daily Cost ($)');
+    expect(headers).not.toContain('Margin (%)');
+    expect(headers).not.toContain('Total Internal Cost ($)');
+    expect(headers).toContain('Client Hourly Rate ($)');
+
+    const financialSummaryLabels = sheet.getColumn(1).values as string[];
+    expect(financialSummaryLabels).not.toContain('Total Internal Cost ($)');
+    expect(financialSummaryLabels).not.toContain('Project Margin (%)');
+  });
+
   it('project name change calls updateProject', async () => {
     const user = userEvent.setup();
     const api = await getApi();
