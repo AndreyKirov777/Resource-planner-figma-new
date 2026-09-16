@@ -153,7 +153,9 @@
   #### Users and sharing
   - `GET /users` - List every user who has signed in (id, email, display name, group, active flag)
   - `GET /projects/:id/members` - List a project's members and their roles
-  - `PUT /projects/:id/members/:userId` - Add or change a member's role (EDITOR or VIEWER) — OWNER/ADMIN only
+  - `GET /projects/:id/directory-users` - Search the Entra directory (or local users in AUTH_MODE=dev) by name or email — OWNER/ADMIN only
+  - `POST /projects/:id/members` - Add a member by Entra object id, creating a local user if needed — OWNER/ADMIN only
+  - `PUT /projects/:id/members/:userId` - Change a member's role (EDITOR or VIEWER) — OWNER/ADMIN only
   - `DELETE /projects/:id/members/:userId` - Remove a member — OWNER/ADMIN only
   - `POST /projects/:id/share-links` - Create an expiring, unguessable client link (`days`: 7, 30, or 90) — requires write access
   - `GET /projects/:id/share-links` - List a project's client links, active or not — requires read access

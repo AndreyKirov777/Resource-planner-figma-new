@@ -482,4 +482,61 @@ describe('Access control integration', () => {
       expect(res.status).toBe(200);
     });
   });
+
+  describe('directory search and add-by-entraObjectId', () => {
+    it('OWNER search ?q=dev returns fixture users except current members', async () => {
+      const res = await admin.get(`/api/projects/${p1}/directory-users`).query({ q: 'dev' });
+      expect(res.status).toBe(200);
+      const oids = res.body.map((u: { entraObjectId: string }) => u.entraObjectId);
+      expect(oids).toContain('dev-user2');
+      expect(oids).not.toContain('dev-admin');
+      expect(oids).not.toContain('dev-manager');
+      expect(oids).not.toContain('dev-user');
+      expect(res.body.find((u: { entraObjectId: string }) => u.entraObjectId === 'dev-user2')).toEqual(
+        expect.objectContaining({
+          entraObjectId: 'dev-user2',
+          email: 'user2@example.test',
+          displayName: 'Dev User 2',
+          userId: expect.any(Number),
+        })
+      );
+    });
+
+    it('rejects q of one character with 400', async () => {
+      const res = await admin.get(`/api/projects/${p1}/directory-users`).query({ q: 'x' });
+      expect(res.status).toBe(400);
+    });
+
+    it('EDITOR gets 403 on directory search', async () => {
+      const res = await manager.get(`/api/projects/${p1}/directory-users`).query({ q: 'dev' });
+      expect(res.status).toBe(403);
+    });
+
+    it('POST /members with a fixture entraObjectId adds VIEWER', async () => {
+      const res = await admin.post(`/api/projects/${p1}/members`).send({
+        entraObjectId: 'dev-user2',
+        role: 'VIEWER',
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(expect.objectContaining({
+        role: 'VIEWER',
+        email: 'user2@example.test',
+        displayName: 'Dev User 2',
+      }));
+
+      const members = await admin.get(`/api/projects/${p1}/members`);
+      expect(members.body).toContainEqual(expect.objectContaining({
+        email: 'user2@example.test',
+        role: 'VIEWER',
+      }));
+    });
+
+    it('unknown entraObjectId returns 404', async () => {
+      const res = await admin.post(`/api/projects/${p1}/members`).send({
+        entraObjectId: 'does-not-exist',
+        role: 'EDITOR',
+      });
+      expect(res.status).toBe(404);
+    });
+  });
 });

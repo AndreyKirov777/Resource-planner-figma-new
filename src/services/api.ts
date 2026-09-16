@@ -119,6 +119,13 @@ export interface UserInfo {
   lastLoginAt: string | null;
 }
 
+export interface DirectoryUser {
+  entraObjectId: string;
+  email: string;
+  displayName: string;
+  userId: number | null;
+}
+
 export type ShareLinkDays = 7 | 30 | 90;
 
 export interface ShareLink {
@@ -389,6 +396,25 @@ export const api = {
   async getUsers(): Promise<UserInfo[]> {
     const response = await apiFetch(`${API_BASE_URL}/users`);
     if (!response.ok) throw new Error('Failed to fetch users');
+    return response.json();
+  },
+
+  async searchDirectoryUsers(projectId: number, q: string, signal?: AbortSignal): Promise<DirectoryUser[]> {
+    const response = await apiFetch(
+      `${API_BASE_URL}/projects/${projectId}/directory-users?q=${encodeURIComponent(q)}`,
+      signal ? { signal } : undefined
+    );
+    await throwIfNotOk(response, 'Failed to search directory');
+    return response.json();
+  },
+
+  async addMember(projectId: number, entraObjectId: string, role: 'EDITOR' | 'VIEWER'): Promise<ProjectMemberInfo> {
+    const response = await apiFetch(`${API_BASE_URL}/projects/${projectId}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entraObjectId, role }),
+    });
+    await throwIfNotOk(response, 'Failed to add member');
     return response.json();
   },
 

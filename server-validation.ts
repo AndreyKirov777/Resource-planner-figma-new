@@ -484,6 +484,19 @@ export const memberUpsertSchema = z.object({
 
 export type MemberUpsertInput = z.infer<typeof memberUpsertSchema>;
 
+export const directoryUsersQuerySchema = z.object({
+  q: z.string().trim().min(2).max(100),
+}).strict();
+
+export type DirectoryUsersQueryInput = z.infer<typeof directoryUsersQuerySchema>;
+
+export const memberCreateSchema = z.object({
+  entraObjectId: z.string().min(1),
+  role: z.enum(['EDITOR', 'VIEWER']),
+}).strict();
+
+export type MemberCreateInput = z.infer<typeof memberCreateSchema>;
+
 export const projectsScopeSchema = z.object({
   scope: z.enum(['mine', 'shared', 'all']).optional(),
 }).strict();

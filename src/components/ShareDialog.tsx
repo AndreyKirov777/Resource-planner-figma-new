@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { api, ProjectMemberInfo, ProjectRole, ShareLink, ShareLinkDays, UserInfo } from '../services/api';
+import React, { useEffect, useState } from 'react';
+import { api, DirectoryUser, ProjectMemberInfo, ProjectRole, ShareLink, ShareLinkDays } from '../services/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
@@ -35,7 +35,8 @@ export function ShareDialog({ open, onOpenChange, projectId, myRole }: ShareDial
   // Any write role can create/copy/revoke a client link; only VIEWER cannot.
   const canWriteLinks = myRole !== 'VIEWER';
   const [members, setMembers] = useState<ProjectMemberInfo[]>([]);
-  const [users, setUsers] = useState<UserInfo[]>([]);
+  const [results, setResults] = useState<DirectoryUser[]>([]);
+  const [searching, setSearching] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -51,14 +52,40 @@ export function ShareDialog({ open, onOpenChange, projectId, myRole }: ShareDial
     if (!open || !canManage) return;
     setLoading(true);
     setError(null);
-    Promise.all([api.getMembers(projectId), api.getUsers()])
-      .then(([m, u]) => {
-        setMembers(m);
-        setUsers(u);
-      })
+    api.getMembers(projectId)
+      .then(setMembers)
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load sharing info'))
       .finally(() => setLoading(false));
   }, [open, canManage, projectId]);
+
+  useEffect(() => {
+    if (!open || !canManage) return;
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      api.searchDirectoryUsers(projectId, q, controller.signal)
+        .then((hits) => {
+          if (!controller.signal.aborted) setResults(hits);
+        })
+        .catch((err) => {
+          if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
+          setError(err instanceof Error ? err.message : 'Failed to search directory');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false);
+        });
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, open, canManage, projectId]);
 
   useEffect(() => {
     if (!open || !canWriteLinks) return;
@@ -99,22 +126,12 @@ export function ShareDialog({ open, onOpenChange, projectId, myRole }: ShareDial
     copyToClipboard(url).then(() => alert('Client link copied to clipboard'));
   };
 
-  const memberIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
-
-  const searchResults = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return [];
-    return users
-      .filter((u) => !memberIds.has(u.id))
-      .filter((u) => u.displayName.toLowerCase().includes(needle) || u.email.toLowerCase().includes(needle))
-      .slice(0, 10);
-  }, [users, memberIds, query]);
-
-  const handleAdd = async (userId: number) => {
+  const handleAdd = async (entraObjectId: string) => {
     try {
-      const member = await api.upsertMember(projectId, userId, addRole);
-      setMembers((prev) => [...prev.filter((m) => m.userId !== userId), member]);
+      const member = await api.addMember(projectId, entraObjectId, addRole);
+      setMembers((prev) => [...prev.filter((m) => m.userId !== member.userId), member]);
       setQuery('');
+      setResults([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add member');
     }
@@ -214,23 +231,23 @@ export function ShareDialog({ open, onOpenChange, projectId, myRole }: ShareDial
                       </SelectContent>
                     </Select>
                   </div>
-                  {searchResults.length > 0 && (
+                  {results.length > 0 && (
                     <div className="space-y-1">
-                      {searchResults.map((u) => (
-                        <div key={u.id} className="flex items-center justify-between gap-2 text-sm">
+                      {results.map((u) => (
+                        <div key={u.entraObjectId} className="flex items-center justify-between gap-2 text-sm">
                           <div className="min-w-0">
                             <div className="font-medium truncate">{u.displayName}</div>
                             <div className="text-muted-foreground truncate">{u.email}</div>
                           </div>
-                          <Button variant="outline" size="sm" onClick={() => handleAdd(u.id)}>
+                          <Button variant="outline" size="sm" onClick={() => handleAdd(u.entraObjectId)}>
                             Add
                           </Button>
                         </div>
                       ))}
                     </div>
                   )}
-                  {query.trim() && searchResults.length === 0 && (
-                    <div className="text-sm text-muted-foreground">No matching user has signed in.</div>
+                  {query.trim().length >= 2 && !searching && results.length === 0 && (
+                    <div className="text-sm text-muted-foreground">No matching people in the directory.</div>
                   )}
                 </div>
               </>

@@ -24,8 +24,9 @@ In the Azure portal (Entra ID → App registrations → New registration):
    - `http://localhost:3001/auth/callback` (local dev against a real tenant)
 2. **Client secret** — Certificates & secrets → New client secret. Copy the value into `ENTRA_CLIENT_SECRET` (it is shown once).
 3. **`groups` claim** — Token configuration → Add groups claim → Security groups, for both ID and access tokens. Entra only emits the `groups` claim for groups the app registration is explicitly configured to receive; keep this to a small set (the three groups below), not "all groups the user is in" — see the overage risk note below.
-4. **Three security groups** — create (or reuse) three Entra security groups for ADMIN, MANAGER, and USER, and note their object ids for `ENTRA_GROUP_ADMIN`/`ENTRA_GROUP_MANAGER`/`ENTRA_GROUP_USER`.
-5. Record the **Application (client) ID** and **Directory (tenant) ID** for `ENTRA_CLIENT_ID` / `ENTRA_TENANT_ID`.
+4. **Microsoft Graph application permissions** — API permissions → Microsoft Graph → Application permissions → add `User.Read.All` and `GroupMember.Read.All`, then Grant admin consent. Required for the Share dialog directory search when `AUTH_MODE=entra`. Same app registration / secrets; no extra environment variables.
+5. **Three security groups** — create (or reuse) three Entra security groups for ADMIN, MANAGER, and USER, and note their object ids for `ENTRA_GROUP_ADMIN`/`ENTRA_GROUP_MANAGER`/`ENTRA_GROUP_USER`.
+6. Record the **Application (client) ID** and **Directory (tenant) ID** for `ENTRA_CLIENT_ID` / `ENTRA_TENANT_ID`.
 
 Membership in these groups is managed entirely in Entra — the app never assigns or edits group membership.
 

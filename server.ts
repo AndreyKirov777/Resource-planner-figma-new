@@ -34,6 +34,8 @@ import {
   bootstrapRoadmapSchema,
   roadmapReorderSchema,
   memberUpsertSchema,
+  directoryUsersQuerySchema,
+  memberCreateSchema,
   projectsScopeSchema,
   fromRateCardSchema,
   fromResourceListSchema,
@@ -60,6 +62,8 @@ import { createDevAuthRouter } from './server/auth/dev';
 import { createEntraAuthRouter } from './server/auth/entra';
 import { requireAuth } from './server/auth/session';
 import { AccessError, createAccessHelpers } from './server/auth/access';
+import { GraphError, directoryGroupIds, getDirectoryUser, searchDirectoryUsers } from './server/auth/graph';
+import { resolveGroup } from './server/auth/groups';
 import { userFilterMiddleware } from './server/auth/visibility';
 import { clientHourlyRate } from './src/utils/calculations';
 import { regionToLocationLabel } from './src/utils/regions';
@@ -73,6 +77,10 @@ const { requireProjectAccess, projectIdOf } = createAccessHelpers(prisma);
 /** Sends the right status for an AccessError, or re-throws for the route's own catch to handle. */
 function isAccessError(error: unknown): error is AccessError {
   return error instanceof AccessError;
+}
+
+function isGraphError(error: unknown): error is GraphError {
+  return error instanceof GraphError;
 }
 
 /**
@@ -813,8 +821,8 @@ app.post('/api/projects/import', async (req, res) => {
   }
 });
 
-// Users directory: readable by any signed-in user (the Share dialog needs it to
-// search collaborators); only the Users *page* itself is gated to ADMIN, client-side.
+// Users who have signed in. The ADMIN Users page is the only consumer; Share
+// searches GET /api/projects/:id/directory-users instead.
 app.get('/api/users', async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
@@ -848,6 +856,122 @@ app.get('/api/projects/:id/members', async (req, res) => {
   } catch (error) {
     if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Failed to fetch members' });
+  }
+});
+
+app.get('/api/projects/:id/directory-users', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    const parsed = directoryUsersQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    await requireProjectAccess(req.user!, projectId, 'own');
+
+    const hits = authMode === 'dev'
+      ? (await prisma.user.findMany({
+          where: {
+            OR: [
+              { displayName: { contains: parsed.data.q } },
+              { email: { contains: parsed.data.q } },
+            ],
+          },
+          take: 10,
+          select: { entraObjectId: true, email: true, displayName: true },
+        }))
+      : await searchDirectoryUsers(parsed.data.q);
+
+    const [members, locals] = await Promise.all([
+      prisma.projectMember.findMany({
+        where: { projectId },
+        select: { user: { select: { entraObjectId: true } } },
+      }),
+      prisma.user.findMany({
+        where: { entraObjectId: { in: hits.map((h) => h.entraObjectId) } },
+        select: { id: true, entraObjectId: true },
+      }),
+    ]);
+    const memberOids = new Set(members.map((m) => m.user.entraObjectId));
+    const localByOid = new Map(locals.map((u) => [u.entraObjectId, u.id]));
+
+    res.json(
+      hits
+        .filter((h) => !memberOids.has(h.entraObjectId))
+        .map((h) => ({
+          entraObjectId: h.entraObjectId,
+          email: h.email,
+          displayName: h.displayName,
+          userId: localByOid.get(h.entraObjectId) ?? null,
+        }))
+    );
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    if (isGraphError(error)) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to search the directory' });
+  }
+});
+
+app.post('/api/projects/:id/members', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    const parsed = memberCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    }
+    await requireProjectAccess(req.user!, projectId, 'own');
+
+    const { entraObjectId, role } = parsed.data;
+    let targetUser = await prisma.user.findUnique({ where: { entraObjectId } });
+
+    if (!targetUser) {
+      if (authMode === 'dev') {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const profile = await getDirectoryUser(entraObjectId);
+      if (!profile) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const groups = await directoryGroupIds(entraObjectId);
+      const group = resolveGroup({ email: profile.email, groups }, process.env);
+      if (!group) {
+        return res.status(403).json({ error: 'This person does not have access to Resource Planner' });
+      }
+      try {
+        targetUser = await prisma.user.upsert({
+          where: { entraObjectId },
+          update: { email: profile.email, displayName: profile.displayName, group },
+          create: { entraObjectId, email: profile.email, displayName: profile.displayName, group },
+        });
+      } catch (error) {
+        const err = error as { code?: string };
+        if (err.code === 'P2002') {
+          return res.status(409).json({ error: 'A user with this email already exists' });
+        }
+        throw error;
+      }
+    }
+
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
+    if (project?.ownerId === targetUser.id) {
+      return res.status(400).json({ error: 'The owner’s role cannot be changed here' });
+    }
+
+    const member = await prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId, userId: targetUser.id } },
+      update: { role },
+      create: { projectId, userId: targetUser.id, role },
+    });
+    res.json({
+      userId: member.userId,
+      role: member.role,
+      email: targetUser.email,
+      displayName: targetUser.displayName,
+      group: targetUser.group,
+    });
+  } catch (error) {
+    if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
+    if (isGraphError(error)) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to add member' });
   }
 });
 

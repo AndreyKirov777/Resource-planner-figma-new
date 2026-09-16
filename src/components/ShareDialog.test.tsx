@@ -20,7 +20,8 @@ if (!Element.prototype.scrollIntoView) {
 vi.mock('../services/api', () => ({
   api: {
     getMembers: vi.fn(),
-    getUsers: vi.fn(),
+    searchDirectoryUsers: vi.fn(),
+    addMember: vi.fn(),
     upsertMember: vi.fn(),
     removeMember: vi.fn(),
     getShareLinks: vi.fn(),
@@ -34,11 +35,12 @@ const MEMBERS = [
   { userId: 2, role: 'EDITOR' as const, email: 'manager@example.test', displayName: 'Dev Manager', group: 'MANAGER' as const },
 ];
 
-const USERS = [
-  { id: 1, email: 'admin@example.test', displayName: 'Dev Admin', group: 'ADMIN' as const, isActive: true, lastLoginAt: null },
-  { id: 2, email: 'manager@example.test', displayName: 'Dev Manager', group: 'MANAGER' as const, isActive: true, lastLoginAt: null },
-  { id: 3, email: 'user@example.test', displayName: 'Dev User', group: 'USER' as const, isActive: true, lastLoginAt: null },
-];
+const DIRECTORY_HIT = {
+  entraObjectId: 'dev-user',
+  email: 'user@example.test',
+  displayName: 'Dev User',
+  userId: 3,
+};
 
 const SHARE_LINKS = [
   {
@@ -55,7 +57,8 @@ const SHARE_LINKS = [
 
 beforeEach(() => {
   vi.mocked(api.getMembers).mockReset();
-  vi.mocked(api.getUsers).mockReset();
+  vi.mocked(api.searchDirectoryUsers).mockReset();
+  vi.mocked(api.addMember).mockReset();
   vi.mocked(api.upsertMember).mockReset();
   vi.mocked(api.removeMember).mockReset();
   vi.mocked(api.getShareLinks).mockReset();
@@ -63,7 +66,10 @@ beforeEach(() => {
   vi.mocked(api.revokeShareLink).mockReset();
 
   vi.mocked(api.getMembers).mockResolvedValue(MEMBERS);
-  vi.mocked(api.getUsers).mockResolvedValue(USERS);
+  vi.mocked(api.searchDirectoryUsers).mockResolvedValue([DIRECTORY_HIT]);
+  vi.mocked(api.addMember).mockResolvedValue({
+    userId: 3, role: 'EDITOR', email: 'user@example.test', displayName: 'Dev User', group: 'USER',
+  });
   vi.mocked(api.upsertMember).mockResolvedValue({
     userId: 3, role: 'EDITOR', email: 'user@example.test', displayName: 'Dev User', group: 'USER',
   });
@@ -105,7 +111,17 @@ describe('ShareDialog — People section', () => {
     expect(api.getMembers).toHaveBeenCalledWith(1);
   });
 
-  it('searches and adds a new member', async () => {
+  it('does not search for fewer than two characters', async () => {
+    const user = userEvent.setup();
+    render(<ShareDialog open onOpenChange={vi.fn()} projectId={1} myRole="OWNER" />);
+    await screen.findByText('Dev Admin');
+
+    await user.type(screen.getByLabelText('Search users to add'), 'D');
+    await new Promise((r) => setTimeout(r, 400));
+    expect(api.searchDirectoryUsers).not.toHaveBeenCalled();
+  });
+
+  it('searches the directory and adds by entraObjectId', async () => {
     const user = userEvent.setup();
     render(<ShareDialog open onOpenChange={vi.fn()} projectId={1} myRole="OWNER" />);
     await screen.findByText('Dev Admin');
@@ -115,8 +131,54 @@ describe('ShareDialog — People section', () => {
     await user.click(addButton);
 
     await waitFor(() => {
-      expect(api.upsertMember).toHaveBeenCalledWith(1, 3, 'EDITOR');
+      expect(api.searchDirectoryUsers).toHaveBeenCalledWith(1, 'Dev User', expect.any(AbortSignal));
+      expect(api.addMember).toHaveBeenCalledWith(1, 'dev-user', 'EDITOR');
     });
+  });
+
+  it('adds a directory hit who has never signed in', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.searchDirectoryUsers).mockResolvedValue([{
+      entraObjectId: 'oid-new',
+      email: 'new@example.test',
+      displayName: 'New Person',
+      userId: null,
+    }]);
+    vi.mocked(api.addMember).mockResolvedValue({
+      userId: 9, role: 'EDITOR', email: 'new@example.test', displayName: 'New Person', group: 'USER',
+    });
+    render(<ShareDialog open onOpenChange={vi.fn()} projectId={1} myRole="OWNER" />);
+    await screen.findByText('Dev Admin');
+
+    await user.type(screen.getByLabelText('Search users to add'), 'New');
+    await user.click(await screen.findByRole('button', { name: 'Add' }));
+
+    await waitFor(() => {
+      expect(api.addMember).toHaveBeenCalledWith(1, 'oid-new', 'EDITOR');
+    });
+    expect(await screen.findByText('New Person')).toBeInTheDocument();
+  });
+
+  it('shows the 403 message when add is refused', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.addMember).mockRejectedValue(new Error('This person does not have access to Resource Planner'));
+    render(<ShareDialog open onOpenChange={vi.fn()} projectId={1} myRole="OWNER" />);
+    await screen.findByText('Dev Admin');
+
+    await user.type(screen.getByLabelText('Search users to add'), 'Dev User');
+    await user.click(await screen.findByRole('button', { name: 'Add' }));
+
+    expect(await screen.findByText('This person does not have access to Resource Planner')).toBeInTheDocument();
+  });
+
+  it('shows empty directory copy when nothing matches', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.searchDirectoryUsers).mockResolvedValue([]);
+    render(<ShareDialog open onOpenChange={vi.fn()} projectId={1} myRole="OWNER" />);
+    await screen.findByText('Dev Admin');
+
+    await user.type(screen.getByLabelText('Search users to add'), 'zz');
+    expect(await screen.findByText('No matching people in the directory.')).toBeInTheDocument();
   });
 
   it('changes an existing member role', async () => {

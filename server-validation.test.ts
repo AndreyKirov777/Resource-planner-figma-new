@@ -21,6 +21,8 @@ import {
   roadmapReorderSchema,
   devLoginSchema,
   memberUpsertSchema,
+  directoryUsersQuerySchema,
+  memberCreateSchema,
   projectsScopeSchema,
   resourcePlanUpdateSchema,
   fromRateCardSchema,
@@ -642,6 +644,41 @@ describe('server-validation Zod schemas', () => {
     it('rejects OWNER — ownership transfer is out of scope', () => {
       const result = memberUpsertSchema.safeParse({ role: 'OWNER' });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('directoryUsersQuerySchema', () => {
+    it('accepts a trimmed query of 2–100 characters', () => {
+      const result = directoryUsersQuerySchema.safeParse({ q: '  ab  ' });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.q).toBe('ab');
+    });
+
+    it('rejects a one-character query', () => {
+      expect(directoryUsersQuerySchema.safeParse({ q: 'x' }).success).toBe(false);
+    });
+
+    it('rejects unknown keys', () => {
+      expect(directoryUsersQuerySchema.safeParse({ q: 'ab', extra: 1 }).success).toBe(false);
+    });
+  });
+
+  describe('memberCreateSchema', () => {
+    it('accepts entraObjectId with EDITOR or VIEWER', () => {
+      expect(memberCreateSchema.safeParse({ entraObjectId: 'oid-1', role: 'EDITOR' }).success).toBe(true);
+      expect(memberCreateSchema.safeParse({ entraObjectId: 'oid-1', role: 'VIEWER' }).success).toBe(true);
+    });
+
+    it('rejects a missing entraObjectId', () => {
+      expect(memberCreateSchema.safeParse({ role: 'EDITOR' }).success).toBe(false);
+    });
+
+    it('rejects role OWNER', () => {
+      expect(memberCreateSchema.safeParse({ entraObjectId: 'oid-1', role: 'OWNER' }).success).toBe(false);
+    });
+
+    it('rejects unknown keys', () => {
+      expect(memberCreateSchema.safeParse({ entraObjectId: 'oid-1', role: 'VIEWER', extra: 1 }).success).toBe(false);
     });
   });
 
