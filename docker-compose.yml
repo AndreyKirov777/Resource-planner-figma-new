@@ -44,6 +44,7 @@ services:
       - SITE_ADDRESS=${SITE_ADDRESS:-marenas-aiagent-vm.ipa.dataart.net}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/caddy/certs:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

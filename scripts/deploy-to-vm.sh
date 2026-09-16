@@ -104,6 +104,7 @@ sync_to_remote() {
     --exclude '*.db-journal' \
     --exclude '*.db-wal' \
     --exclude '*.db-shm' \
+    --exclude 'certs' \
     "$PROJECT_ROOT/" "$SSH_TARGET:$REMOTE_APP_PATH/"
   echo "Sync done."
 }

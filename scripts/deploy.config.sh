@@ -14,7 +14,7 @@ case "$DEPLOY_ENV" in
     ;;
   test)
     REMOTE_HOST="${REMOTE_HOST:-172.23.224.99}"
-    SITE_ADDRESS="${SITE_ADDRESS:-marenas-aiagent-vm.ipa.dataart.net}"
+    SITE_ADDRESS="${SITE_ADDRESS:-resource-planner-test.dataart.com}"
     COMPOSE_PROFILES="${COMPOSE_PROFILES:-tls}"
     ;;
   *)

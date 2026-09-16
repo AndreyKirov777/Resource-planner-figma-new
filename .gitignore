@@ -34,6 +34,9 @@ prisma/test *.db*
 # Local deploy overrides (optional)
 scripts/deploy.config.local.sh
 
+# TLS private keys / PEMs mounted into Caddy (live only on the VM)
+certs/
+
 # Optional: uncomment if you don't want to share editor/IDE config
 # .vscode
 # .cursor
