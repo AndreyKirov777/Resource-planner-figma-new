@@ -6,6 +6,7 @@ export interface GroupClaims {
   email?: string | null;
   preferred_username?: string | null;
   groups?: string[] | null;
+  oid?: string | null;
 }
 
 export interface GroupEnv {
@@ -44,6 +45,28 @@ export function resolveGroup(claims: GroupClaims, env: GroupEnv): Group | null {
   }
 
   return null;
+}
+
+/**
+ * Token `groups` first; if that misses, ask the directory (Graph) for the
+ * three configured group ids. Graph failures stay null so sign-in still
+ * lands on the no-access page instead of 500.
+ */
+export async function resolveGroupWithDirectory(
+  claims: GroupClaims,
+  env: GroupEnv,
+  lookupGroups: (oid: string) => Promise<string[]>
+): Promise<Group | null> {
+  const resolved = resolveGroup(claims, env);
+  if (resolved) return resolved;
+  const oid = claims.oid?.trim();
+  if (!oid) return null;
+  try {
+    return resolveGroup({ ...claims, groups: await lookupGroups(oid) }, env);
+  } catch (error) {
+    console.error('Graph group lookup failed during sign-in:', error);
+    return null;
+  }
 }
 
 /**

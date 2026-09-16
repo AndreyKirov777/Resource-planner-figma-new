@@ -46,7 +46,7 @@ The system SHALL keep sessions in the database, referenced by an httpOnly `SameS
 - **THEN** it carries the `Secure` attribute in addition to `HttpOnly` and `SameSite=Lax`
 
 ### Requirement: Group resolution
-The system SHALL derive the user's group on every sign-in from the ID token `groups` claim mapped through `ENTRA_GROUP_ADMIN`, `ENTRA_GROUP_MANAGER`, and `ENTRA_GROUP_USER`, with precedence ADMIN over MANAGER over USER, and SHALL store the result on the user record.
+The system SHALL derive the user's group on every sign-in from the ID token `groups` claim mapped through `ENTRA_GROUP_ADMIN`, `ENTRA_GROUP_MANAGER`, and `ENTRA_GROUP_USER`, with precedence ADMIN over MANAGER over USER, and SHALL store the result on the user record. If the token claim is absent or matches none of those ids, the system SHALL ask Microsoft Graph (`checkMemberGroups` for the three configured ids) before treating the account as having no access.
 
 #### Scenario: Highest group wins
 - **GIVEN** an account whose `groups` claim contains both the manager and the user group ids
@@ -62,6 +62,12 @@ The system SHALL derive the user's group on every sign-in from the ID token `gro
 - **GIVEN** an account in none of the three configured groups and not in `ADMIN_EMAILS`
 - **WHEN** it signs in
 - **THEN** no user record or session is created and the browser lands on a "no access" page
+
+#### Scenario: Directory membership is used when the token omits groups
+- **GIVEN** an account that is a member of the manager group in Entra and is not in `ADMIN_EMAILS`
+- **AND** the ID token has no `groups` claim
+- **WHEN** it signs in
+- **THEN** its group is MANAGER
 
 ### Requirement: Bootstrap administrators
 The system SHALL treat any signed-in account whose email is listed in the comma-separated `ADMIN_EMAILS` variable as ADMIN regardless of the `groups` claim.

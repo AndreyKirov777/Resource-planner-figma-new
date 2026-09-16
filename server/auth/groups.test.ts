@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '../../src/generated/prisma';
 import { isolateTestDb } from '../../testDb';
-import { ownershipMigration, resolveGroup } from './groups';
+import { ownershipMigration, resolveGroup, resolveGroupWithDirectory } from './groups';
 
 const ENV = {
   ADMIN_EMAILS: 'admin@example.test, Boss@Example.test',
@@ -39,6 +39,40 @@ describe('resolveGroup', () => {
   it('returns null when no email bootstrap and no group matches', () => {
     expect(resolveGroup({ email: 'x@example.test', groups: ['grp-other'] }, ENV)).toBeNull();
     expect(resolveGroup({ email: 'x@example.test' }, ENV)).toBeNull();
+  });
+});
+
+describe('resolveGroupWithDirectory', () => {
+  it('does not call the directory when the token already matches', async () => {
+    const lookup = async () => {
+      throw new Error('should not be called');
+    };
+    await expect(
+      resolveGroupWithDirectory(
+        { email: 'x@example.test', groups: ['grp-manager'], oid: 'oid-1' },
+        ENV,
+        lookup
+      )
+    ).resolves.toBe('MANAGER');
+  });
+
+  it('uses directory membership when the token has no matching group', async () => {
+    const lookup = async (oid: string) => {
+      expect(oid).toBe('oid-1');
+      return ['grp-manager'];
+    };
+    await expect(
+      resolveGroupWithDirectory({ email: 'x@example.test', oid: 'oid-1' }, ENV, lookup)
+    ).resolves.toBe('MANAGER');
+  });
+
+  it('returns null when the directory lookup fails', async () => {
+    const lookup = async () => {
+      throw new Error('graph down');
+    };
+    await expect(
+      resolveGroupWithDirectory({ email: 'x@example.test', oid: 'oid-1' }, ENV, lookup)
+    ).resolves.toBeNull();
   });
 });
 

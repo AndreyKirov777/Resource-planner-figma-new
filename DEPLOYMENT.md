@@ -300,6 +300,11 @@ docker-compose --context prod restart
 
 ## Troubleshooting
 
+### "No access" even though the user is in an Entra group
+Sign-in first reads the ID token `groups` claim, then (if that misses) asks Graph whether the account is in `ENTRA_GROUP_ADMIN` / `_MANAGER` / `_USER`. Portal membership alone is not enough if those env vars are missing from the **running container** (recreate after editing `.env`) or if Graph application permissions `GroupMember.Read.All` are not consented.
+
+Still add the `groups` claim on the app registration (Token configuration → Security groups, ID token) so login works even when Graph is down. Prefer "Groups assigned to the application" and assign the three RP groups on the Enterprise application if the tenant is large (token overage at 200 groups).
+
 ### SSH: "Permission denied (publickey)" or "UNPROTECTED PRIVATE KEY FILE"
 - **Key permissions**: Your private key must not be readable by others. On macOS/Linux: `chmod 600 ~/.ssh/id_rsa`. On Windows (PowerShell): `icacls $env:USERPROFILE\.ssh\id_rsa /inheritance:r /grant:r "$env:USERNAME:R"`.
 - Ensure your public key is on the VM: `ssh-copy-id your-username@res-pln-dev-vm.ipa.dataart.net` (or add `~/.ssh/id_rsa.pub` to `~/.ssh/authorized_keys` on the VM).

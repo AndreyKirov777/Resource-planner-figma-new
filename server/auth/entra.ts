@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
 import * as client from 'openid-client';
 import type { PrismaClient } from '../../src/generated/prisma';
-import { ownershipMigration, resolveGroup } from './groups';
+import { directoryGroupIds } from './graph';
+import { ownershipMigration, resolveGroupWithDirectory } from './groups';
 import { SESSION_COOKIE_NAME, clearSessionCookie, createSession, isSecureCookie, parseCookies, setSessionCookie } from './session';
 
 const FLOW_COOKIE_NAME = 'rp_auth_flow';
@@ -151,8 +152,16 @@ export function createEntraAuthRouter(prisma: PrismaClient): Router {
       }
 
       const email = String(claims.email ?? claims.preferred_username ?? '');
-      const groups = Array.isArray(claims.groups) ? (claims.groups as string[]) : [];
-      const group = resolveGroup({ email, groups }, process.env);
+      const groups = Array.isArray(claims.groups)
+        ? (claims.groups as string[])
+        : typeof claims.groups === 'string' && claims.groups
+          ? [claims.groups]
+          : [];
+      const group = await resolveGroupWithDirectory(
+        { email, groups, oid: typeof claims.oid === 'string' ? claims.oid : null },
+        process.env,
+        directoryGroupIds
+      );
 
       if (!group) {
         return res.redirect('/auth/no-access');
