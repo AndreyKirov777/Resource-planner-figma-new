@@ -217,6 +217,10 @@ async function makeOwner(projectId: number, userId: number) {
   await prisma.projectMember.create({ data: { projectId, userId, role: 'OWNER' } });
 }
 
+function displayNameOf(user: { displayName: string } | null | undefined): string | null {
+  return user?.displayName ?? null;
+}
+
 // Project endpoints
 app.get('/api/projects', async (req, res) => {
   try {
@@ -232,12 +236,13 @@ app.get('/api/projects', async (req, res) => {
         return res.status(403).json({ error: 'Only admins may list all projects' });
       }
       const projects = await prisma.project.findMany({
-        include: { owner: true, members: { where: { userId } } },
+        include: { owner: true, createdBy: true, members: { where: { userId } } },
       });
       return res.json(
-        projects.map(({ owner, members, ...project }) => ({
+        projects.map(({ owner, createdBy, members, ...project }) => ({
           ...project,
-          ownerName: owner?.displayName ?? null,
+          ownerName: displayNameOf(owner),
+          createdByName: displayNameOf(createdBy),
           myRole: members[0]?.role ?? 'ADMIN',
         }))
       );
@@ -246,24 +251,30 @@ app.get('/api/projects', async (req, res) => {
     if (scope === 'shared') {
       const memberships = await prisma.projectMember.findMany({
         where: { userId, role: { in: ['EDITOR', 'VIEWER'] } },
-        include: { project: { include: { owner: true } } },
+        include: { project: { include: { owner: true, createdBy: true } } },
       });
       return res.json(
         memberships.map(({ project, role }) => {
-          const { owner, ...rest } = project;
-          return { ...rest, ownerName: owner?.displayName ?? null, myRole: role };
+          const { owner, createdBy, ...rest } = project;
+          return {
+            ...rest,
+            ownerName: displayNameOf(owner),
+            createdByName: displayNameOf(createdBy),
+            myRole: role,
+          };
         })
       );
     }
 
     const projects = await prisma.project.findMany({
       where: { ownerId: userId },
-      include: { owner: true },
+      include: { owner: true, createdBy: true },
     });
     res.json(
-      projects.map(({ owner, ...project }) => ({
+      projects.map(({ owner, createdBy, ...project }) => ({
         ...project,
-        ownerName: owner?.displayName ?? null,
+        ownerName: displayNameOf(owner),
+        createdByName: displayNameOf(createdBy),
         myRole: 'OWNER' as const,
       }))
     );
@@ -320,10 +331,12 @@ app.post('/api/projects', async (req, res) => {
         ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
         ownerId: userId,
         createdById: userId,
-      }
+      },
+      include: { createdBy: true },
     });
     await makeOwner(project.id, userId);
-    res.json(project);
+    const { createdBy, ...created } = project;
+    res.json({ ...created, createdByName: displayNameOf(createdBy) });
   } catch (error) {
     res.status(500).json({ error: 'Failed to create project' });
   }
@@ -422,7 +435,8 @@ app.post('/api/projects/:id/copy', async (req, res) => {
         status: 'active',
         ownerId: userId,
         createdById: userId,
-      }
+      },
+      include: { createdBy: true },
     });
     await makeOwner(copy.id, userId);
 
@@ -463,7 +477,8 @@ app.post('/api/projects/:id/copy', async (req, res) => {
       });
     }
 
-    res.json(copy);
+    const { createdBy, ...copied } = copy;
+    res.json({ ...copied, createdByName: displayNameOf(createdBy) });
   } catch (error) {
     if (isAccessError(error)) return res.status(error.status).json({ error: error.message });
     console.error('Error copying project:', error);

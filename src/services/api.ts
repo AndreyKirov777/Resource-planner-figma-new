@@ -94,6 +94,8 @@ export interface Project {
   myRole?: ProjectRole;
   /** Present on GET /api/projects (list) — the owner's display name. */
   ownerName?: string | null;
+  /** Present on GET /api/projects (list) and create / copy — the creator's display name. */
+  createdByName?: string | null;
   /** Present on GET /api/projects/:id — the current user's role on this project. */
   access?: ProjectRole;
   /** Optimistic-concurrency counter; sending it back on update makes the write version-conditional. */

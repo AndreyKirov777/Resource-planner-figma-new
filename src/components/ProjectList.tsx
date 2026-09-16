@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api, Me, Project, ProjectsScope } from '../services/api';
+import { ShareDialog } from './ShareDialog';
 import { APP_DEFAULTS, SUPPORTED_CURRENCIES, LOCATIONS, exchangeRateForCurrency, setLiveExchangeRates } from '../config/defaults';
 import { PHASE_COLORS } from '../utils/phases';
 import { Button } from './ui/button';
@@ -116,6 +117,7 @@ export function ProjectList({
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [shareProject, setShareProject] = useState<Project | null>(null);
 
   const visibleProjects = useMemo(
     () => deriveVisibleProjects(projects, statusFilter, query, sortKey, sortDir),
@@ -359,6 +361,7 @@ export function ProjectList({
                   Last updated
                 </button>
               </TableHead>
+              <TableHead>Created by</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -385,6 +388,7 @@ export function ProjectList({
                 <TableCell className="capitalize">{project.planningMode || 'weekly'}</TableCell>
                 <TableCell>{formatDate(project.createdAt)}</TableCell>
                 <TableCell>{formatDate(project.updatedAt)}</TableCell>
+                <TableCell>{project.createdByName ?? '—'}</TableCell>
                 <TableCell className="text-right space-x-2">
                   <Button
                     variant="default"
@@ -409,6 +413,13 @@ export function ProjectList({
                       Edit
                     </Button>
                   )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShareProject(project)}
+                  >
+                    Share
+                  </Button>
                   {canOwn(project) && (
                     project.status === 'archived' ? (
                       <Button
@@ -596,6 +607,15 @@ export function ProjectList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ShareDialog
+        open={shareProject !== null}
+        onOpenChange={(open) => {
+          if (!open) setShareProject(null);
+        }}
+        projectId={shareProject?.id ?? 0}
+        myRole={shareProject?.myRole ?? 'VIEWER'}
+      />
 
       <Dialog open={!!editProject} onOpenChange={(open: boolean) => !open && setEditProject(null)}>
         <DialogContent>

@@ -32,6 +32,18 @@ vi.mock('../services/api', () => ({
   },
 }));
 
+vi.mock('./ShareDialog', () => ({
+  ShareDialog: ({
+    open,
+    projectId,
+    myRole,
+  }: {
+    open: boolean;
+    projectId: number;
+    myRole: string;
+  }) => (open ? <div role="dialog">{`projectId ${projectId} myRole ${myRole}`}</div> : null),
+}));
+
 function currencyTrigger(): HTMLElement {
   const field = screen.getByText('Client currency').closest('div');
   const trigger = field?.querySelector('[role="combobox"]');
@@ -380,5 +392,103 @@ describe('ProjectList role-gated actions', () => {
     expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^archive$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
+  });
+});
+
+function columnHeaders(): string[] {
+  return screen.getAllByRole('columnheader').map((header) => header.textContent?.trim() ?? '');
+}
+
+function actionLabels(rowName: string): string[] {
+  const row = screen.getByText(rowName).closest('tr');
+  if (!row) throw new Error(`${rowName} row not found`);
+  return within(row).getAllByRole('button').map((button) => button.textContent?.trim() ?? '');
+}
+
+describe('ProjectList created by and share', () => {
+  it('places Created by immediately after Last updated and shows the display name', async () => {
+    vi.mocked(api.getProjects).mockResolvedValue([
+      listProject({ id: 8, name: 'Named', createdByName: 'Ada Lovelace' }),
+    ]);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
+    await screen.findByText('Named');
+
+    const headers = columnHeaders();
+    expect(headers.indexOf('Created by')).toBe(headers.indexOf('Last updated') + 1);
+    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
+  });
+
+  it('shows an em dash when createdByName is missing', async () => {
+    vi.mocked(api.getProjects).mockResolvedValue([
+      listProject({ id: 9, name: 'Legacy', createdByName: null }),
+    ]);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
+    await screen.findByText('Legacy');
+
+    const row = screen.getByText('Legacy').closest('tr');
+    if (!row) throw new Error('legacy row not found');
+    const createdByIndex = columnHeaders().indexOf('Created by');
+    expect(row.querySelectorAll('td')[createdByIndex]?.textContent).toBe('—');
+  });
+
+  it('keeps Created by after Last updated on My projects', async () => {
+    vi.mocked(api.getProjects).mockResolvedValue([listProject({ id: 10, name: 'Mine' })]);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
+    await screen.findByText('Mine');
+
+    expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument();
+    const headers = columnHeaders();
+    expect(headers).toContain('Created by');
+    expect(headers.indexOf('Created by')).toBe(headers.indexOf('Last updated') + 1);
+  });
+
+  it('places Share between Edit and Archive', async () => {
+    vi.mocked(api.getProjects).mockResolvedValue([listProject({ id: 11, name: 'Active owned' })]);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
+    await screen.findByText('Active owned');
+
+    const actions = actionLabels('Active owned');
+    expect(actions.indexOf('Share')).toBe(actions.indexOf('Edit') + 1);
+    expect(actions.indexOf('Archive')).toBe(actions.indexOf('Share') + 1);
+  });
+
+  it('places Share immediately before Restore on an archived row', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getProjects).mockResolvedValue([
+      listProject({ id: 12, name: 'Archived owned', status: 'archived' }),
+    ]);
+    render(<ProjectList me={ADMIN} onOpenProject={vi.fn()} />);
+    await screen.findByText('No projects match');
+    await chooseStatus(user, 'Archived');
+    await screen.findByText('Archived owned');
+
+    const actions = actionLabels('Archived owned');
+    expect(actions.indexOf('Restore')).toBe(actions.indexOf('Share') + 1);
+  });
+
+  it('offers Share to a VIEWER', async () => {
+    vi.mocked(api.getProjects).mockResolvedValue([
+      listProject({ id: 13, name: 'Viewed share', myRole: 'VIEWER' }),
+    ]);
+    render(<ProjectList me={MANAGER} onOpenProject={vi.fn()} />);
+    await screen.findByText('Viewed share');
+
+    expect(screen.getByRole('button', { name: /^share$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^archive$/i })).not.toBeInTheDocument();
+  });
+
+  it('opens the Share dialog with the row projectId and myRole', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getProjects).mockResolvedValue([
+      listProject({ id: 14, name: 'Shared row', myRole: 'EDITOR' }),
+    ]);
+    render(<ProjectList me={MANAGER} onOpenProject={vi.fn()} />);
+    await screen.findByText('Shared row');
+
+    await user.click(screen.getByRole('button', { name: /^share$/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('projectId 14');
+    expect(dialog).toHaveTextContent('myRole EDITOR');
   });
 });

@@ -149,7 +149,10 @@ describe('Access control integration', () => {
       const ids = res.body.map((p: { id: number }) => p.id);
       expect(ids).toContain(p2);
       expect(ids).not.toContain(p1);
-      expect(res.body.find((p: { id: number }) => p.id === p2).myRole).toBe('OWNER');
+      const mine = res.body.find((p: { id: number }) => p.id === p2);
+      expect(mine.myRole).toBe('OWNER');
+      expect(mine.createdByName).toBe('Dev Manager');
+      expect(mine.createdBy).toBeUndefined();
     });
 
     it('"shared" returns projects the caller is a member of, but not owner', async () => {
@@ -158,7 +161,10 @@ describe('Access control integration', () => {
       const ids = res.body.map((p: { id: number }) => p.id);
       expect(ids).toContain(p1);
       expect(ids).not.toContain(p2);
-      expect(res.body.find((p: { id: number }) => p.id === p1).myRole).toBe('EDITOR');
+      const shared = res.body.find((p: { id: number }) => p.id === p1);
+      expect(shared.myRole).toBe('EDITOR');
+      expect(shared.createdByName).toBe('Dev Admin');
+      expect(shared.createdBy).toBeUndefined();
     });
 
     it('"all" is ADMIN-only', async () => {
@@ -170,6 +176,19 @@ describe('Access control integration', () => {
       const ids = ok.body.map((p: { id: number }) => p.id);
       expect(ids).toContain(p1);
       expect(ids).toContain(p2);
+      const listedP1 = ok.body.find((p: { id: number }) => p.id === p1);
+      const listedP2 = ok.body.find((p: { id: number }) => p.id === p2);
+      expect(listedP1.createdByName).toBe('Dev Admin');
+      expect(listedP2.createdByName).toBe('Dev Manager');
+      expect(listedP1.createdBy).toBeUndefined();
+      expect(listedP2.createdBy).toBeUndefined();
+    });
+
+    it('create returns createdByName of the caller', async () => {
+      const res = await manager.post('/api/projects').send({ name: 'Created-by payload' });
+      expect(res.status).toBe(200);
+      expect(res.body.createdByName).toBe('Dev Manager');
+      expect(res.body.createdBy).toBeUndefined();
     });
   });
 
@@ -200,6 +219,8 @@ describe('Access control integration', () => {
       expect(res.status).toBe(200);
       const managerId = (await manager.get('/api/me')).body.id;
       expect(res.body.ownerId).toBe(managerId);
+      expect(res.body.createdByName).toBe('Dev Manager');
+      expect(res.body.createdBy).toBeUndefined();
 
       const membersRes = await manager.get(`/api/projects/${res.body.id}/members`);
       expect(membersRes.body).toContainEqual(expect.objectContaining({ userId: managerId, role: 'OWNER' }));
